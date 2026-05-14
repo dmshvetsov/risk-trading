@@ -179,10 +179,10 @@ function Home() {
         >
           <TabsList aria-label="Oracle state filter">
             <TabsTrigger value="active">
-              Active {_filter(oracles, { status: "active" }).length}
+              Active <span className="font-mono">{_filter(oracles, { status: "active" }).length}</span>
             </TabsTrigger>
             <TabsTrigger value="settled">
-              Settled {_filter(oracles, { status: "settled" }).length}
+              Settled <span className="font-mono">{_filter(oracles, { status: "settled" }).length}</span>
             </TabsTrigger>
           </TabsList>
         </Tabs>

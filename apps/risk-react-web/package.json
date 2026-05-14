@@ -8,7 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@base-ui/react": "^1.4.1",
+    "@radix-ui/react-tabs": "^1.1.13",
     "@fontsource-variable/noto-sans": "^5.2.10",
     "@fontsource-variable/playfair-display": "^5.2.8",
     "@tanstack/react-router": "1.169.2",
