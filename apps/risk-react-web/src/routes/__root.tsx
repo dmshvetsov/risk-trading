@@ -8,6 +8,8 @@ import {
   Scripts,
   createRootRoute,
 } from '@tanstack/react-router'
+import { AppSidebar } from '@/components/app-sidebar'
+import { SidebarInset } from '@/components/ui/sidebar'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -26,7 +28,12 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
-      <Outlet />
+      <div className="flex min-h-screen bg-background text-foreground">
+        <AppSidebar />
+        <SidebarInset>
+          <Outlet />
+        </SidebarInset>
+      </div>
     </RootDocument>
   )
 }
