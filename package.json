@@ -2,7 +2,11 @@
   "name": "risk-trading",
   "version": "0.1.0",
   "description": "",
-  "scripts": {},
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter risk-react-web dev",
+    "build": "pnpm --filter risk-react-web build"
+  },
   "keywords": [],
   "author": "Dmitry Shvetsov <https://dmitryshvetsov.com>",
   "license": "ISC",
