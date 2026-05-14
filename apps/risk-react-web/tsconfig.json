@@ -6,9 +6,9 @@
     "target": "ES2022",
     "skipLibCheck": true,
     "strict": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/components/*": ["./src/components/*"],
+      "@/lib/*": ["./src/lib/*"]
     }
   }
 }
