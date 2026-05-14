@@ -1,0 +1,1 @@
+{"id":"int-b01b0c88","kind":"field_change","created_at":"2026-05-14T10:10:14.116649Z","actor":"dmshvetsov","issue_id":"risk-trading-v6m","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Implemented oracle states table and verified production build"}}
