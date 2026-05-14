@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PositionsRouteImport } from './routes/positions'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as VaultsActivityRouteImport } from './routes/vaults/activity'
 
 const PositionsRoute = PositionsRouteImport.update({
   id: '/positions',
@@ -22,31 +23,40 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VaultsActivityRoute = VaultsActivityRouteImport.update({
+  id: '/vaults/activity',
+  path: '/vaults/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/positions': typeof PositionsRoute
+  '/vaults/activity': typeof VaultsActivityRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/positions': typeof PositionsRoute
+  '/vaults/activity': typeof VaultsActivityRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/positions': typeof PositionsRoute
+  '/vaults/activity': typeof VaultsActivityRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/positions'
+  fullPaths: '/' | '/positions' | '/vaults/activity'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/positions'
-  id: '__root__' | '/' | '/positions'
+  to: '/' | '/positions' | '/vaults/activity'
+  id: '__root__' | '/' | '/positions' | '/vaults/activity'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   PositionsRoute: typeof PositionsRoute
+  VaultsActivityRoute: typeof VaultsActivityRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/vaults/activity': {
+      id: '/vaults/activity'
+      path: '/vaults/activity'
+      fullPath: '/vaults/activity'
+      preLoaderRoute: typeof VaultsActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   PositionsRoute: PositionsRoute,
+  VaultsActivityRoute: VaultsActivityRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

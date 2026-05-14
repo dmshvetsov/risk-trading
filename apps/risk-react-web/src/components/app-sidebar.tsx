@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, BriefcaseBusiness } from "lucide-react";
+import { Activity, BriefcaseBusiness, Landmark } from "lucide-react";
 
 import {
   Sidebar,
@@ -22,6 +22,11 @@ const routes = [
     title: "Positions",
     to: "/positions",
     icon: BriefcaseBusiness,
+  },
+  {
+    title: "Vault Activity",
+    to: "/vaults/activity",
+    icon: Landmark,
   },
 ] as const;
 
