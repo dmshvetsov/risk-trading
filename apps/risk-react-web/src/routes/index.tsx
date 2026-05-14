@@ -54,24 +54,6 @@ function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const dateFormatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }),
-    [],
-  );
-
-  const numberFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat(undefined, {
-        maximumFractionDigits: 4,
-        minimumFractionDigits: 0,
-      }),
-    [],
-  );
-
   const filteredOracles = useMemo(
     () =>
       oracles.filter((oracle) => oracle.status === search.filterOracleStatus),
@@ -134,22 +116,6 @@ function Home() {
     return () => abortController.abort();
   }, []);
 
-  function formatDate(timestamp: number | null) {
-    if (timestamp === null) {
-      return "-";
-    }
-
-    return dateFormatter.format(new Date(timestamp));
-  }
-
-  function formatTickValue(value: number | null, tickSize: number) {
-    if (value === null) {
-      return "-";
-    }
-
-    return numberFormatter.format(value / tickSize);
-  }
-
   function updateOracleFilterState(filterOracleStatus: string) {
     if (!isOracleFilterState(filterOracleStatus)) {
       return;
@@ -179,10 +145,16 @@ function Home() {
         >
           <TabsList aria-label="Oracle state filter">
             <TabsTrigger value="active">
-              Active <span className="font-mono">{_filter(oracles, { status: "active" }).length}</span>
+              Active{" "}
+              <span className="font-mono">
+                {_filter(oracles, { status: "active" }).length}
+              </span>
             </TabsTrigger>
             <TabsTrigger value="settled">
-              Settled <span className="font-mono">{_filter(oracles, { status: "settled" }).length}</span>
+              Settled{" "}
+              <span className="font-mono">
+                {_filter(oracles, { status: "settled" }).length}
+              </span>
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -264,15 +236,16 @@ function Home() {
                         {formatDate(oracle.expiry)}
                       </td>
                       <td className="p-3 text-right align-middle font-mono whitespace-nowrap">
-                        {formatTickValue(oracle.min_strike, oracle.tick_size)}
+                        {formatTickValue(oracle.min_strike, oracle.tick_size, { nullValue: "n/a" })}
                       </td>
                       <td className="p-3 align-middle whitespace-nowrap">
-                        {formatDate(oracle.settled_at)}
+                        {formatDate(oracle.settled_at, { nullValue: "-" })}
                       </td>
                       <td className="p-3 text-right align-middle font-mono whitespace-nowrap">
                         {formatTickValue(
                           oracle.settlement_price,
                           oracle.tick_size,
+                          { nullValue: "n/a" },
                         )}
                       </td>
                     </tr>
@@ -285,4 +258,30 @@ function Home() {
       </div>
     </main>
   );
+}
+
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+const numberFormatter = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 4,
+  minimumFractionDigits: 0,
+});
+
+function formatDate(timestamp: number | null, opts: { nullValue?: string } = {}) {
+  if (timestamp === null) {
+    return opts.nullValue ?? "";
+  }
+
+  return dateFormatter.format(new Date(timestamp));
+}
+
+function formatTickValue(value: number | null, tickSize: number, opts: { nullValue?: string } = {}) {
+  if (value === null) {
+    return opts.nullValue ?? "";
+  }
+
+  return numberFormatter.format(value / tickSize);
 }
