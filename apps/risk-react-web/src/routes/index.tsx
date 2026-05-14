@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import _filter from "lodash/filter";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatDate, formatTickValue } from "@/lib/format";
 
 const ORACLE_FILTER_STATES = ["active", "settled"] as const;
 const DEFAULT_ORACLE_FILTER_STATE = "active";
@@ -236,7 +237,10 @@ function Home() {
                         {formatDate(oracle.expiry)}
                       </td>
                       <td className="p-3 text-right align-middle font-mono whitespace-nowrap">
-                        {formatTickValue(oracle.min_strike, oracle.tick_size, { nullValue: "n/a" })}
+                        {formatTickValue(oracle.min_strike, oracle.tick_size, {
+                          minimumFractionDigits: 0,
+                          nullValue: "n/a",
+                        })}
                       </td>
                       <td className="p-3 align-middle whitespace-nowrap">
                         {formatDate(oracle.settled_at, { nullValue: "-" })}
@@ -245,7 +249,7 @@ function Home() {
                         {formatTickValue(
                           oracle.settlement_price,
                           oracle.tick_size,
-                          { nullValue: "n/a" },
+                          { minimumFractionDigits: 0, nullValue: "n/a" },
                         )}
                       </td>
                     </tr>
@@ -258,30 +262,4 @@ function Home() {
       </div>
     </main>
   );
-}
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-const numberFormatter = new Intl.NumberFormat(undefined, {
-  maximumFractionDigits: 4,
-  minimumFractionDigits: 0,
-});
-
-function formatDate(timestamp: number | null, opts: { nullValue?: string } = {}) {
-  if (timestamp === null) {
-    return opts.nullValue ?? "";
-  }
-
-  return dateFormatter.format(new Date(timestamp));
-}
-
-function formatTickValue(value: number | null, tickSize: number, opts: { nullValue?: string } = {}) {
-  if (value === null) {
-    return opts.nullValue ?? "";
-  }
-
-  return numberFormatter.format(value / tickSize);
 }

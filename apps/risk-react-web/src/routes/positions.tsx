@@ -2,10 +2,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  formatDate,
+  formatDecimal,
+  formatTickValue,
+  truncateAddress,
+} from "@/lib/format";
 
 const POSITION_FILTER_STATES = ["opened", "closed"] as const;
 const DEFAULT_POSITION_FILTER_STATE = "opened";
-const TICK_SIZE = 1_000_000_000;
 
 const POSITIONS_URLS = {
   opened: "https://predict-server.testnet.mystenlabs.com/positions/minted",
@@ -358,30 +363,4 @@ function PositionType({ isUp }: { isUp: boolean }) {
       {isUp ? "call" : "put"}
     </span>
   );
-}
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-const decimalFormatter = new Intl.NumberFormat(undefined, {
-  maximumFractionDigits: 4,
-  minimumFractionDigits: 4,
-});
-
-function formatDate(timestamp: number) {
-  return dateFormatter.format(new Date(timestamp));
-}
-
-function formatDecimal(value: number) {
-  return decimalFormatter.format(value / TICK_SIZE);
-}
-
-function formatTickValue(value: number) {
-  return decimalFormatter.format(value / TICK_SIZE);
-}
-
-function truncateAddress(address: string) {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
