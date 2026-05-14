@@ -1,0 +1,10 @@
+{
+  "name": "risk-trading",
+  "version": "0.1.0",
+  "description": "",
+  "scripts": {},
+  "keywords": [],
+  "author": "Dmitry Shvetsov <https://dmitryshvetsov.com>",
+  "license": "ISC",
+  "packageManager": "pnpm@11.1.1"
+}
