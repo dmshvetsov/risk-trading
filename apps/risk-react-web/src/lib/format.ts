@@ -10,17 +10,12 @@ const flexibleNumberFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 0,
 });
 
-const fixedDecimalFormatter = new Intl.NumberFormat(undefined, {
-  maximumFractionDigits: 4,
-  minimumFractionDigits: 4,
-});
-
 type NullableFormatOptions = {
   nullValue?: string;
 };
 
 type TickValueFormatOptions = NullableFormatOptions & {
-  minimumFractionDigits?: 0 | 4;
+  minimumFractionDigits?: 0;
 };
 
 export function formatDate(
@@ -35,7 +30,7 @@ export function formatDate(
 }
 
 export function formatDecimal(value: number, tickSize = DEFAULT_TICK_SIZE) {
-  return fixedDecimalFormatter.format(value / tickSize);
+  return flexibleNumberFormatter.format(value / tickSize);
 }
 
 export function formatTickValue(
@@ -47,12 +42,7 @@ export function formatTickValue(
     return opts.nullValue ?? "";
   }
 
-  const formatter =
-    opts.minimumFractionDigits === 0
-      ? flexibleNumberFormatter
-      : fixedDecimalFormatter;
-
-  return formatter.format(value / tickSize);
+  return flexibleNumberFormatter.format(value / tickSize);
 }
 
 export function truncateAddress(address: string) {
