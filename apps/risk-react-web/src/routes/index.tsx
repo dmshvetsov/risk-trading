@@ -1,41 +1,67 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useMemo, useState } from 'react'
+import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import _filter from "lodash/filter";
 
-export const Route = createFileRoute('/')({
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const ORACLE_FILTER_STATES = ["active", "settled"] as const;
+const DEFAULT_ORACLE_FILTER_STATE = "active";
+
+type OracleFilterState = (typeof ORACLE_FILTER_STATES)[number];
+type HomeSearch = Record<string, unknown> & {
+  filterOracleStatus: OracleFilterState;
+};
+
+export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>): HomeSearch => ({
+    ...search,
+    filterOracleStatus: isOracleFilterState(search.filterOracleStatus)
+      ? search.filterOracleStatus
+      : DEFAULT_ORACLE_FILTER_STATE,
+  }),
   component: Home,
-})
+});
 
 const ORACLES_URL =
-  'https://predict-server.testnet.mystenlabs.com/predicts/0xc8736204d12f0a7277c86388a68bf8a194b0a14c5538ad13f22cbd8e2a38028a/oracles'
+  "https://predict-server.testnet.mystenlabs.com/predicts/0xc8736204d12f0a7277c86388a68bf8a194b0a14c5538ad13f22cbd8e2a38028a/oracles";
 
 type OracleState = {
-  activated_at: number
-  created_checkpoint: number
-  expiry: number
-  min_strike: number
-  oracle_cap_id: string
-  oracle_id: string
-  predict_id: string
-  settled_at: number | null
-  settlement_price: number | null
-  status: string
-  tick_size: number
-  underlying_asset: string
+  activated_at: number;
+  created_checkpoint: number;
+  expiry: number;
+  min_strike: number;
+  oracle_cap_id: string;
+  oracle_id: string;
+  predict_id: string;
+  settled_at: number | null;
+  settlement_price: number | null;
+  status: string;
+  tick_size: number;
+  underlying_asset: string;
+};
+
+function isOracleFilterState(value: unknown): value is OracleFilterState {
+  return (
+    typeof value === "string" &&
+    ORACLE_FILTER_STATES.includes(value as OracleFilterState)
+  );
 }
 
 function Home() {
-  const [oracles, setOracles] = useState<Array<OracleState>>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const navigate = Route.useNavigate();
+  const search = Route.useSearch();
+  const [oracles, setOracles] = useState<Array<OracleState>>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const dateFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(undefined, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
+        dateStyle: "medium",
+        timeStyle: "short",
       }),
     [],
-  )
+  );
 
   const numberFormatter = useMemo(
     () =>
@@ -44,62 +70,97 @@ function Home() {
         minimumFractionDigits: 0,
       }),
     [],
-  )
+  );
+
+  const filteredOracles = useMemo(
+    () =>
+      oracles.filter((oracle) => oracle.status === search.filterOracleStatus),
+    [oracles, search.filterOracleStatus],
+  );
 
   useEffect(() => {
-    const abortController = new AbortController()
+    const currentState = new URLSearchParams(window.location.search).get(
+      "state",
+    );
+
+    if (currentState !== search.filterOracleStatus) {
+      void navigate({
+        replace: true,
+        search: (previous) => ({
+          ...previous,
+          filterOracleStatus: search.filterOracleStatus,
+        }),
+      });
+    }
+  }, [navigate, search.filterOracleStatus]);
+
+  useEffect(() => {
+    const abortController = new AbortController();
 
     async function loadOracles() {
-      setIsLoading(true)
-      setError(null)
+      setIsLoading(true);
+      setError(null);
 
       try {
         const response = await fetch(ORACLES_URL, {
           signal: abortController.signal,
-        })
+        });
 
         if (!response.ok) {
-          throw new Error(`Request failed with ${response.status}`)
+          throw new Error(`Request failed with ${response.status}`);
         }
 
-        const data = (await response.json()) as Array<OracleState>
-        setOracles(data)
+        const data = (await response.json()) as Array<OracleState>;
+        setOracles(data);
       } catch (caughtError) {
         if (abortController.signal.aborted) {
-          return
+          return;
         }
 
         setError(
           caughtError instanceof Error
             ? caughtError.message
-            : 'Failed to load oracles',
-        )
+            : "Failed to load oracles",
+        );
       } finally {
         if (!abortController.signal.aborted) {
-          setIsLoading(false)
+          setIsLoading(false);
         }
       }
     }
 
-    void loadOracles()
+    void loadOracles();
 
-    return () => abortController.abort()
-  }, [])
+    return () => abortController.abort();
+  }, []);
 
   function formatDate(timestamp: number | null) {
     if (timestamp === null) {
-      return '-'
+      return "-";
     }
 
-    return dateFormatter.format(new Date(timestamp))
+    return dateFormatter.format(new Date(timestamp));
   }
 
   function formatTickValue(value: number | null, tickSize: number) {
     if (value === null) {
-      return '-'
+      return "-";
     }
 
-    return numberFormatter.format(value / tickSize)
+    return numberFormatter.format(value / tickSize);
+  }
+
+  function updateOracleFilterState(filterOracleStatus: string) {
+    if (!isOracleFilterState(filterOracleStatus)) {
+      return;
+    }
+
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        filterOracleStatus,
+      }),
+    });
   }
 
   return (
@@ -111,6 +172,20 @@ function Home() {
             Current oracle data for the BTC prediction market.
           </p>
         </div>
+
+        <Tabs
+          value={search.filterOracleStatus}
+          onValueChange={updateOracleFilterState}
+        >
+          <TabsList aria-label="Oracle state filter">
+            <TabsTrigger value="active">
+              Active {_filter(oracles, { status: "active" }).length}
+            </TabsTrigger>
+            <TabsTrigger value="settled">
+              Settled {_filter(oracles, { status: "settled" }).length}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
@@ -152,11 +227,14 @@ function Home() {
                   </tr>
                 ) : error ? (
                   <tr className="border-b border-border">
-                    <td className="p-6 text-center text-destructive" colSpan={7}>
+                    <td
+                      className="p-6 text-center text-destructive"
+                      colSpan={7}
+                    >
                       {error}
                     </td>
                   </tr>
-                ) : oracles.length === 0 ? (
+                ) : filteredOracles.length === 0 ? (
                   <tr className="border-b border-border">
                     <td
                       className="p-6 text-center text-muted-foreground"
@@ -166,7 +244,7 @@ function Home() {
                     </td>
                   </tr>
                 ) : (
-                  oracles.map((oracle) => (
+                  filteredOracles.map((oracle) => (
                     <tr
                       className="border-b border-border transition-colors hover:bg-muted/50"
                       key={oracle.oracle_id}
@@ -206,5 +284,5 @@ function Home() {
         </div>
       </div>
     </main>
-  )
+  );
 }
