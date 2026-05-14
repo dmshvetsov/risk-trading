@@ -1,7 +1,11 @@
 /// <reference types="vite/client" />
 
 import type { ReactNode } from 'react'
+import '@mysten/dapp-kit/dist/index.css'
 import '../styles.css'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createNetworkConfig, SuiClientProvider, WalletProvider } from '@mysten/dapp-kit'
+import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc'
 import {
   HeadContent,
   Outlet,
@@ -10,6 +14,12 @@ import {
 } from '@tanstack/react-router'
 import { AppSidebar } from '@/components/app-sidebar'
 import { SidebarInset } from '@/components/ui/sidebar'
+
+const queryClient = new QueryClient()
+
+const { networkConfig } = createNetworkConfig({
+  testnet: { url: getJsonRpcFullnodeUrl('testnet') },
+})
 
 export const Route = createRootRoute({
   head: () => ({
@@ -28,12 +38,18 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
-      <div className="flex min-h-screen bg-background text-foreground">
-        <AppSidebar />
-        <SidebarInset>
-          <Outlet />
-        </SidebarInset>
-      </div>
+      <QueryClientProvider client={queryClient}>
+        <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
+          <WalletProvider autoConnect>
+            <div className="flex min-h-screen bg-background text-foreground">
+              <AppSidebar />
+              <SidebarInset>
+                <Outlet />
+              </SidebarInset>
+            </div>
+          </WalletProvider>
+        </SuiClientProvider>
+      </QueryClientProvider>
     </RootDocument>
   )
 }
