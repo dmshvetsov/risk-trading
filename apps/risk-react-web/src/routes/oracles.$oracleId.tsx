@@ -1,4 +1,6 @@
+import { useSuiClient } from "@mysten/dapp-kit";
 import { createFileRoute } from "@tanstack/react-router";
+import { Minus, Plus } from "lucide-react";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -16,14 +18,23 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/hint";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   FLOAT_SCALING,
+  DEEPBOOK_PREDICT,
   buildSviCurve,
   decodeSignedScaled,
   findLastTradeAsk,
+  formatTokenAmount,
   getOracleState,
+  getOracleTradeAmounts,
   getOracleTrades,
+  parseTokenAmount,
+  type OracleTradeAmounts,
   type OracleStateResponse,
   type OracleTrade,
   type SviPoint,
@@ -53,12 +64,23 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
+const ORACLE_STALENESS_THRESHOLD_MS = 30_000;
+
 function OraclePage() {
+  const client = useSuiClient();
   const { oracleId } = Route.useParams();
   const [state, setState] = useState<OracleStateResponse | null>(null);
   const [trades, setTrades] = useState<Array<OracleTrade>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState("1");
+  const [previewIsUp, setPreviewIsUp] = useState(true);
+  const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
+  const [tradeAmounts, setTradeAmounts] = useState<OracleTradeAmounts | null>(
+    null,
+  );
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -99,6 +121,92 @@ function OraclePage() {
 
   const curve = useMemo(() => (state ? buildSviCurve(state) : []), [state]);
   const tableRows = useMemo(() => selectDecisionRows(curve), [curve]);
+  const previewStrikeRows = useMemo(
+    () => filterPreviewStrikeRows(tableRows, state?.latest_price?.spot, previewIsUp),
+    [previewIsUp, state?.latest_price?.spot, tableRows],
+  );
+  const showTradePreview = Boolean(
+    state && isTradePreviewAvailable(state) && previewStrikeRows.length > 0,
+  );
+  const parsedQuantity = useMemo(() => {
+    try {
+      return parseTokenAmount(quantity);
+    } catch {
+      return null;
+    }
+  }, [quantity]);
+
+  useEffect(() => {
+    if (!showTradePreview) {
+      setSelectedStrike(null);
+      return;
+    }
+
+    if (
+      selectedStrike === null ||
+      !previewStrikeRows.some((row) => row.strike === selectedStrike)
+    ) {
+      setSelectedStrike(
+        nearestPreviewStrike(previewStrikeRows, state?.latest_price?.spot),
+      );
+    }
+  }, [previewStrikeRows, selectedStrike, showTradePreview, state?.latest_price?.spot]);
+
+  useEffect(() => {
+    if (
+      !state ||
+      !showTradePreview ||
+      selectedStrike === null ||
+      parsedQuantity === null ||
+      parsedQuantity === 0n
+    ) {
+      setTradeAmounts(null);
+      setPreviewError(null);
+      setIsPreviewLoading(false);
+      return;
+    }
+
+    const abortController = new AbortController();
+    setIsPreviewLoading(true);
+    setPreviewError(null);
+
+    getOracleTradeAmounts(client, {
+      expiry: state.oracle.expiry,
+      isUp: previewIsUp,
+      oracleId: state.oracle.oracle_id,
+      quantity: parsedQuantity,
+      strike: selectedStrike,
+    })
+      .then((amounts) => {
+        if (!abortController.signal.aborted) {
+          setTradeAmounts(amounts);
+        }
+      })
+      .catch((caughtError) => {
+        if (!abortController.signal.aborted) {
+          setTradeAmounts(null);
+          setPreviewError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Failed to load trade preview",
+          );
+        }
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) {
+          setIsPreviewLoading(false);
+        }
+      });
+
+    return () => abortController.abort();
+  }, [
+    client,
+    parsedQuantity,
+    previewIsUp,
+    selectedStrike,
+    showTradePreview,
+    state,
+  ]);
 
   if (isLoading) {
     return <PageShell title="Oracle" description="Loading oracle state..." />;
@@ -118,6 +226,16 @@ function OraclePage() {
   const spot = price?.spot ?? null;
   const forward = price?.forward ?? null;
   const isSettled = oracle.status === "settled";
+
+  function adjustQuantity(delta: number) {
+    const currentQuantity = Number(quantity);
+    const nextQuantity = Math.max(
+      0,
+      (Number.isFinite(currentQuantity) ? currentQuantity : 0) + delta,
+    );
+
+    setQuantity(formatQuantityInput(nextQuantity));
+  }
 
   return (
     <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 lg:px-8">
@@ -157,6 +275,111 @@ function OraclePage() {
             />
           </div>
         </div>
+
+        {showTradePreview ? (
+          <Panel title="Trade Cost Preview">
+            <div className="grid gap-5">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                <div className="grid gap-2">
+                  <Label htmlFor="trade-preview-quantity">Quantity</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      aria-label="Decrease quantity"
+                      onClick={() => adjustQuantity(-1)}
+                      size="icon"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Minus aria-hidden="true" />
+                    </Button>
+                    <Input
+                      className="font-mono"
+                      id="trade-preview-quantity"
+                      inputMode="decimal"
+                      onChange={(event) => setQuantity(event.target.value)}
+                      placeholder="1.0"
+                      value={quantity}
+                    />
+                    <Button
+                      aria-label="Increase quantity"
+                      onClick={() => adjustQuantity(1)}
+                      size="icon"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Plus aria-hidden="true" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex h-9 items-center gap-3 rounded-md border border-border px-3">
+                  <span
+                    className={`text-sm ${
+                      previewIsUp ? "text-muted-foreground" : "font-medium"
+                    }`}
+                  >
+                    DOWN
+                  </span>
+                  <Switch
+                    aria-label="Show UP strike prices"
+                    checked={previewIsUp}
+                    onCheckedChange={setPreviewIsUp}
+                  />
+                  <span
+                    className={`text-sm ${
+                      previewIsUp ? "font-medium" : "text-muted-foreground"
+                    }`}
+                  >
+                    UP
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {previewStrikeRows.map((row) => (
+                  <Button
+                    key={row.strike}
+                    onClick={() => setSelectedStrike(row.strike)}
+                    size="sm"
+                    type="button"
+                    variant={selectedStrike === row.strike ? "default" : "outline"}
+                  >
+                    {formatTickValue(row.strike, oracle.tick_size)}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Metric
+                  label="Estimated cost"
+                  value={formatTradeAmount(tradeAmounts?.mintCost, isPreviewLoading)}
+                />
+                <Metric
+                  label="Redeem payout"
+                  value={formatTradeAmount(
+                    tradeAmounts?.redeemPayout,
+                    isPreviewLoading,
+                  )}
+                />
+              </div>
+
+              {parsedQuantity === null || parsedQuantity === 0n ? (
+                <div className="text-sm text-destructive">Enter a quantity.</div>
+              ) : previewError ? (
+                <div className="text-sm text-destructive">{previewError}</div>
+              ) : (
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  <div>
+                    Amounts are shown in {DEEPBOOK_PREDICT.quote.symbol}.
+                  </div>
+                  <div>
+                    Formula: estimated cost = protocol ask price x quantity;
+                    redeem payout = protocol bid price x quantity.
+                  </div>
+                </div>
+              )}
+            </div>
+          </Panel>
+        ) : null}
 
         <section className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
           <Panel
@@ -523,6 +746,38 @@ function selectDecisionRows(curve: Array<SviPoint>) {
   return curve.filter((_, index) => index % step === 0).slice(0, 17);
 }
 
+function filterPreviewStrikeRows(
+  rows: Array<SviPoint>,
+  spot: number | null | undefined,
+  isUp: boolean,
+) {
+  if (!spot) {
+    return rows;
+  }
+
+  const filteredRows = rows.filter((row) =>
+    isUp ? row.strike > spot : row.strike < spot,
+  );
+
+  return filteredRows.length > 0
+    ? filteredRows
+    : rows.filter((row) => row.strike === nearestPreviewStrike(rows, spot));
+}
+
+function nearestPreviewStrike(rows: Array<SviPoint>, spot: number | null | undefined) {
+  if (rows.length === 0) {
+    return null;
+  }
+
+  if (!spot) {
+    return rows[0].strike;
+  }
+
+  return rows.reduce((nearest, row) =>
+    Math.abs(row.strike - spot) < Math.abs(nearest.strike - spot) ? row : nearest,
+  ).strike;
+}
+
 function nearestStrike(curve: Array<SviPoint>, strike: number) {
   let nearest = curve[0]?.strike ?? strike;
   let nearestDistance = Number.POSITIVE_INFINITY;
@@ -560,4 +815,33 @@ function formatEdge(fair: number, ask: number | null) {
   }
 
   return `${((fair - ask / FLOAT_SCALING) * 100).toFixed(2)} pts`;
+}
+
+function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
+  if (isLoading) {
+    return "Loading...";
+  }
+
+  if (value === undefined) {
+    return "-";
+  }
+
+  return `${formatTokenAmount(value)} ${DEEPBOOK_PREDICT.quote.symbol}`;
+}
+
+function formatQuantityInput(value: number) {
+  return Number.isInteger(value)
+    ? value.toString()
+    : value.toFixed(6).replace(/\.?0+$/, "");
+}
+
+function isTradePreviewAvailable(state: OracleStateResponse) {
+  if (state.oracle.status !== "active" || !state.latest_price || !state.latest_svi) {
+    return false;
+  }
+
+  return (
+    Date.now() <=
+    state.latest_price.onchain_timestamp + ORACLE_STALENESS_THRESHOLD_MS
+  );
 }

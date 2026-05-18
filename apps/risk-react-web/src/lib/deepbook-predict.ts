@@ -157,6 +157,19 @@ export type WalletVaultBalances = {
   quote: bigint;
 };
 
+export type OracleTradeAmounts = {
+  mintCost: bigint;
+  redeemPayout: bigint;
+};
+
+type OracleTradeAmountsInput = {
+  expiry: number;
+  isUp: boolean;
+  oracleId: string;
+  quantity: bigint;
+  strike: number;
+};
+
 export async function getVaultSummary(
   client: SuiClient,
   sender = DUMMY_SENDER,
@@ -417,7 +430,54 @@ export async function getAvailableWithdrawal(
     throw new Error("Unable to read available withdrawal amount");
   }
 
-  return bcs.U64.parse(Uint8Array.from(returnValue[0]));
+  return parseU64Return(returnValue[0]);
+}
+
+export async function getOracleTradeAmounts(
+  client: SuiClient,
+  input: OracleTradeAmountsInput,
+  sender = DUMMY_SENDER,
+): Promise<OracleTradeAmounts> {
+  const tx = new Transaction();
+  const [key] = tx.moveCall({
+    target: `${DEEPBOOK_PREDICT.packageId}::market_key::new`,
+    arguments: [
+      tx.pure.id(input.oracleId),
+      tx.pure.u64(input.expiry),
+      tx.pure.u64(input.strike),
+      tx.pure.bool(input.isUp),
+    ],
+  });
+
+  tx.moveCall({
+    target: `${DEEPBOOK_PREDICT.packageId}::predict::get_trade_amounts`,
+    arguments: [
+      tx.object(DEEPBOOK_PREDICT.predictId),
+      tx.object(input.oracleId),
+      key,
+      tx.pure.u64(input.quantity),
+      tx.object(DEEPBOOK_PREDICT.clockId),
+    ],
+  });
+
+  const result = await client.devInspectTransactionBlock({
+    sender,
+    transactionBlock: tx,
+  });
+
+  const [mintCost, redeemPayout] = result.results?.[1]?.returnValues ?? [];
+  if (!mintCost || !redeemPayout) {
+    throw new Error("Unable to read trade amount preview");
+  }
+
+  return {
+    mintCost: parseU64Return(mintCost[0]),
+    redeemPayout: parseU64Return(redeemPayout[0]),
+  };
+}
+
+function parseU64Return(bytes: Array<number>) {
+  return BigInt(bcs.U64.parse(Uint8Array.from(bytes)));
 }
 
 export function parseTokenAmount(
