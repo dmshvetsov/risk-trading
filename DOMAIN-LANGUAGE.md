@@ -31,3 +31,5 @@ The risk-free interest - rate is the theoretical return an investor would earn o
 TradFi - traditional, off-chain finance systems.
 
 DeFi - decentralized on-chain finance systems.
+
+Central Limit Order Book (CLOB) orderbook - a place that keep track of buyers placed bids, sellers placed asks, trades happen when bid price and ask price match.
