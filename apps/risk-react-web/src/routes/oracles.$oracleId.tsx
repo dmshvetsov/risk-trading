@@ -64,8 +64,10 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-const ORACLE_STALENESS_THRESHOLD_MS = 30_000;
+const ORACLE_REFRESH_INTERVAL_MS = 30_000;
 const TRADE_PREVIEW_DEBOUNCE_MS = 350;
+const TRADE_PREVIEW_UNIT_QUANTITY =
+  10n ** BigInt(DEEPBOOK_PREDICT.quote.decimals);
 
 function OraclePage() {
   const client = useSuiClient();
@@ -86,9 +88,11 @@ function OraclePage() {
   useEffect(() => {
     const abortController = new AbortController();
 
-    async function loadOracle() {
-      setIsLoading(true);
-      setError(null);
+    async function loadOracle(showLoading: boolean) {
+      if (showLoading) {
+        setIsLoading(true);
+        setError(null);
+      }
 
       try {
         const [oracleState, oracleTrades] = await Promise.all([
@@ -99,9 +103,10 @@ function OraclePage() {
         if (!abortController.signal.aborted) {
           setState(oracleState);
           setTrades(oracleTrades);
+          setError(null);
         }
       } catch (caughtError) {
-        if (!abortController.signal.aborted) {
+        if (!abortController.signal.aborted && showLoading) {
           setError(
             caughtError instanceof Error
               ? caughtError.message
@@ -115,19 +120,22 @@ function OraclePage() {
       }
     }
 
-    void loadOracle();
+    void loadOracle(true);
+    const intervalId = window.setInterval(() => {
+      void loadOracle(false);
+    }, ORACLE_REFRESH_INTERVAL_MS);
 
-    return () => abortController.abort();
+    return () => {
+      abortController.abort();
+      window.clearInterval(intervalId);
+    };
   }, [oracleId]);
 
   const curve = useMemo(() => (state ? buildSviCurve(state) : []), [state]);
   const tableRows = useMemo(() => selectDecisionRows(curve), [curve]);
-  const previewStrikeRows = useMemo(
-    () => filterPreviewStrikeRows(tableRows, state?.latest_price?.spot, previewIsUp),
-    [previewIsUp, state?.latest_price?.spot, tableRows],
-  );
+  const previewStrikeRows = tableRows;
   const showTradePreview = Boolean(
-    state && isTradePreviewAvailable(state) && previewStrikeRows.length > 0,
+    state && isTradePreviewRenderable(state) && previewStrikeRows.length > 0,
   );
   const parsedQuantity = useMemo(() => {
     try {
@@ -176,12 +184,12 @@ function OraclePage() {
         expiry: state.oracle.expiry,
         isUp: previewIsUp,
         oracleId: state.oracle.oracle_id,
-        quantity: parsedQuantity,
+        quantity: TRADE_PREVIEW_UNIT_QUANTITY,
         strike: selectedStrike,
       })
         .then((amounts) => {
           if (!abortController.signal.aborted) {
-            setTradeAmounts(amounts);
+            setTradeAmounts(scaleTradeAmounts(amounts, parsedQuantity));
           }
         })
         .catch((caughtError) => {
@@ -752,24 +760,6 @@ function selectDecisionRows(curve: Array<SviPoint>) {
   return curve.filter((_, index) => index % step === 0).slice(0, 17);
 }
 
-function filterPreviewStrikeRows(
-  rows: Array<SviPoint>,
-  spot: number | null | undefined,
-  isUp: boolean,
-) {
-  if (!spot) {
-    return rows;
-  }
-
-  const filteredRows = rows.filter((row) =>
-    isUp ? row.strike > spot : row.strike < spot,
-  );
-
-  return filteredRows.length > 0
-    ? filteredRows
-    : rows.filter((row) => row.strike === nearestPreviewStrike(rows, spot));
-}
-
 function nearestPreviewStrike(rows: Array<SviPoint>, spot: number | null | undefined) {
   if (rows.length === 0) {
     return null;
@@ -835,19 +825,28 @@ function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
   return `${formatTokenAmount(value)} ${DEEPBOOK_PREDICT.quote.symbol}`;
 }
 
+function scaleTradeAmounts(
+  amounts: OracleTradeAmounts,
+  quantity: bigint,
+): OracleTradeAmounts {
+  return {
+    mintCost: scaleTradeAmount(amounts.mintCost, quantity),
+    redeemPayout: scaleTradeAmount(amounts.redeemPayout, quantity),
+  };
+}
+
+function scaleTradeAmount(amount: bigint, quantity: bigint) {
+  return (amount * quantity) / TRADE_PREVIEW_UNIT_QUANTITY;
+}
+
 function formatQuantityInput(value: number) {
   return Number.isInteger(value)
     ? value.toString()
     : value.toFixed(6).replace(/\.?0+$/, "");
 }
 
-function isTradePreviewAvailable(state: OracleStateResponse) {
-  if (state.oracle.status !== "active" || !state.latest_price || !state.latest_svi) {
-    return false;
-  }
-
-  return (
-    Date.now() <=
-    state.latest_price.onchain_timestamp + ORACLE_STALENESS_THRESHOLD_MS
+function isTradePreviewRenderable(state: OracleStateResponse) {
+  return Boolean(
+    state.oracle.status === "active" && state.latest_price && state.latest_svi,
   );
 }
