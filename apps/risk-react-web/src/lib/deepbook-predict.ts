@@ -9,7 +9,7 @@ export const DEEPBOOK_PREDICT = {
   clockId: "0x6",
   quote: {
     symbol: "DUSDC",
-    decimals: 9,
+    decimals: 6,
     type: "0xe95040085976bfd54a1a07225cd46c8a2b4e8e2b6732f140a0fc49850ba73e1a::dusdc::DUSDC",
   },
   plp: {
@@ -19,8 +19,96 @@ export const DEEPBOOK_PREDICT = {
   },
 } as const;
 
+export const PREDICT_SERVER_URL = "https://predict-server.testnet.mystenlabs.com";
+export const FLOAT_SCALING = 1_000_000_000;
+
 const DUMMY_SENDER =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
+
+export type PredictOracle = {
+  activated_at: number;
+  created_checkpoint: number;
+  expiry: number;
+  min_strike: number;
+  oracle_cap_id: string;
+  oracle_id: string;
+  predict_id: string;
+  settled_at: number | null;
+  settlement_price: number | null;
+  status: string;
+  tick_size: number;
+  underlying_asset: string;
+};
+
+export type OraclePriceUpdate = {
+  checkpoint: number;
+  checkpoint_timestamp_ms: number;
+  digest: string;
+  event_digest: string;
+  event_index: number;
+  forward: number;
+  onchain_timestamp: number;
+  oracle_id: string;
+  package: string;
+  sender: string;
+  spot: number;
+  tx_index: number;
+};
+
+export type OracleSviUpdate = {
+  a: number;
+  b: number;
+  checkpoint: number;
+  checkpoint_timestamp_ms: number;
+  digest: string;
+  event_digest: string;
+  event_index: number;
+  m: number;
+  m_negative: boolean;
+  onchain_timestamp: number;
+  oracle_id: string;
+  package: string;
+  rho: number;
+  rho_negative: boolean;
+  sender: string;
+  sigma: number;
+  tx_index: number;
+};
+
+export type OracleAskBounds = {
+  min_ask_price: number;
+  max_ask_price: number;
+};
+
+export type OracleStateResponse = {
+  ask_bounds: OracleAskBounds | null;
+  latest_price: OraclePriceUpdate | null;
+  latest_svi: OracleSviUpdate | null;
+  oracle: PredictOracle;
+};
+
+export type OracleTrade = {
+  ask_price?: number;
+  bid_price?: number;
+  cost?: number;
+  expiry?: number;
+  is_up?: boolean;
+  oracle_id?: string;
+  quantity?: number;
+  strike?: number;
+  timestamp?: number;
+  tx_timestamp_ms?: number;
+};
+
+export type SviPoint = {
+  d2: number;
+  dnFair: number;
+  impliedVol: number;
+  k: number;
+  strike: number;
+  totalVariance: number;
+  upFair: number;
+};
 
 type MoveObjectContent = {
   dataType: "moveObject";
@@ -110,6 +198,146 @@ export async function getVaultSummary(
     ),
     vaultValue: totalBalance - totalMtm,
   };
+}
+
+export async function getOracleState(oracleId: string): Promise<OracleStateResponse> {
+  const response = await fetch(`${PREDICT_SERVER_URL}/oracles/${oracleId}/state`);
+
+  if (!response.ok) {
+    throw new Error(`Oracle state request failed with ${response.status}`);
+  }
+
+  return (await response.json()) as OracleStateResponse;
+}
+
+export async function getOracleTrades(oracleId: string): Promise<Array<OracleTrade>> {
+  const response = await fetch(`${PREDICT_SERVER_URL}/oracles/${oracleId}/trades`);
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = (await response.json()) as unknown;
+  if (Array.isArray(payload)) {
+    return payload as Array<OracleTrade>;
+  }
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    Array.isArray((payload as { trades?: unknown }).trades)
+  ) {
+    return (payload as { trades: Array<OracleTrade> }).trades;
+  }
+
+  return [];
+}
+
+export function decodeSignedScaled(value: number, isNegative: boolean) {
+  const magnitude = value / FLOAT_SCALING;
+  return isNegative ? -magnitude : magnitude;
+}
+
+export function computeSviPoint(
+  strike: number,
+  state: OracleStateResponse,
+): SviPoint | null {
+  const { latest_price: price, latest_svi: svi, oracle } = state;
+
+  if (!price || !svi || price.forward <= 0 || strike <= 0) {
+    return null;
+  }
+
+  const a = svi.a / FLOAT_SCALING;
+  const b = svi.b / FLOAT_SCALING;
+  const rho = decodeSignedScaled(svi.rho, svi.rho_negative);
+  const m = decodeSignedScaled(svi.m, svi.m_negative);
+  const sigma = svi.sigma / FLOAT_SCALING;
+  const k = Math.log(strike / price.forward);
+  const kMinusM = k - m;
+  const inner = rho * kMinusM + Math.sqrt(kMinusM ** 2 + sigma ** 2);
+  const totalVariance = Math.max(a + b * inner, Number.EPSILON);
+  const sqrtVariance = Math.sqrt(totalVariance);
+  const d2 = -((k + totalVariance / 2) / sqrtVariance);
+  const settlement = oracle.settlement_price;
+  const upFair =
+    oracle.status === "settled" && settlement !== null
+      ? settlement > strike
+        ? 1
+        : 0
+      : normalCdf(d2);
+
+  return {
+    d2,
+    dnFair: 1 - upFair,
+    impliedVol: sqrtVariance,
+    k,
+    strike,
+    totalVariance,
+    upFair,
+  };
+}
+
+export function buildSviCurve(state: OracleStateResponse) {
+  const { oracle } = state;
+  const points: Array<SviPoint> = [];
+  const forward = state.latest_price?.forward ?? oracle.min_strike;
+  const lowerStrike = Math.max(oracle.min_strike, forward * 0.75);
+  const upperStrike = Math.max(lowerStrike + oracle.tick_size, forward * 1.25);
+  const samples = 120;
+  let lastStrike = 0;
+
+  for (let index = 0; index <= samples; index += 1) {
+    const rawStrike = lowerStrike + ((upperStrike - lowerStrike) * index) / samples;
+    const strike = Math.max(
+      oracle.min_strike,
+      Math.round(rawStrike / oracle.tick_size) * oracle.tick_size,
+    );
+
+    if (strike === lastStrike) {
+      continue;
+    }
+
+    const point = computeSviPoint(strike, state);
+    if (point) {
+      points.push(point);
+      lastStrike = strike;
+    }
+  }
+
+  return points;
+}
+
+export function findLastTradeAsk(
+  trades: Array<OracleTrade>,
+  strike: number,
+  isUp: boolean,
+) {
+  const trade = [...trades]
+    .reverse()
+    .find((candidate) => candidate.strike === strike && candidate.is_up === isUp);
+
+  return trade?.ask_price ?? trade?.cost ?? null;
+}
+
+function normalCdf(value: number) {
+  return (1 + erf(value / Math.SQRT2)) / 2;
+}
+
+function erf(value: number) {
+  const sign = value < 0 ? -1 : 1;
+  const x = Math.abs(value);
+  const t = 1 / (1 + 0.3275911 * x);
+  const y =
+    1 -
+    (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t -
+      0.284496736) *
+      t +
+      0.254829592) *
+      t *
+      Math.exp(-x * x));
+
+  return sign * y;
 }
 
 export async function getWalletVaultBalances(

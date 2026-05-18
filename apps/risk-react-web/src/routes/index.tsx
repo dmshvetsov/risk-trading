@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import _filter from "lodash/filter";
 
@@ -219,11 +219,38 @@ function Home() {
                 ) : (
                   filteredOracles.map((oracle) => (
                     <tr
-                      className="border-b border-border transition-colors hover:bg-muted/50"
+                      aria-label={`Open ${oracle.underlying_asset} oracle ${oracle.oracle_id}`}
+                      className="cursor-pointer border-b border-border transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none"
                       key={oracle.oracle_id}
+                      onClick={() => {
+                        void navigate({
+                          params: { oracleId: oracle.oracle_id },
+                          to: "/oracles/$oracleId",
+                        });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") {
+                          return;
+                        }
+
+                        event.preventDefault();
+                        void navigate({
+                          params: { oracleId: oracle.oracle_id },
+                          to: "/oracles/$oracleId",
+                        });
+                      }}
+                      role="link"
+                      tabIndex={0}
                     >
                       <td className="p-3 align-middle font-medium whitespace-nowrap">
-                        {oracle.underlying_asset}
+                        <Link
+                          className="text-primary underline-offset-4 hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                          params={{ oracleId: oracle.oracle_id }}
+                          to="/oracles/$oracleId"
+                        >
+                          {oracle.underlying_asset}
+                        </Link>
                       </td>
                       <td className="p-3 align-middle whitespace-nowrap">
                         <span className="inline-flex items-center rounded-md bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground">
