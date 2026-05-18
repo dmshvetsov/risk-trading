@@ -5,3 +5,9 @@
 - https://mystenlabs.notion.site/deepbook-predict-problem-statement
 - DeepBook sandbox repo https://github.com/MystenLabs/deepbook-sandbox
 - DeepBook repo and docs https://github.com/MystenLabs/deepbookv3/tree/predict-testnet-4-16/packages/predict
+
+## Inspiration
+
+- https://app.aevo.xyz/option/btc options DEX
+- https://dapp.sofa.org/products?project=Earn on-chain option strategies
+- https://app.rysk.finance/earn covered call and cash secured put option strategies
