@@ -65,6 +65,7 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 const ORACLE_STALENESS_THRESHOLD_MS = 30_000;
+const TRADE_PREVIEW_DEBOUNCE_MS = 350;
 
 function OraclePage() {
   const client = useSuiClient();
@@ -170,35 +171,40 @@ function OraclePage() {
     setIsPreviewLoading(true);
     setPreviewError(null);
 
-    getOracleTradeAmounts(client, {
-      expiry: state.oracle.expiry,
-      isUp: previewIsUp,
-      oracleId: state.oracle.oracle_id,
-      quantity: parsedQuantity,
-      strike: selectedStrike,
-    })
-      .then((amounts) => {
-        if (!abortController.signal.aborted) {
-          setTradeAmounts(amounts);
-        }
+    const timeoutId = window.setTimeout(() => {
+      getOracleTradeAmounts(client, {
+        expiry: state.oracle.expiry,
+        isUp: previewIsUp,
+        oracleId: state.oracle.oracle_id,
+        quantity: parsedQuantity,
+        strike: selectedStrike,
       })
-      .catch((caughtError) => {
-        if (!abortController.signal.aborted) {
-          setTradeAmounts(null);
-          setPreviewError(
-            caughtError instanceof Error
-              ? caughtError.message
-              : "Failed to load trade preview",
-          );
-        }
-      })
-      .finally(() => {
-        if (!abortController.signal.aborted) {
-          setIsPreviewLoading(false);
-        }
-      });
+        .then((amounts) => {
+          if (!abortController.signal.aborted) {
+            setTradeAmounts(amounts);
+          }
+        })
+        .catch((caughtError) => {
+          if (!abortController.signal.aborted) {
+            setTradeAmounts(null);
+            setPreviewError(
+              caughtError instanceof Error
+                ? caughtError.message
+                : "Failed to load trade preview",
+            );
+          }
+        })
+        .finally(() => {
+          if (!abortController.signal.aborted) {
+            setIsPreviewLoading(false);
+          }
+        });
+    }, TRADE_PREVIEW_DEBOUNCE_MS);
 
-    return () => abortController.abort();
+    return () => {
+      abortController.abort();
+      window.clearTimeout(timeoutId);
+    };
   }, [
     client,
     parsedQuantity,
