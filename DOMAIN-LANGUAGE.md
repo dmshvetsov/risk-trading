@@ -25,3 +25,9 @@ Out-the-money (OTM) - negative option moneyness, when asset spot price is below 
 Stochastic Volatility Inspired (SVI) - parametric model used to smooth and model implied volatility smiles and surfaces. 
 
 Volatility smile - is the pattern where options with different strikes have different implied volatility. I.e. BTC at 50k high implied volatility, 60k lower implied volatility, 70k high implied volatility while spot price is around 60k. Markets usually price extreme moves as more risky than a simple like standard deviation based model would suggest because far-away outcomes are not as impossible as basic math says.
+
+The risk-free interest - rate is the theoretical return an investor would earn on an investment with zero risk of financial loss. Because no investment is truly 100% risk-free, in traditional finance analysts use short-term or long-term government bonds from stable economies as practical proxies.
+
+TradFi - traditional, off-chain finance systems.
+
+DeFi - decentralized on-chain finance systems.
