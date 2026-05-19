@@ -35,3 +35,5 @@ DeFi - decentralized on-chain finance systems.
 Central Limit Order Book (CLOB) orderbook - a place that keep track of buyers placed bids, sellers placed asks, trades happen when bid price and ask price match.
 
 DeepBook market key - combination of oracle, specific expiry and strike price. Can be a range key when instead of single strike price it has lower and upper strike.
+
+RFQ (Request for Quote) - is an electronic process where a trader asks liquidity providers or market makers for a custom price on a specific trade. Instead of buying or selling directly from a public order book, you solicit competitive, private bids or offers before executing.
