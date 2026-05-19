@@ -2,7 +2,21 @@ import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction, useSuiC
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowDownToLine, ArrowUpFromLine, ExternalLink, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ReferenceLine,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
+import {
+  ChartContainer,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DEEPBOOK_PREDICT,
@@ -20,6 +34,39 @@ import { truncateAddress } from "@/lib/format";
 
 type VaultMode = "supply" | "withdraw";
 
+const LP_SUPPLIES_URL = "https://predict-server.testnet.mystenlabs.com/lp/supplies";
+const LP_WITHDRAWALS_URL =
+  "https://predict-server.testnet.mystenlabs.com/lp/withdrawals";
+const LP_FLOW_BUCKET_COUNT = 14;
+
+const lpFlowChartConfig = {
+  supply: {
+    color: "var(--chart-2)",
+    label: "Supplied",
+  },
+  withdrawal: {
+    color: "var(--chart-5)",
+    label: "Withdrawn",
+  },
+} satisfies ChartConfig;
+
+type LpSupply = {
+  amount: number;
+  checkpoint_timestamp_ms: number;
+};
+
+type LpWithdrawal = {
+  amount: number;
+  checkpoint_timestamp_ms: number;
+};
+
+type LpFlowBucket = {
+  date: string;
+  label: string;
+  supply: number;
+  withdrawal: number;
+};
+
 export const Route = createFileRoute("/vaults")({
   component: Vaults,
 });
@@ -34,8 +81,12 @@ function Vaults() {
   const [summary, setSummary] = useState<VaultSummary | null>(null);
   const [balances, setBalances] = useState<WalletVaultBalances | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isActivityLoading, setIsActivityLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
   const [txDigest, setTxDigest] = useState<string | null>(null);
+  const [supplies, setSupplies] = useState<Array<LpSupply>>([]);
+  const [withdrawals, setWithdrawals] = useState<Array<LpWithdrawal>>([]);
 
   const parsedAmount = useMemo(() => {
     try {
@@ -127,6 +178,63 @@ function Vaults() {
   useEffect(() => {
     void loadVaultData();
   }, [account?.address, client]);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+
+    async function loadLpActivity() {
+      setIsActivityLoading(true);
+      setActivityError(null);
+
+      try {
+        const [suppliesResponse, withdrawalsResponse] = await Promise.all([
+          fetch(LP_SUPPLIES_URL, { signal: abortController.signal }),
+          fetch(LP_WITHDRAWALS_URL, { signal: abortController.signal }),
+        ]);
+
+        if (!suppliesResponse.ok) {
+          throw new Error(`Supplies request failed with ${suppliesResponse.status}`);
+        }
+
+        if (!withdrawalsResponse.ok) {
+          throw new Error(
+            `Withdrawals request failed with ${withdrawalsResponse.status}`,
+          );
+        }
+
+        const [suppliesData, withdrawalsData] = (await Promise.all([
+          suppliesResponse.json(),
+          withdrawalsResponse.json(),
+        ])) as [Array<LpSupply>, Array<LpWithdrawal>];
+
+        setSupplies(suppliesData);
+        setWithdrawals(withdrawalsData);
+      } catch (caughtError) {
+        if (abortController.signal.aborted) {
+          return;
+        }
+
+        setActivityError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Failed to load liquidity flow activity",
+        );
+      } finally {
+        if (!abortController.signal.aborted) {
+          setIsActivityLoading(false);
+        }
+      }
+    }
+
+    void loadLpActivity();
+
+    return () => abortController.abort();
+  }, []);
+
+  const lpFlowBuckets = useMemo(
+    () => buildLpFlowBuckets(supplies, withdrawals),
+    [supplies, withdrawals],
+  );
 
   async function submitLiquidityAction() {
     if (!account || parsedAmount === null || validationError) {
@@ -299,9 +407,140 @@ function Vaults() {
               <div className="mt-4 text-sm text-muted-foreground">Loading vault data...</div>
             ) : null}
           </section>
+
+          <section className="rounded-lg border border-border bg-card p-4 shadow-sm lg:col-span-2">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold">LP Flow</h2>
+                <p className="text-sm text-muted-foreground">
+                  Daily {DEEPBOOK_PREDICT.quote.symbol} supplies and withdrawals.
+                </p>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <LegendItem color="var(--chart-2)" label="Supplied" />
+                <LegendItem color="var(--chart-5)" label="Withdrawn" />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              {isActivityLoading ? (
+                <div className="flex h-72 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
+                  Loading liquidity flow...
+                </div>
+              ) : activityError ? (
+                <div className="flex h-72 items-center justify-center rounded-md border border-destructive/30 bg-destructive/10 px-4 text-center text-sm text-destructive">
+                  {activityError}
+                </div>
+              ) : lpFlowBuckets.length === 0 ? (
+                <div className="flex h-72 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
+                  No LP flow activity found.
+                </div>
+              ) : (
+                <ChartContainer config={lpFlowChartConfig} className="h-72 w-full">
+                  <BarChart
+                    accessibilityLayer
+                    data={lpFlowBuckets}
+                    margin={{ left: 8, right: 16, top: 12 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tickLine={false}
+                      axisLine={false}
+                      minTickGap={16}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(value) => compactTokenAmount(Number(value))}
+                    />
+                    <ReferenceLine y={0} stroke="var(--border)" />
+                    <Tooltip
+                      cursor={{ fill: "var(--muted)" }}
+                      content={
+                        <ChartTooltipContent
+                          valueFormatter={(value) =>
+                            `${compactTokenAmount(Math.abs(Number(value)))} ${DEEPBOOK_PREDICT.quote.symbol}`
+                          }
+                        />
+                      }
+                    />
+                    <Bar
+                      dataKey="supply"
+                      fill="var(--color-supply)"
+                      radius={[4, 4, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="withdrawal"
+                      fill="var(--color-withdrawal)"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </main>
+  );
+}
+
+function buildLpFlowBuckets(
+  supplies: Array<LpSupply>,
+  withdrawals: Array<LpWithdrawal>,
+): Array<LpFlowBucket> {
+  const events = [
+    ...supplies.map((supply) => ({
+      amount: supply.amount,
+      timestamp: supply.checkpoint_timestamp_ms,
+      type: "supply" as const,
+    })),
+    ...withdrawals.map((withdrawal) => ({
+      amount: withdrawal.amount,
+      timestamp: withdrawal.checkpoint_timestamp_ms,
+      type: "withdrawal" as const,
+    })),
+  ];
+  const buckets = new Map<string, LpFlowBucket>();
+
+  for (const event of events) {
+    const date = new Date(event.timestamp);
+    const key = date.toISOString().slice(0, 10);
+    const bucket =
+      buckets.get(key) ??
+      ({
+        date: key,
+        label: date.toLocaleDateString(undefined, {
+          day: "numeric",
+          month: "short",
+        }),
+        supply: 0,
+        withdrawal: 0,
+      } satisfies LpFlowBucket);
+
+    bucket[event.type] += event.type === "withdrawal" ? -event.amount : event.amount;
+    buckets.set(key, bucket);
+  }
+
+  return Array.from(buckets.values())
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-LP_FLOW_BUCKET_COUNT);
+}
+
+function compactTokenAmount(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: value >= 10 ? 0 : 2,
+    notation: Math.abs(value) >= 10_000 ? "compact" : "standard",
+  }).format(value);
+}
+
+function LegendItem({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap">
+      <span className="size-2 rounded-full" style={{ backgroundColor: color }} />
+      {label}
+    </span>
   );
 }
 
