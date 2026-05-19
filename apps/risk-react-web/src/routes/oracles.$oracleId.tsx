@@ -79,7 +79,7 @@ const chartConfig = {
 const ORACLE_REFRESH_INTERVAL_MS = 30_000;
 const MANAGER_INDEX_POLL_INTERVAL_MS = 5_000;
 const TRADE_PREVIEW_DEBOUNCE_MS = 350;
-const TRADE_PREVIEW_UNIT_QUANTITY = 1n;
+const TRADE_PREVIEW_UNIT_QUANTITY = 1_000_000n;
 
 function OraclePage() {
   const client = useSuiClient();
@@ -1091,7 +1091,7 @@ function scaleTradeAmounts(
 }
 
 function scaleTradeAmount(amount: bigint, quantity: bigint) {
-  return (amount * quantity) / TRADE_PREVIEW_UNIT_QUANTITY;
+  return amount * quantity;
 }
 
 function formatQuantityInput(value: number) {
