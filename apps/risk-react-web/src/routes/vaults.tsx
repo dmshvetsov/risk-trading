@@ -30,7 +30,7 @@ import {
   getWalletVaultBalances,
   parseTokenAmount,
 } from "@/lib/deepbook-predict";
-import { formatTokenAmount, truncateAddress } from "@/lib/format";
+import { formatDate, formatTokenAmount, truncateAddress } from "@/lib/format";
 
 type VaultMode = "supply" | "withdraw";
 type LpFlowScaleMode = "log" | "linear";
@@ -39,6 +39,7 @@ const LP_SUPPLIES_URL = "https://predict-server.testnet.mystenlabs.com/lp/suppli
 const LP_WITHDRAWALS_URL =
   "https://predict-server.testnet.mystenlabs.com/lp/withdrawals";
 const LP_FLOW_BUCKET_COUNT = 14;
+const LP_ACTIVITY_ROW_LIMIT = 25;
 const LP_FLOW_OUTLIER_RATIO = 1_000;
 const QUOTE_AMOUNT_SCALE = 10 ** DEEPBOOK_PREDICT.quote.decimals;
 
@@ -55,12 +56,38 @@ const lpFlowChartConfig = {
 
 type LpSupply = {
   amount: number;
+  checkpoint: number;
   checkpoint_timestamp_ms: number;
+  digest: string;
+  event_digest: string;
+  event_index: number;
+  sender: string;
+  shares_minted: number;
+  supplier: string;
 };
 
 type LpWithdrawal = {
   amount: number;
+  checkpoint: number;
   checkpoint_timestamp_ms: number;
+  digest: string;
+  event_digest: string;
+  event_index: number;
+  sender: string;
+  shares_burned: number;
+  withdrawer: string;
+};
+
+type LpActivity = {
+  activity: "Supply" | "Withdrawal";
+  amount: number;
+  checkpoint: number;
+  checkpoint_timestamp_ms: number;
+  event_digest: string;
+  event_index: number;
+  sender: string;
+  shares: number;
+  wallet: string;
 };
 
 type LpFlowBucket = {
@@ -268,6 +295,40 @@ function Vaults() {
       ),
     [lpFlowBuckets, lpFlowLogThreshold, lpFlowScaleMode],
   );
+  const recentActivity = useMemo(
+    () =>
+      [
+        ...supplies.map(
+          (supply): LpActivity => ({
+            activity: "Supply",
+            amount: supply.amount,
+            checkpoint: supply.checkpoint,
+            checkpoint_timestamp_ms: supply.checkpoint_timestamp_ms,
+            event_digest: supply.event_digest,
+            event_index: supply.event_index,
+            sender: supply.sender,
+            shares: supply.shares_minted,
+            wallet: supply.supplier,
+          }),
+        ),
+        ...withdrawals.map(
+          (withdrawal): LpActivity => ({
+            activity: "Withdrawal",
+            amount: withdrawal.amount,
+            checkpoint: withdrawal.checkpoint,
+            checkpoint_timestamp_ms: withdrawal.checkpoint_timestamp_ms,
+            event_digest: withdrawal.event_digest,
+            event_index: withdrawal.event_index,
+            sender: withdrawal.sender,
+            shares: withdrawal.shares_burned,
+            wallet: withdrawal.withdrawer,
+          }),
+        ),
+      ]
+        .sort((a, b) => b.checkpoint - a.checkpoint)
+        .slice(0, LP_ACTIVITY_ROW_LIMIT),
+    [supplies, withdrawals],
+  );
 
   async function submitLiquidityAction() {
     if (!account || parsedAmount === null || validationError) {
@@ -312,7 +373,7 @@ function Vaults() {
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">Vault Actions</h1>
+            <h1 className="text-2xl font-semibold">Vaults</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Supply {DEEPBOOK_PREDICT.quote.symbol} liquidity or withdraw by
               burning {DEEPBOOK_PREDICT.plp.symbol} shares.
@@ -554,9 +615,127 @@ function Vaults() {
               )}
             </div>
           </section>
+
+          <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm lg:col-span-2">
+            <div className="border-b border-border p-4">
+              <h2 className="text-base font-semibold">Vault Activity</h2>
+              <p className="text-sm text-muted-foreground">
+                Most recent {LP_ACTIVITY_ROW_LIMIT} supply and withdrawal events.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full caption-bottom text-sm">
+                <thead className="[&_tr]:border-b">
+                  <tr className="border-b border-border transition-colors hover:bg-muted/50">
+                    <TableHead>Activity</TableHead>
+                    <TableHead align="right">
+                      Amount ({DEEPBOOK_PREDICT.quote.symbol})
+                    </TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Sender</TableHead>
+                    <TableHead align="right">Shares</TableHead>
+                    <TableHead>Wallet</TableHead>
+                  </tr>
+                </thead>
+                <tbody className="[&_tr:last-child]:border-0">
+                  {isActivityLoading ? (
+                    <tr className="border-b border-border">
+                      <td
+                        className="p-6 text-center text-muted-foreground"
+                        colSpan={6}
+                      >
+                        Loading liquidity pool activity...
+                      </td>
+                    </tr>
+                  ) : activityError ? (
+                    <tr className="border-b border-border">
+                      <td className="p-6 text-center text-destructive" colSpan={6}>
+                        {activityError}
+                      </td>
+                    </tr>
+                  ) : recentActivity.length === 0 ? (
+                    <tr className="border-b border-border">
+                      <td
+                        className="p-6 text-center text-muted-foreground"
+                        colSpan={6}
+                      >
+                        No liquidity pool activity found.
+                      </td>
+                    </tr>
+                  ) : (
+                    recentActivity.map((item) => (
+                      <LpActivityRow
+                        activity={item}
+                        key={`${item.event_digest}-${item.event_index}`}
+                      />
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
       </div>
     </main>
+  );
+}
+
+function LpActivityRow({ activity }: { activity: LpActivity }) {
+  return (
+    <tr className="border-b border-border transition-colors hover:bg-muted/50">
+      <TableCell>
+        <span className="inline-flex items-center rounded-md bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground">
+          {activity.activity}
+        </span>
+      </TableCell>
+      <TableCell align="right" mono>
+        {formatTokenAmount(activity.amount, DEEPBOOK_PREDICT.quote.decimals)}
+      </TableCell>
+      <TableCell>{formatDate(activity.checkpoint_timestamp_ms)}</TableCell>
+      <TableCell mono>{truncateAddress(activity.sender)}</TableCell>
+      <TableCell align="right" mono>
+        {activity.shares.toLocaleString()}
+      </TableCell>
+      <TableCell mono>{truncateAddress(activity.wallet)}</TableCell>
+    </tr>
+  );
+}
+
+function TableHead({
+  align = "left",
+  children,
+}: {
+  align?: "left" | "right";
+  children: React.ReactNode;
+}) {
+  return (
+    <th
+      className={`h-10 px-3 align-middle font-medium whitespace-nowrap text-muted-foreground ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
+    >
+      {children}
+    </th>
+  );
+}
+
+function TableCell({
+  align = "left",
+  children,
+  mono = false,
+}: {
+  align?: "left" | "right";
+  children: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <td
+      className={`p-3 align-middle whitespace-nowrap ${
+        align === "right" ? "text-right" : ""
+      } ${mono ? "font-mono" : ""}`}
+    >
+      {children}
+    </td>
   );
 }
 
