@@ -118,3 +118,7 @@ bd prime                # Refresh Beads context
 - Run `bd prime` when Beads context is missing or stale.
 - Keep persistent project memory in Beads via `bd remember`; do not create ad hoc memory files.
 <!-- END BEADS CODEX SETUP -->
+
+## Git rules
+
+- commits format `<name of the monorepo package>: <explain what changes are in the commit>`
