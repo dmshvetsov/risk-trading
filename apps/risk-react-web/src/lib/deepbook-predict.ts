@@ -22,6 +22,19 @@ export const DEEPBOOK_PREDICT = {
 export const PREDICT_SERVER_URL = "https://predict-server.testnet.mystenlabs.com";
 export const FLOAT_SCALING = 1_000_000_000;
 
+export const PREDICT_BINDINGS = {
+  marketKeyNew: `${DEEPBOOK_PREDICT.packageId}::market_key::new`,
+  predictAvailableWithdrawal: `${DEEPBOOK_PREDICT.packageId}::predict::available_withdrawal`,
+  predictCreateManager: `${DEEPBOOK_PREDICT.packageId}::predict::create_manager`,
+  predictGetTradeAmounts: `${DEEPBOOK_PREDICT.packageId}::predict::get_trade_amounts`,
+  predictManagerDeposit: `${DEEPBOOK_PREDICT.packageId}::predict_manager::deposit`,
+  predictMint: `${DEEPBOOK_PREDICT.packageId}::predict::mint`,
+  predictRedeem: `${DEEPBOOK_PREDICT.packageId}::predict::redeem`,
+  predictRedeemPermissionless: `${DEEPBOOK_PREDICT.packageId}::predict::redeem_permissionless`,
+  predictSupply: `${DEEPBOOK_PREDICT.packageId}::predict::supply`,
+  predictWithdraw: `${DEEPBOOK_PREDICT.packageId}::predict::withdraw`,
+} as const;
+
 const DUMMY_SENDER =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
 
@@ -168,6 +181,25 @@ type OracleTradeAmountsInput = {
   oracleId: string;
   quantity: bigint;
   strike: number;
+};
+
+export type MarketKeyInput = {
+  expiry: number;
+  isUp: boolean;
+  oracleId: string;
+  strike: number;
+};
+
+export type PredictPositionTransactionInput = MarketKeyInput & {
+  managerId: string;
+  oracleSviId: string;
+  quantity: bigint;
+};
+
+export type PredictRedeemTransactionInput = PredictPositionTransactionInput & {
+  executorAddress: string;
+  managerOwnerAddress: string;
+  oracleStatus: PredictOracle["status"];
 };
 
 export async function getVaultSummary(
@@ -375,7 +407,7 @@ export function createSupplyTransaction(amount: bigint, recipient: string) {
     balance: amount,
   });
   const [plpCoin] = tx.moveCall({
-    target: `${DEEPBOOK_PREDICT.packageId}::predict::supply`,
+    target: PREDICT_BINDINGS.predictSupply,
     typeArguments: [DEEPBOOK_PREDICT.quote.type],
     arguments: [
       tx.object(DEEPBOOK_PREDICT.predictId),
@@ -395,7 +427,7 @@ export function createWithdrawTransaction(amount: bigint, recipient: string) {
     balance: amount,
   });
   const [quoteCoin] = tx.moveCall({
-    target: `${DEEPBOOK_PREDICT.packageId}::predict::withdraw`,
+    target: PREDICT_BINDINGS.predictWithdraw,
     typeArguments: [DEEPBOOK_PREDICT.quote.type],
     arguments: [
       tx.object(DEEPBOOK_PREDICT.predictId),
@@ -408,13 +440,89 @@ export function createWithdrawTransaction(amount: bigint, recipient: string) {
   return tx;
 }
 
+export function createManagerTransaction() {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: PREDICT_BINDINGS.predictCreateManager,
+  });
+
+  return tx;
+}
+
+export function createManagerDepositTransaction(amount: bigint, managerId: string) {
+  const tx = new Transaction();
+  const quoteCoin = tx.coin({
+    type: DEEPBOOK_PREDICT.quote.type,
+    balance: amount,
+  });
+
+  tx.moveCall({
+    target: PREDICT_BINDINGS.predictManagerDeposit,
+    typeArguments: [DEEPBOOK_PREDICT.quote.type],
+    arguments: [tx.object(managerId), quoteCoin],
+  });
+
+  return tx;
+}
+
+export function createMintPositionTransaction(
+  input: PredictPositionTransactionInput,
+) {
+  const tx = new Transaction();
+  const key = createMarketKey(tx, input);
+
+  tx.moveCall({
+    target: PREDICT_BINDINGS.predictMint,
+    typeArguments: [DEEPBOOK_PREDICT.quote.type],
+    arguments: [
+      tx.object(DEEPBOOK_PREDICT.predictId),
+      tx.object(input.managerId),
+      tx.object(input.oracleSviId),
+      key,
+      tx.pure.u64(input.quantity),
+      tx.object(DEEPBOOK_PREDICT.clockId),
+    ],
+  });
+
+  return tx;
+}
+
+export function createRedeemPositionTransaction(
+  input: PredictRedeemTransactionInput,
+) {
+  const tx = new Transaction();
+  const key = createMarketKey(tx, input);
+  const isManagerOwner =
+    normalizeSuiAddress(input.executorAddress) ===
+    normalizeSuiAddress(input.managerOwnerAddress);
+  const target =
+    input.oracleStatus === "settled" && !isManagerOwner
+      ? PREDICT_BINDINGS.predictRedeemPermissionless
+      : PREDICT_BINDINGS.predictRedeem;
+
+  tx.moveCall({
+    target,
+    typeArguments: [DEEPBOOK_PREDICT.quote.type],
+    arguments: [
+      tx.object(DEEPBOOK_PREDICT.predictId),
+      tx.object(input.managerId),
+      tx.object(input.oracleSviId),
+      key,
+      tx.pure.u64(input.quantity),
+      tx.object(DEEPBOOK_PREDICT.clockId),
+    ],
+  });
+
+  return tx;
+}
+
 export async function getAvailableWithdrawal(
   client: SuiClient,
   sender = DUMMY_SENDER,
 ) {
   const tx = new Transaction();
   tx.moveCall({
-    target: `${DEEPBOOK_PREDICT.packageId}::predict::available_withdrawal`,
+    target: PREDICT_BINDINGS.predictAvailableWithdrawal,
     arguments: [
       tx.object(DEEPBOOK_PREDICT.predictId),
       tx.object(DEEPBOOK_PREDICT.clockId),
@@ -439,18 +547,10 @@ export async function getOracleTradeAmounts(
   sender = DUMMY_SENDER,
 ): Promise<OracleTradeAmounts> {
   const tx = new Transaction();
-  const [key] = tx.moveCall({
-    target: `${DEEPBOOK_PREDICT.packageId}::market_key::new`,
-    arguments: [
-      tx.pure.id(input.oracleId),
-      tx.pure.u64(input.expiry),
-      tx.pure.u64(input.strike),
-      tx.pure.bool(input.isUp),
-    ],
-  });
+  const key = createMarketKey(tx, input);
 
   tx.moveCall({
-    target: `${DEEPBOOK_PREDICT.packageId}::predict::get_trade_amounts`,
+    target: PREDICT_BINDINGS.predictGetTradeAmounts,
     arguments: [
       tx.object(DEEPBOOK_PREDICT.predictId),
       tx.object(input.oracleId),
@@ -474,6 +574,24 @@ export async function getOracleTradeAmounts(
     mintCost: parseU64Return(mintCost[0]),
     redeemPayout: parseU64Return(redeemPayout[0]),
   };
+}
+
+export function createMarketKey(tx: Transaction, input: MarketKeyInput) {
+  const [key] = tx.moveCall({
+    target: PREDICT_BINDINGS.marketKeyNew,
+    arguments: [
+      tx.pure.id(input.oracleId),
+      tx.pure.u64(input.expiry),
+      tx.pure.u64(input.strike),
+      tx.pure.bool(input.isUp),
+    ],
+  });
+
+  return key;
+}
+
+function normalizeSuiAddress(address: string) {
+  return address.toLowerCase();
 }
 
 function parseU64Return(bytes: Array<number>) {
