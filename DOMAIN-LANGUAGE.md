@@ -33,3 +33,5 @@ TradFi - traditional, off-chain finance systems.
 DeFi - decentralized on-chain finance systems.
 
 Central Limit Order Book (CLOB) orderbook - a place that keep track of buyers placed bids, sellers placed asks, trades happen when bid price and ask price match.
+
+DeepBook market key - combination of oracle, specific expiry and strike price. Can be a range key when instead of single strike price it has lower and upper strike.
