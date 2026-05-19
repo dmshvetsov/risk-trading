@@ -44,7 +44,7 @@ type LpActivity = {
   wallet: string;
 };
 
-export const Route = createFileRoute("/vaults/activity")({
+export const Route = createFileRoute("/vaults_/activity")({
   component: VaultActivity,
 });
 

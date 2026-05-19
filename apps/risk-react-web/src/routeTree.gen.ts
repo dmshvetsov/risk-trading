@@ -12,7 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VaultsRouteImport } from './routes/vaults'
 import { Route as PositionsRouteImport } from './routes/positions'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as VaultsActivityRouteImport } from './routes/vaults/activity'
+import { Route as VaultsActivityRouteImport } from './routes/vaults_.activity'
 import { Route as OraclesOracleIdRouteImport } from './routes/oracles.$oracleId'
 
 const VaultsRoute = VaultsRouteImport.update({
@@ -31,9 +31,9 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const VaultsActivityRoute = VaultsActivityRouteImport.update({
-  id: '/activity',
-  path: '/activity',
-  getParentRoute: () => VaultsRoute,
+  id: '/vaults_/activity',
+  path: '/vaults/activity',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const OraclesOracleIdRoute = OraclesOracleIdRouteImport.update({
   id: '/oracles/$oracleId',
@@ -44,14 +44,14 @@ const OraclesOracleIdRoute = OraclesOracleIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/positions': typeof PositionsRoute
-  '/vaults': typeof VaultsRouteWithChildren
+  '/vaults': typeof VaultsRoute
   '/oracles/$oracleId': typeof OraclesOracleIdRoute
   '/vaults/activity': typeof VaultsActivityRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/positions': typeof PositionsRoute
-  '/vaults': typeof VaultsRouteWithChildren
+  '/vaults': typeof VaultsRoute
   '/oracles/$oracleId': typeof OraclesOracleIdRoute
   '/vaults/activity': typeof VaultsActivityRoute
 }
@@ -59,9 +59,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/positions': typeof PositionsRoute
-  '/vaults': typeof VaultsRouteWithChildren
+  '/vaults': typeof VaultsRoute
   '/oracles/$oracleId': typeof OraclesOracleIdRoute
-  '/vaults/activity': typeof VaultsActivityRoute
+  '/vaults_/activity': typeof VaultsActivityRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -79,14 +79,15 @@ export interface FileRouteTypes {
     | '/positions'
     | '/vaults'
     | '/oracles/$oracleId'
-    | '/vaults/activity'
+    | '/vaults_/activity'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   PositionsRoute: typeof PositionsRoute
-  VaultsRoute: typeof VaultsRouteWithChildren
+  VaultsRoute: typeof VaultsRoute
   OraclesOracleIdRoute: typeof OraclesOracleIdRoute
+  VaultsActivityRoute: typeof VaultsActivityRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -112,12 +113,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/vaults/activity': {
-      id: '/vaults/activity'
-      path: '/activity'
+    '/vaults_/activity': {
+      id: '/vaults_/activity'
+      path: '/vaults/activity'
       fullPath: '/vaults/activity'
       preLoaderRoute: typeof VaultsActivityRouteImport
-      parentRoute: typeof VaultsRoute
+      parentRoute: typeof rootRouteImport
     }
     '/oracles/$oracleId': {
       id: '/oracles/$oracleId'
@@ -129,22 +130,12 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface VaultsRouteChildren {
-  VaultsActivityRoute: typeof VaultsActivityRoute
-}
-
-const VaultsRouteChildren: VaultsRouteChildren = {
-  VaultsActivityRoute: VaultsActivityRoute,
-}
-
-const VaultsRouteWithChildren =
-  VaultsRoute._addFileChildren(VaultsRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   PositionsRoute: PositionsRoute,
-  VaultsRoute: VaultsRouteWithChildren,
+  VaultsRoute: VaultsRoute,
   OraclesOracleIdRoute: OraclesOracleIdRoute,
+  VaultsActivityRoute: VaultsActivityRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
