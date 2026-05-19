@@ -1,11 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
+import { DEEPBOOK_PREDICT } from "@/lib/deepbook-predict";
 import { formatDate, formatDecimal, truncateAddress } from "@/lib/format";
 
 const LP_SUPPLIES_URL = "https://predict-server.testnet.mystenlabs.com/lp/supplies";
 const LP_WITHDRAWALS_URL =
   "https://predict-server.testnet.mystenlabs.com/lp/withdrawals";
+const QUOTE_AMOUNT_SCALE = 10 ** DEEPBOOK_PREDICT.quote.decimals;
 
 type LpSupply = {
   amount: number;
@@ -218,7 +220,7 @@ function LpActivityRow({ activity }: { activity: LpActivity }) {
         </span>
       </TableCell>
       <TableCell align="right" mono>
-        {formatDecimal(activity.amount)}
+        {formatDecimal(activity.amount, QUOTE_AMOUNT_SCALE)}
       </TableCell>
       <TableCell>{formatDate(activity.checkpoint_timestamp_ms)}</TableCell>
       <TableCell mono>{truncateAddress(activity.sender)}</TableCell>
