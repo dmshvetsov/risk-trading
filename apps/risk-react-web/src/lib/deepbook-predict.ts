@@ -152,6 +152,44 @@ type MoveObjectContent = {
   };
 };
 
+type PredictManagerObjectContent = {
+  dataType: "moveObject";
+  fields: {
+    balance_manager: {
+      fields: {
+        balances: {
+          fields: {
+            id: {
+              id: string;
+            };
+          };
+        };
+        id: {
+          id: string;
+        };
+      };
+    };
+    owner: string;
+    positions: {
+      fields: {
+        size: string;
+      };
+    };
+    range_positions: {
+      fields: {
+        size: string;
+      };
+    };
+  };
+};
+
+type DynamicFieldObjectContent = {
+  dataType: "moveObject";
+  fields: {
+    value: string;
+  };
+};
+
 export type VaultSummary = {
   acceptedQuoteType: string;
   availableWithdrawal: bigint;
@@ -168,6 +206,31 @@ export type VaultSummary = {
 export type WalletVaultBalances = {
   plp: bigint;
   quote: bigint;
+};
+
+export type PredictManagerEvent = {
+  checkpoint: number;
+  checkpoint_timestamp_ms: number;
+  digest: string;
+  event_digest: string;
+  event_index: number;
+  manager_id: string;
+  owner: string;
+  sender: string;
+  tx_index: number;
+};
+
+export type PredictManagerSummary = {
+  balanceManagerId: string;
+  createdAtMs: number;
+  createdCheckpoint: number;
+  digest: string;
+  hasPositions: boolean;
+  id: string;
+  owner: string;
+  positionsSize: number;
+  quoteBalance: bigint;
+  rangePositionsSize: number;
 };
 
 export type OracleTradeAmounts = {
@@ -276,6 +339,64 @@ export async function getOracleTrades(oracleId: string): Promise<Array<OracleTra
   }
 
   return [];
+}
+
+export async function getWalletPredictManager(
+  client: SuiClient,
+  owner: string,
+): Promise<PredictManagerSummary | null> {
+  const response = await fetch(
+    `${PREDICT_SERVER_URL}/managers?owner=${encodeURIComponent(owner)}`,
+  );
+
+  if (!response.ok) {
+    throw new Error(`Manager request failed with ${response.status}`);
+  }
+
+  const events = ((await response.json()) as Array<PredictManagerEvent>)
+    .filter((event) => normalizeSuiAddress(event.owner) === normalizeSuiAddress(owner))
+    .sort((a, b) => {
+      if (b.checkpoint !== a.checkpoint) {
+        return b.checkpoint - a.checkpoint;
+      }
+
+      return b.tx_index - a.tx_index;
+    });
+  const managerEvent = events[0];
+
+  if (!managerEvent) {
+    return null;
+  }
+
+  const objectResponse = await client.getObject({
+    id: managerEvent.manager_id,
+    options: { showContent: true },
+  });
+  const content = objectResponse.data?.content;
+
+  if (!content || content.dataType !== "moveObject") {
+    throw new Error("PredictManager object content is unavailable");
+  }
+
+  const fields = (content as PredictManagerObjectContent).fields;
+  const positionsSize = Number(fields.positions.fields.size);
+  const rangePositionsSize = Number(fields.range_positions.fields.size);
+
+  return {
+    balanceManagerId: fields.balance_manager.fields.id.id,
+    createdAtMs: managerEvent.checkpoint_timestamp_ms,
+    createdCheckpoint: managerEvent.checkpoint,
+    digest: managerEvent.digest,
+    hasPositions: positionsSize > 0 || rangePositionsSize > 0,
+    id: managerEvent.manager_id,
+    owner: fields.owner,
+    positionsSize,
+    quoteBalance: await getManagerQuoteBalance(
+      client,
+      fields.balance_manager.fields.balances.fields.id.id,
+    ),
+    rangePositionsSize,
+  };
 }
 
 export function decodeSignedScaled(value: number, isNegative: boolean) {
@@ -398,6 +519,31 @@ export async function getWalletVaultBalances(
     plp: BigInt(plp.totalBalance),
     quote: BigInt(quote.totalBalance),
   };
+}
+
+async function getManagerQuoteBalance(client: SuiClient, balancesBagId: string) {
+  const fields = await client.getDynamicFields({ parentId: balancesBagId });
+  const quoteField = fields.data.find(
+    (field) =>
+      field.objectType.includes("::balance::Balance<") &&
+      field.objectType.includes(DEEPBOOK_PREDICT.quote.type),
+  );
+
+  if (!quoteField) {
+    return 0n;
+  }
+
+  const objectResponse = await client.getObject({
+    id: quoteField.objectId,
+    options: { showContent: true },
+  });
+  const content = objectResponse.data?.content;
+
+  if (!content || content.dataType !== "moveObject") {
+    throw new Error("PredictManager quote balance is unavailable");
+  }
+
+  return BigInt((content as DynamicFieldObjectContent).fields.value);
 }
 
 export function createSupplyTransaction(amount: bigint, recipient: string) {

@@ -1,6 +1,11 @@
-import { useSuiClient } from "@mysten/dapp-kit";
+import {
+  ConnectButton,
+  useCurrentAccount,
+  useSignAndExecuteTransaction,
+  useSuiClient,
+} from "@mysten/dapp-kit";
 import { createFileRoute } from "@tanstack/react-router";
-import { Minus, Plus } from "lucide-react";
+import { ExternalLink, Minus, Plus, RefreshCw } from "lucide-react";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -27,12 +32,16 @@ import {
   FLOAT_SCALING,
   DEEPBOOK_PREDICT,
   buildSviCurve,
+  createManagerTransaction,
   decodeSignedScaled,
   findLastTradeAsk,
+  getSuiExplorerTxUrl,
+  getWalletPredictManager,
   getOracleState,
   getOracleTradeAmounts,
   getOracleTrades,
   type OracleTradeAmounts,
+  type PredictManagerSummary,
   type OracleStateResponse,
   type OracleTrade,
   type SviPoint,
@@ -68,16 +77,24 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 const ORACLE_REFRESH_INTERVAL_MS = 30_000;
+const MANAGER_INDEX_POLL_INTERVAL_MS = 5_000;
 const TRADE_PREVIEW_DEBOUNCE_MS = 350;
 const TRADE_PREVIEW_UNIT_QUANTITY = 1n;
 
 function OraclePage() {
   const client = useSuiClient();
+  const account = useCurrentAccount();
+  const { mutateAsync: signAndExecuteTransaction, isPending: isTxPending } =
+    useSignAndExecuteTransaction();
   const { oracleId } = Route.useParams();
   const [state, setState] = useState<OracleStateResponse | null>(null);
   const [trades, setTrades] = useState<Array<OracleTrade>>([]);
+  const [manager, setManager] = useState<PredictManagerSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isManagerLoading, setIsManagerLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [managerError, setManagerError] = useState<string | null>(null);
+  const [managerTxDigest, setManagerTxDigest] = useState<string | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [previewIsUp, setPreviewIsUp] = useState(true);
   const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
@@ -146,6 +163,51 @@ function OraclePage() {
       return null;
     }
   }, [quantity]);
+
+  async function loadManager() {
+    if (!account) {
+      setManager(null);
+      setManagerError(null);
+      setIsManagerLoading(false);
+      return;
+    }
+
+    setIsManagerLoading(true);
+    setManagerError(null);
+
+    try {
+      const nextManager = await getWalletPredictManager(client, account.address);
+      setManager(nextManager);
+
+      if (nextManager) {
+        setManagerTxDigest(null);
+      }
+    } catch (caughtError) {
+      setManagerError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to load PredictManager",
+      );
+    } finally {
+      setIsManagerLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadManager();
+  }, [account?.address, client]);
+
+  useEffect(() => {
+    if (!account || manager || !managerTxDigest) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadManager();
+    }, MANAGER_INDEX_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [account, manager, managerTxDigest]);
 
   useEffect(() => {
     if (!showTradePreview) {
@@ -253,6 +315,30 @@ function OraclePage() {
     setQuantity(formatQuantityInput(nextQuantity));
   }
 
+  async function createManager() {
+    if (!account) {
+      return;
+    }
+
+    setManagerError(null);
+
+    try {
+      const result = await signAndExecuteTransaction({
+        transaction: createManagerTransaction(),
+        chain: "sui:testnet",
+      });
+
+      setManagerTxDigest(result.digest);
+      await loadManager();
+    } catch (caughtError) {
+      setManagerError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Manager creation failed",
+      );
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
@@ -291,6 +377,17 @@ function OraclePage() {
             />
           </div>
         </div>
+
+        <PredictManagerPanel
+          accountAddress={account?.address}
+          error={managerError}
+          isCreating={isTxPending}
+          isLoading={isManagerLoading}
+          manager={manager}
+          onCreate={() => void createManager()}
+          onRefresh={() => void loadManager()}
+          txDigest={managerTxDigest}
+        />
 
         {showTradePreview ? (
           <Panel title="Trade Cost Preview">
@@ -644,6 +741,122 @@ function Panel({
   );
 }
 
+function PredictManagerPanel({
+  accountAddress,
+  error,
+  isCreating,
+  isLoading,
+  manager,
+  onCreate,
+  onRefresh,
+  txDigest,
+}: {
+  accountAddress: string | undefined;
+  error: string | null;
+  isCreating: boolean;
+  isLoading: boolean;
+  manager: PredictManagerSummary | null;
+  onCreate: () => void;
+  onRefresh: () => void;
+  txDigest: string | null;
+}) {
+  const status = getManagerStatus({
+    accountAddress,
+    error,
+    isLoading,
+    manager,
+    txDigest,
+  });
+
+  return (
+    <Panel
+      title="Trading Account"
+      action={
+        <div className="flex flex-wrap items-center gap-2">
+          <ConnectButton />
+          {accountAddress ? (
+            <Button
+              disabled={isLoading}
+              onClick={onRefresh}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <RefreshCw aria-hidden="true" />
+              Refresh
+            </Button>
+          ) : null}
+        </div>
+      }
+    >
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Metric label="Status" value={status} />
+          <Metric
+            label="Manager"
+            value={manager ? truncateAddress(manager.id) : "-"}
+          />
+          <Metric
+            label={`${DEEPBOOK_PREDICT.quote.symbol} balance`}
+            value={
+              manager
+                ? formatManagerQuote(manager.quoteBalance)
+                : accountAddress
+                  ? "-"
+                  : "Connect"
+            }
+          />
+          <Metric
+            label="Position state"
+            value={
+              manager
+                ? manager.hasPositions
+                  ? `${manager.positionsSize + manager.rangePositionsSize} active`
+                  : "Empty"
+                : "-"
+            }
+          />
+        </div>
+
+        {accountAddress && !manager ? (
+          <Button
+            disabled={isCreating || isLoading}
+            onClick={onCreate}
+            type="button"
+          >
+            {isCreating ? "Creating..." : "Create manager"}
+          </Button>
+        ) : null}
+      </div>
+
+      {manager ? (
+        <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+          <span>Owner {truncateAddress(manager.owner)}</span>
+          <span>Created {formatDate(manager.createdAtMs)}</span>
+        </div>
+      ) : null}
+
+      {txDigest && !manager ? (
+        <div className="mt-3 text-sm text-muted-foreground">
+          Manager transaction submitted. Waiting for the indexed server to catch
+          up.{" "}
+          <a
+            className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline"
+            href={getSuiExplorerTxUrl(txDigest)}
+            rel="noreferrer"
+            target="_blank"
+          >
+            View transaction
+            <ExternalLink className="size-3" aria-hidden="true" />
+          </a>
+        </div>
+      ) : null}
+
+      {error ? <div className="mt-3 text-sm text-destructive">{error}</div> : null}
+    </Panel>
+  );
+}
+
 function LegendItem({
   children,
   color,
@@ -825,6 +1038,46 @@ function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
   }
 
   return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
+}
+
+function formatManagerQuote(value: bigint) {
+  return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
+}
+
+function getManagerStatus({
+  accountAddress,
+  error,
+  isLoading,
+  manager,
+  txDigest,
+}: {
+  accountAddress: string | undefined;
+  error: string | null;
+  isLoading: boolean;
+  manager: PredictManagerSummary | null;
+  txDigest: string | null;
+}) {
+  if (!accountAddress) {
+    return "Wallet needed";
+  }
+
+  if (isLoading) {
+    return "Loading";
+  }
+
+  if (manager) {
+    return "Ready";
+  }
+
+  if (txDigest) {
+    return "Indexing";
+  }
+
+  if (error) {
+    return "Error";
+  }
+
+  return "Not created";
 }
 
 function scaleTradeAmounts(
