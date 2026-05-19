@@ -6,6 +6,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   ReferenceLine,
   Tooltip,
   XAxis,
@@ -32,19 +33,21 @@ import {
 import { formatTokenAmount, truncateAddress } from "@/lib/format";
 
 type VaultMode = "supply" | "withdraw";
+type LpFlowScaleMode = "log" | "linear";
 
 const LP_SUPPLIES_URL = "https://predict-server.testnet.mystenlabs.com/lp/supplies";
 const LP_WITHDRAWALS_URL =
   "https://predict-server.testnet.mystenlabs.com/lp/withdrawals";
 const LP_FLOW_BUCKET_COUNT = 14;
+const LP_FLOW_OUTLIER_RATIO = 1_000;
 const QUOTE_AMOUNT_SCALE = 10 ** DEEPBOOK_PREDICT.quote.decimals;
 
 const lpFlowChartConfig = {
-  supply: {
+  supplyDisplay: {
     color: "var(--chart-2)",
     label: "Supplied",
   },
-  withdrawal: {
+  withdrawalDisplay: {
     color: "var(--chart-5)",
     label: "Withdrawn",
   },
@@ -67,6 +70,13 @@ type LpFlowBucket = {
   withdrawal: number;
 };
 
+type LpFlowChartBucket = LpFlowBucket & {
+  supplyDisplay: number;
+  withdrawalDisplay: number;
+  supplyOutlierLabel: string;
+  withdrawalOutlierLabel: string;
+};
+
 export const Route = createFileRoute("/vaults")({
   component: Vaults,
 });
@@ -87,6 +97,8 @@ function Vaults() {
   const [txDigest, setTxDigest] = useState<string | null>(null);
   const [supplies, setSupplies] = useState<Array<LpSupply>>([]);
   const [withdrawals, setWithdrawals] = useState<Array<LpWithdrawal>>([]);
+  const [lpFlowScaleMode, setLpFlowScaleMode] =
+    useState<LpFlowScaleMode>("log");
   const inputDecimals =
     mode === "supply"
       ? DEEPBOOK_PREDICT.quote.decimals
@@ -242,6 +254,19 @@ function Vaults() {
   const lpFlowBuckets = useMemo(
     () => buildLpFlowBuckets(supplies, withdrawals),
     [supplies, withdrawals],
+  );
+  const lpFlowLogThreshold = useMemo(
+    () => getLpFlowLogThreshold(lpFlowBuckets),
+    [lpFlowBuckets],
+  );
+  const lpFlowChartBuckets = useMemo(
+    () =>
+      buildLpFlowChartBuckets(
+        lpFlowBuckets,
+        lpFlowScaleMode,
+        lpFlowLogThreshold,
+      ),
+    [lpFlowBuckets, lpFlowLogThreshold, lpFlowScaleMode],
   );
 
   async function submitLiquidityAction() {
@@ -427,6 +452,21 @@ function Vaults() {
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
                 <LegendItem color="var(--chart-2)" label="Supplied" />
                 <LegendItem color="var(--chart-5)" label="Withdrawn" />
+                <Tabs
+                  value={lpFlowScaleMode}
+                  onValueChange={(value) =>
+                    setLpFlowScaleMode(value as LpFlowScaleMode)
+                  }
+                >
+                  <TabsList aria-label="LP flow scale" className="h-8">
+                    <TabsTrigger value="log" className="px-2 text-xs">
+                      Log
+                    </TabsTrigger>
+                    <TabsTrigger value="linear" className="px-2 text-xs">
+                      Linear
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
               </div>
             </div>
 
@@ -447,7 +487,7 @@ function Vaults() {
                 <ChartContainer config={lpFlowChartConfig} className="h-72 w-full">
                   <BarChart
                     accessibilityLayer
-                    data={lpFlowBuckets}
+                    data={lpFlowChartBuckets}
                     margin={{ left: 8, right: 16, top: 12 }}
                   >
                     <CartesianGrid vertical={false} />
@@ -460,29 +500,55 @@ function Vaults() {
                     <YAxis
                       tickLine={false}
                       axisLine={false}
-                      tickFormatter={(value) => compactTokenAmount(Number(value))}
+                      tickFormatter={(value) =>
+                        compactTokenAmount(
+                          lpFlowScaleMode === "log"
+                            ? inverseSymmetricLog(
+                                Number(value),
+                                lpFlowLogThreshold,
+                              )
+                            : Number(value),
+                        )
+                      }
                     />
                     <ReferenceLine y={0} stroke="var(--border)" />
                     <Tooltip
                       cursor={{ fill: "var(--muted)" }}
                       content={
                         <ChartTooltipContent
-                          valueFormatter={(value) =>
-                            `${compactTokenAmount(Math.abs(Number(value)))} ${DEEPBOOK_PREDICT.quote.symbol}`
-                          }
+                          valueFormatter={(_value, name, item) => {
+                            const rawValue = getRawLpFlowValue(
+                              name,
+                              item.payload as LpFlowChartBucket | undefined,
+                            );
+
+                            return `${compactTokenAmount(Math.abs(rawValue))} ${DEEPBOOK_PREDICT.quote.symbol}`;
+                          }}
                         />
                       }
                     />
                     <Bar
-                      dataKey="supply"
-                      fill="var(--color-supply)"
+                      dataKey="supplyDisplay"
+                      fill="var(--color-supplyDisplay)"
                       radius={[4, 4, 0, 0]}
-                    />
+                    >
+                      <LabelList
+                        dataKey="supplyOutlierLabel"
+                        position="top"
+                        className="fill-muted-foreground text-[10px]"
+                      />
+                    </Bar>
                     <Bar
-                      dataKey="withdrawal"
-                      fill="var(--color-withdrawal)"
+                      dataKey="withdrawalDisplay"
+                      fill="var(--color-withdrawalDisplay)"
                       radius={[4, 4, 0, 0]}
-                    />
+                    >
+                      <LabelList
+                        dataKey="withdrawalOutlierLabel"
+                        position="bottom"
+                        className="fill-muted-foreground text-[10px]"
+                      />
+                    </Bar>
                   </BarChart>
                 </ChartContainer>
               )}
@@ -537,9 +603,79 @@ function buildLpFlowBuckets(
     .slice(-LP_FLOW_BUCKET_COUNT);
 }
 
+function buildLpFlowChartBuckets(
+  buckets: Array<LpFlowBucket>,
+  scaleMode: LpFlowScaleMode,
+  logThreshold: number,
+): Array<LpFlowChartBucket> {
+  const outlierFloor = getLpFlowOutlierFloor(buckets);
+
+  return buckets.map((bucket) => ({
+    ...bucket,
+    supplyDisplay:
+      scaleMode === "log"
+        ? symmetricLog(bucket.supply, logThreshold)
+        : bucket.supply,
+    withdrawalDisplay:
+      scaleMode === "log"
+        ? symmetricLog(bucket.withdrawal, logThreshold)
+        : bucket.withdrawal,
+    supplyOutlierLabel: Math.abs(bucket.supply) >= outlierFloor ? "!" : "",
+    withdrawalOutlierLabel:
+      Math.abs(bucket.withdrawal) >= outlierFloor ? "!" : "",
+  }));
+}
+
+function getLpFlowLogThreshold(buckets: Array<LpFlowBucket>) {
+  const nonZeroValues = buckets
+    .flatMap((bucket) => [Math.abs(bucket.supply), Math.abs(bucket.withdrawal)])
+    .filter((value) => value > 0)
+    .sort((a, b) => a - b);
+
+  if (nonZeroValues.length === 0) {
+    return 1;
+  }
+
+  const median = nonZeroValues[Math.floor(nonZeroValues.length / 2)];
+  return Math.max(median / 10, Number.EPSILON);
+}
+
+function getLpFlowOutlierFloor(buckets: Array<LpFlowBucket>) {
+  const nonZeroValues = buckets
+    .flatMap((bucket) => [Math.abs(bucket.supply), Math.abs(bucket.withdrawal)])
+    .filter((value) => value > 0)
+    .sort((a, b) => a - b);
+
+  if (nonZeroValues.length < 2) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const median = nonZeroValues[Math.floor(nonZeroValues.length / 2)];
+  return Math.max(median * LP_FLOW_OUTLIER_RATIO, Number.EPSILON);
+}
+
+function symmetricLog(value: number, threshold: number) {
+  return Math.sign(value) * Math.log10(1 + Math.abs(value) / threshold);
+}
+
+function inverseSymmetricLog(value: number, threshold: number) {
+  return Math.sign(value) * threshold * (10 ** Math.abs(value) - 1);
+}
+
+function getRawLpFlowValue(
+  name: string,
+  bucket: LpFlowChartBucket | undefined,
+) {
+  if (!bucket) {
+    return 0;
+  }
+
+  return name === "withdrawalDisplay" ? bucket.withdrawal : bucket.supply;
+}
+
 function compactTokenAmount(value: number) {
   return new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: value >= 10 ? 0 : 2,
+    maximumFractionDigits: Math.abs(value) >= 10 ? 0 : 2,
     notation: Math.abs(value) >= 10_000 ? "compact" : "standard",
   }).format(value);
 }

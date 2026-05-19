@@ -91,7 +91,13 @@ export function ChartTooltipContent({
   valueFormatter,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> & {
   className?: string;
-  valueFormatter?: (value: unknown, name: string) => React.ReactNode;
+  valueFormatter?: (
+    value: unknown,
+    name: string,
+    item: NonNullable<
+      React.ComponentProps<typeof RechartsPrimitive.Tooltip>["payload"]
+    >[number],
+  ) => React.ReactNode;
 }) {
   const { config } = useChart();
 
@@ -112,7 +118,7 @@ export function ChartTooltipContent({
           const key = String(item.dataKey ?? item.name ?? "");
           const itemConfig = config[key];
           const value = valueFormatter
-            ? valueFormatter(item.value, key)
+            ? valueFormatter(item.value, key, item)
             : String(item.value ?? "");
 
           return (
