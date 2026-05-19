@@ -504,19 +504,6 @@ export function parseTokenAmount(
   );
 }
 
-export function formatTokenAmount(
-  value: bigint,
-  decimals = DEEPBOOK_PREDICT.quote.decimals,
-) {
-  const divisor = 10n ** BigInt(decimals);
-  const whole = value / divisor;
-  const fraction = value % divisor;
-  const fractionText = fraction.toString().padStart(decimals, "0");
-  const trimmedFraction = fractionText.replace(/0+$/, "").slice(0, 4);
-
-  return trimmedFraction ? `${whole}.${trimmedFraction}` : whole.toString();
-}
-
 export function getSuiExplorerTxUrl(digest: string) {
   return `https://suiscan.xyz/testnet/tx/${digest}`;
 }

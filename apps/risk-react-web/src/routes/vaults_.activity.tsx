@@ -2,12 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { DEEPBOOK_PREDICT } from "@/lib/deepbook-predict";
-import { formatDate, formatDecimal, truncateAddress } from "@/lib/format";
+import { formatDate, formatTokenAmount, truncateAddress } from "@/lib/format";
 
 const LP_SUPPLIES_URL = "https://predict-server.testnet.mystenlabs.com/lp/supplies";
 const LP_WITHDRAWALS_URL =
   "https://predict-server.testnet.mystenlabs.com/lp/withdrawals";
-const QUOTE_AMOUNT_SCALE = 10 ** DEEPBOOK_PREDICT.quote.decimals;
 
 type LpSupply = {
   amount: number;
@@ -159,7 +158,9 @@ function VaultActivity() {
               <thead className="[&_tr]:border-b">
                 <tr className="border-b border-border transition-colors hover:bg-muted/50">
                   <TableHead>Activity</TableHead>
-                  <TableHead align="right">Amount</TableHead>
+                  <TableHead align="right">
+                    Amount ({DEEPBOOK_PREDICT.quote.symbol})
+                  </TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Sender</TableHead>
                   <TableHead align="right">Shares</TableHead>
@@ -220,7 +221,7 @@ function LpActivityRow({ activity }: { activity: LpActivity }) {
         </span>
       </TableCell>
       <TableCell align="right" mono>
-        {formatDecimal(activity.amount, QUOTE_AMOUNT_SCALE)}
+        {formatTokenAmount(activity.amount, DEEPBOOK_PREDICT.quote.decimals)}
       </TableCell>
       <TableCell>{formatDate(activity.checkpoint_timestamp_ms)}</TableCell>
       <TableCell mono>{truncateAddress(activity.sender)}</TableCell>

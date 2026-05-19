@@ -24,13 +24,12 @@ import {
   type WalletVaultBalances,
   createSupplyTransaction,
   createWithdrawTransaction,
-  formatTokenAmount,
   getSuiExplorerTxUrl,
   getVaultSummary,
   getWalletVaultBalances,
   parseTokenAmount,
 } from "@/lib/deepbook-predict";
-import { truncateAddress } from "@/lib/format";
+import { formatTokenAmount, truncateAddress } from "@/lib/format";
 
 type VaultMode = "supply" | "withdraw";
 
@@ -88,14 +87,22 @@ function Vaults() {
   const [txDigest, setTxDigest] = useState<string | null>(null);
   const [supplies, setSupplies] = useState<Array<LpSupply>>([]);
   const [withdrawals, setWithdrawals] = useState<Array<LpWithdrawal>>([]);
+  const inputDecimals =
+    mode === "supply"
+      ? DEEPBOOK_PREDICT.quote.decimals
+      : DEEPBOOK_PREDICT.plp.decimals;
+  const outputDecimals =
+    mode === "supply"
+      ? DEEPBOOK_PREDICT.plp.decimals
+      : DEEPBOOK_PREDICT.quote.decimals;
 
   const parsedAmount = useMemo(() => {
     try {
-      return parseTokenAmount(amount);
+      return parseTokenAmount(amount, inputDecimals);
     } catch {
       return null;
     }
-  }, [amount]);
+  }, [amount, inputDecimals]);
 
   const estimatedOutput = useMemo(() => {
     if (!summary || parsedAmount === null || parsedAmount === 0n) {
@@ -119,7 +126,7 @@ function Vaults() {
 
   const validationError = useMemo(() => {
     try {
-      const value = parseTokenAmount(amount);
+      const value = parseTokenAmount(amount, inputDecimals);
       if (value === 0n) {
         return "Enter an amount";
       }
@@ -150,7 +157,7 @@ function Vaults() {
         ? caughtError.message
         : "Enter a valid amount";
     }
-  }, [account, amount, balances, estimatedOutput, mode, summary]);
+  }, [account, amount, balances, estimatedOutput, inputDecimals, mode, summary]);
 
   async function loadVaultData() {
     setIsLoading(true);
@@ -290,10 +297,10 @@ function Vaults() {
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
-          <Metric label="Vault balance" value={summary ? formatTokenAmount(summary.totalBalance) : "-"} />
-          <Metric label="Vault value" value={summary ? formatTokenAmount(summary.vaultValue) : "-"} />
-          <Metric label="Available withdrawal" value={summary ? formatTokenAmount(summary.availableWithdrawal) : "-"} />
-          <Metric label="PLP supply" value={summary ? formatTokenAmount(summary.totalPlpSupply) : "-"} />
+          <Metric label="Vault balance" value={summary ? formatQuoteAmount(summary.totalBalance) : "-"} />
+          <Metric label="Vault value" value={summary ? formatQuoteAmount(summary.vaultValue) : "-"} />
+          <Metric label="Available withdrawal" value={summary ? formatQuoteAmount(summary.availableWithdrawal) : "-"} />
+          <Metric label="PLP supply" value={summary ? formatPlpAmount(summary.totalPlpSupply) : "-"} />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,480px)_1fr]">
@@ -336,10 +343,10 @@ function Vaults() {
               <button
                 className="self-start text-xs text-muted-foreground hover:text-foreground"
                 disabled={!balances}
-                onClick={() => setAmount(formatTokenAmount(maxAmount))}
+                onClick={() => setAmount(formatInputAmount(maxAmount, inputDecimals))}
                 type="button"
               >
-                Balance {formatTokenAmount(maxAmount)} {inputSymbol}
+                Balance {formatInputAmount(maxAmount, inputDecimals)} {inputSymbol}
               </button>
             </div>
 
@@ -347,7 +354,7 @@ function Vaults() {
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Estimated output</span>
                 <span className="font-mono">
-                  {formatTokenAmount(estimatedOutput)} {outputSymbol}
+                  {formatInputAmount(estimatedOutput, outputDecimals)} {outputSymbol}
                 </span>
               </div>
               <div className="mt-2 flex items-center justify-between gap-3">
@@ -393,10 +400,10 @@ function Vaults() {
           <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <h2 className="text-base font-semibold">Position In Vault</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <Metric label={`${DEEPBOOK_PREDICT.quote.symbol} balance`} value={`${formatTokenAmount(balances?.quote ?? 0n)} ${DEEPBOOK_PREDICT.quote.symbol}`} />
-              <Metric label={`${DEEPBOOK_PREDICT.plp.symbol} balance`} value={`${formatTokenAmount(balances?.plp ?? 0n)} ${DEEPBOOK_PREDICT.plp.symbol}`} />
-              <Metric label="Max payout coverage" value={summary ? formatTokenAmount(summary.totalMaxPayout) : "-"} />
-              <Metric label="Mark-to-market liability" value={summary ? formatTokenAmount(summary.totalMtm) : "-"} />
+              <Metric label={`${DEEPBOOK_PREDICT.quote.symbol} balance`} value={`${formatQuoteAmount(balances?.quote ?? 0n)} ${DEEPBOOK_PREDICT.quote.symbol}`} />
+              <Metric label={`${DEEPBOOK_PREDICT.plp.symbol} balance`} value={`${formatPlpAmount(balances?.plp ?? 0n)} ${DEEPBOOK_PREDICT.plp.symbol}`} />
+              <Metric label="Max payout coverage" value={summary ? formatQuoteAmount(summary.totalMaxPayout) : "-"} />
+              <Metric label="Mark-to-market liability" value={summary ? formatQuoteAmount(summary.totalMtm) : "-"} />
             </div>
             <div className="mt-4 rounded-md bg-muted p-3 text-xs text-muted-foreground">
               Accepted quote asset:{" "}
@@ -535,6 +542,18 @@ function compactTokenAmount(value: number) {
     maximumFractionDigits: value >= 10 ? 0 : 2,
     notation: Math.abs(value) >= 10_000 ? "compact" : "standard",
   }).format(value);
+}
+
+function formatQuoteAmount(value: bigint | number) {
+  return formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals);
+}
+
+function formatPlpAmount(value: bigint | number) {
+  return formatTokenAmount(value, DEEPBOOK_PREDICT.plp.decimals);
+}
+
+function formatInputAmount(value: bigint | number, decimals: number) {
+  return formatTokenAmount(value, decimals);
 }
 
 function LegendItem({ color, label }: { color: string; label: string }) {

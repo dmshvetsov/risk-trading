@@ -10,6 +10,10 @@ const flexibleNumberFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 0,
 });
 
+const integerFormatter = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 0,
+});
+
 type NullableFormatOptions = {
   nullValue?: string;
 };
@@ -31,6 +35,21 @@ export function formatDate(
 
 export function formatDecimal(value: number, tickSize = DEFAULT_TICK_SIZE) {
   return flexibleNumberFormatter.format(value / tickSize);
+}
+
+export function formatInteger(value: number) {
+  return integerFormatter.format(value);
+}
+
+export function formatTokenAmount(value: bigint | number, decimals: number) {
+  const baseUnits = typeof value === "bigint" ? value : BigInt(value);
+  const divisor = 10n ** BigInt(decimals);
+  const whole = baseUnits / divisor;
+  const fraction = baseUnits % divisor;
+  const fractionText = fraction.toString().padStart(decimals, "0");
+  const trimmedFraction = fractionText.replace(/0+$/, "").slice(0, 4);
+
+  return trimmedFraction ? `${whole}.${trimmedFraction}` : whole.toString();
 }
 
 export function formatTickValue(

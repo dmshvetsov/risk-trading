@@ -29,17 +29,20 @@ import {
   buildSviCurve,
   decodeSignedScaled,
   findLastTradeAsk,
-  formatTokenAmount,
   getOracleState,
   getOracleTradeAmounts,
   getOracleTrades,
-  parseTokenAmount,
   type OracleTradeAmounts,
   type OracleStateResponse,
   type OracleTrade,
   type SviPoint,
 } from "@/lib/deepbook-predict";
-import { formatDate, formatTickValue, truncateAddress } from "@/lib/format";
+import {
+  formatDate,
+  formatTickValue,
+  formatTokenAmount,
+  truncateAddress,
+} from "@/lib/format";
 
 export const Route = createFileRoute("/oracles/$oracleId")({
   component: OraclePage,
@@ -66,8 +69,7 @@ const chartConfig = {
 
 const ORACLE_REFRESH_INTERVAL_MS = 30_000;
 const TRADE_PREVIEW_DEBOUNCE_MS = 350;
-const TRADE_PREVIEW_UNIT_QUANTITY =
-  10n ** BigInt(DEEPBOOK_PREDICT.quote.decimals);
+const TRADE_PREVIEW_UNIT_QUANTITY = 1n;
 
 function OraclePage() {
   const client = useSuiClient();
@@ -139,7 +141,7 @@ function OraclePage() {
   );
   const parsedQuantity = useMemo(() => {
     try {
-      return parseTokenAmount(quantity);
+      return parseContractQuantity(quantity);
     } catch {
       return null;
     }
@@ -309,9 +311,9 @@ function OraclePage() {
                     <Input
                       className="font-mono"
                       id="trade-preview-quantity"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       onChange={(event) => setQuantity(event.target.value)}
-                      placeholder="1.0"
+                      placeholder="1"
                       value={quantity}
                     />
                     <Button
@@ -822,7 +824,7 @@ function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
     return "-";
   }
 
-  return `${formatTokenAmount(value)} ${DEEPBOOK_PREDICT.quote.symbol}`;
+  return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
 }
 
 function scaleTradeAmounts(
@@ -840,9 +842,20 @@ function scaleTradeAmount(amount: bigint, quantity: bigint) {
 }
 
 function formatQuantityInput(value: number) {
-  return Number.isInteger(value)
-    ? value.toString()
-    : value.toFixed(6).replace(/\.?0+$/, "");
+  return Math.trunc(value).toString();
+}
+
+function parseContractQuantity(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 0n;
+  }
+
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error("Enter a whole-number quantity");
+  }
+
+  return BigInt(trimmed);
 }
 
 function isTradePreviewRenderable(state: OracleStateResponse) {

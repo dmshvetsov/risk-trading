@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   formatDate,
-  formatDecimal,
+  formatInteger,
   formatTickValue,
+  formatTokenAmount,
   truncateAddress,
 } from "@/lib/format";
+import { DEEPBOOK_PREDICT } from "@/lib/deepbook-predict";
 
 const POSITION_FILTER_STATES = ["opened", "closed"] as const;
 const DEFAULT_POSITION_FILTER_STATE = "opened";
@@ -237,8 +239,8 @@ function OpenedPositionsHeader() {
         <TableHead>Type</TableHead>
         <TableHead align="right">Strike</TableHead>
         <TableHead align="right">Quantity</TableHead>
-        <TableHead align="right">Cost</TableHead>
-        <TableHead align="right">Ask Price</TableHead>
+        <TableHead align="right">Cost ({DEEPBOOK_PREDICT.quote.symbol})</TableHead>
+        <TableHead align="right">Ask Price ({DEEPBOOK_PREDICT.quote.symbol})</TableHead>
         <TableHead>Expiry</TableHead>
         <TableHead>Trader</TableHead>
         <TableHead>Sender</TableHead>
@@ -256,8 +258,8 @@ function ClosedPositionsHeader() {
         <TableHead>Settled</TableHead>
         <TableHead align="right">Strike</TableHead>
         <TableHead align="right">Quantity</TableHead>
-        <TableHead align="right">Payout</TableHead>
-        <TableHead align="right">Bid Price</TableHead>
+        <TableHead align="right">Payout ({DEEPBOOK_PREDICT.quote.symbol})</TableHead>
+        <TableHead align="right">Bid Price ({DEEPBOOK_PREDICT.quote.symbol})</TableHead>
         <TableHead>Expiry</TableHead>
         <TableHead>Owner</TableHead>
         <TableHead>Sender</TableHead>
@@ -277,13 +279,13 @@ function OpenedPositionRow({ position }: { position: OpenedPosition }) {
         {formatTickValue(position.strike)}
       </TableCell>
       <TableCell align="right" mono>
-        {formatDecimal(position.quantity)}
+        {formatInteger(position.quantity)}
       </TableCell>
       <TableCell align="right" mono>
-        {formatDecimal(position.cost)}
+        {formatTokenAmount(position.cost, DEEPBOOK_PREDICT.quote.decimals)}
       </TableCell>
       <TableCell align="right" mono>
-        {formatDecimal(position.ask_price)}
+        {formatTokenAmount(position.ask_price, DEEPBOOK_PREDICT.quote.decimals)}
       </TableCell>
       <TableCell>{formatDate(position.expiry)}</TableCell>
       <TableCell mono>{truncateAddress(position.trader)}</TableCell>
@@ -304,13 +306,13 @@ function ClosedPositionRow({ position }: { position: ClosedPosition }) {
         {formatTickValue(position.strike)}
       </TableCell>
       <TableCell align="right" mono>
-        {formatDecimal(position.quantity)}
+        {formatInteger(position.quantity)}
       </TableCell>
       <TableCell align="right" mono>
-        {formatDecimal(position.payout)}
+        {formatTokenAmount(position.payout, DEEPBOOK_PREDICT.quote.decimals)}
       </TableCell>
       <TableCell align="right" mono>
-        {formatDecimal(position.bid_price)}
+        {formatTokenAmount(position.bid_price, DEEPBOOK_PREDICT.quote.decimals)}
       </TableCell>
       <TableCell>{formatDate(position.expiry)}</TableCell>
       <TableCell mono>{truncateAddress(position.owner)}</TableCell>
