@@ -14,7 +14,7 @@ export const DEEPBOOK_PREDICT = {
   },
   plp: {
     symbol: "PLP",
-    decimals: 9,
+    decimals: 6,
     type: "0xf5ea2b3749c65d6e56507cc35388719aadb28f9cab873696a2f8687f5c785138::plp::PLP",
   },
 } as const;
