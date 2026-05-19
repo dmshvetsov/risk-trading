@@ -38,6 +38,7 @@ const LP_SUPPLIES_URL = "https://predict-server.testnet.mystenlabs.com/lp/suppli
 const LP_WITHDRAWALS_URL =
   "https://predict-server.testnet.mystenlabs.com/lp/withdrawals";
 const LP_FLOW_BUCKET_COUNT = 14;
+const QUOTE_AMOUNT_SCALE = 10 ** DEEPBOOK_PREDICT.quote.decimals;
 
 const lpFlowChartConfig = {
   supply: {
@@ -519,7 +520,8 @@ function buildLpFlowBuckets(
         withdrawal: 0,
       } satisfies LpFlowBucket);
 
-    bucket[event.type] += event.type === "withdrawal" ? -event.amount : event.amount;
+    const tokenAmount = event.amount / QUOTE_AMOUNT_SCALE;
+    bucket[event.type] += event.type === "withdrawal" ? -tokenAmount : tokenAmount;
     buckets.set(key, bucket);
   }
 
