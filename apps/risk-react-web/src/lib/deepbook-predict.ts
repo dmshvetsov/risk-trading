@@ -28,6 +28,7 @@ export const PREDICT_BINDINGS = {
   predictCreateManager: `${DEEPBOOK_PREDICT.packageId}::predict::create_manager`,
   predictGetTradeAmounts: `${DEEPBOOK_PREDICT.packageId}::predict::get_trade_amounts`,
   predictManagerDeposit: `${DEEPBOOK_PREDICT.packageId}::predict_manager::deposit`,
+  predictManagerWithdraw: `${DEEPBOOK_PREDICT.packageId}::predict_manager::withdraw`,
   predictMint: `${DEEPBOOK_PREDICT.packageId}::predict::mint`,
   predictRedeem: `${DEEPBOOK_PREDICT.packageId}::predict::redeem`,
   predictRedeemPermissionless: `${DEEPBOOK_PREDICT.packageId}::predict::redeem_permissionless`,
@@ -172,6 +173,9 @@ type PredictManagerObjectContent = {
     owner: string;
     positions: {
       fields: {
+        id: {
+          id: string;
+        };
         size: string;
       };
     };
@@ -228,6 +232,7 @@ export type PredictManagerSummary = {
   hasPositions: boolean;
   id: string;
   owner: string;
+  positionsTableId: string;
   positionsSize: number;
   quoteBalance: bigint;
   rangePositionsSize: number;
@@ -268,6 +273,34 @@ export type PredictRedeemTransactionInput = PredictPositionTransactionInput & {
   executorAddress: string;
   managerOwnerAddress: string;
   oracleStatus: PredictOracle["status"];
+};
+
+export type PredictRedeemAndWithdrawTransactionInput =
+  PredictRedeemTransactionInput & {
+    recipient: string;
+    withdrawAmount: bigint;
+  };
+
+export type WalletPredictPosition = MarketKeyInput & {
+  id: string;
+  quantity: bigint;
+};
+
+type DynamicFieldPage = Awaited<ReturnType<SuiClient["getDynamicFields"]>>;
+
+type PositionFieldContent = {
+  dataType: "moveObject";
+  fields: {
+    name: {
+      fields: {
+        direction: number;
+        expiry: string;
+        oracle_id: string;
+        strike: string;
+      };
+    };
+    value: string;
+  };
 };
 
 export async function getVaultSummary(
@@ -395,6 +428,7 @@ export async function getWalletPredictManager(
     hasPositions: positionsSize > 0 || rangePositionsSize > 0,
     id: managerEvent.manager_id,
     owner: fields.owner,
+    positionsTableId: fields.positions.fields.id.id,
     positionsSize,
     quoteBalance: await getManagerQuoteBalance(
       client,
@@ -402,6 +436,56 @@ export async function getWalletPredictManager(
     ),
     rangePositionsSize,
   };
+}
+
+export async function getWalletPredictPositions(
+  client: SuiClient,
+  manager: PredictManagerSummary,
+): Promise<Array<WalletPredictPosition>> {
+  const dynamicFields = await getAllDynamicFields(client, manager.positionsTableId);
+  if (dynamicFields.length === 0) {
+    return [];
+  }
+
+  const objects = await client.multiGetObjects({
+    ids: dynamicFields.map((field) => field.objectId),
+    options: { showContent: true },
+  });
+
+  return objects
+    .map((objectResponse) => {
+      const content = objectResponse.data?.content;
+      if (!content || content.dataType !== "moveObject") {
+        return null;
+      }
+
+      const fields = (content as PositionFieldContent).fields;
+      const quantity = BigInt(fields.value);
+      if (quantity === 0n) {
+        return null;
+      }
+
+      return {
+        expiry: Number(fields.name.fields.expiry),
+        id: objectResponse.data!.objectId,
+        isUp: fields.name.fields.direction === 0,
+        oracleId: fields.name.fields.oracle_id,
+        quantity,
+        strike: Number(fields.name.fields.strike),
+      };
+    })
+    .filter((position): position is WalletPredictPosition => Boolean(position))
+    .sort((a, b) => {
+      if (a.expiry !== b.expiry) {
+        return a.expiry - b.expiry;
+      }
+
+      if (a.strike !== b.strike) {
+        return a.strike - b.strike;
+      }
+
+      return Number(b.isUp) - Number(a.isUp);
+    });
 }
 
 export function decodeSignedScaled(value: number, isNegative: boolean) {
@@ -678,6 +762,31 @@ export function createRedeemPositionTransaction(
   input: PredictRedeemTransactionInput,
 ) {
   const tx = new Transaction();
+  addRedeemMoveCall(tx, input);
+
+  return tx;
+}
+
+export function createRedeemAndWithdrawPositionTransaction(
+  input: PredictRedeemAndWithdrawTransactionInput,
+) {
+  const tx = new Transaction();
+  addRedeemMoveCall(tx, input);
+
+  if (input.withdrawAmount > 0n) {
+    const [quoteCoin] = tx.moveCall({
+      target: PREDICT_BINDINGS.predictManagerWithdraw,
+      typeArguments: [DEEPBOOK_PREDICT.quote.type],
+      arguments: [tx.object(input.managerId), tx.pure.u64(input.withdrawAmount)],
+    });
+
+    tx.transferObjects([quoteCoin], input.recipient);
+  }
+
+  return tx;
+}
+
+function addRedeemMoveCall(tx: Transaction, input: PredictRedeemTransactionInput) {
   const key = createMarketKey(tx, input);
   const isManagerOwner =
     normalizeSuiAddress(input.executorAddress) ===
@@ -699,8 +808,6 @@ export function createRedeemPositionTransaction(
       tx.object(DEEPBOOK_PREDICT.clockId),
     ],
   });
-
-  return tx;
 }
 
 export async function getAvailableWithdrawal(
@@ -726,6 +833,19 @@ export async function getAvailableWithdrawal(
   }
 
   return parseU64Return(returnValue[0]);
+}
+
+async function getAllDynamicFields(client: SuiClient, parentId: string) {
+  const data: DynamicFieldPage["data"] = [];
+  let cursor: string | null | undefined = null;
+
+  do {
+    const page = await client.getDynamicFields({ parentId, cursor });
+    data.push(...page.data);
+    cursor = page.hasNextPage ? page.nextCursor : null;
+  } while (cursor);
+
+  return data;
 }
 
 export async function getOracleTradeAmounts(

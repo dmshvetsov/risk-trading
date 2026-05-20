@@ -8,6 +8,7 @@ import {
   createDepositAndMintPositionTransaction,
   createManagerDepositTransaction,
   createManagerTransaction,
+  createRedeemAndWithdrawPositionTransaction,
   createMintPositionTransaction,
   createRedeemPositionTransaction,
   parseTokenAmount,
@@ -126,6 +127,30 @@ describe("DeepBook Predict transaction helpers", () => {
       oracleStatus: "active",
     }).getData();
     assertMoveTarget(liveRedeem.commands[1], PREDICT_BINDINGS.predictRedeem);
+  });
+
+  it("can compose redeem and manager payout withdrawal in one PTB", () => {
+    const data = createRedeemAndWithdrawPositionTransaction({
+      expiry: 1_767_225_600,
+      executorAddress: OWNER,
+      isUp: true,
+      managerId: MANAGER_ID,
+      managerOwnerAddress: OWNER,
+      oracleId: BTC_ORACLE_ID,
+      oracleSviId: BTC_ORACLE_SVI_ID,
+      oracleStatus: "active",
+      quantity: 3n,
+      recipient: OWNER,
+      strike: 95_000,
+      withdrawAmount: 1_500_000n,
+    }).getData();
+
+    assertMoveTarget(data.commands[1], PREDICT_BINDINGS.predictRedeem);
+    assertMoveTarget(data.commands[2], PREDICT_BINDINGS.predictManagerWithdraw);
+    assert.deepEqual(moveCall(data.commands[2]).typeArguments, [
+      DEEPBOOK_PREDICT.quote.type,
+    ]);
+    assert.equal(u64Input(data, 9), 1_500_000n);
   });
 
   it("scales DUSDC token amounts to base units", () => {
