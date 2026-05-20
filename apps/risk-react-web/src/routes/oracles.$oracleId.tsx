@@ -32,10 +32,12 @@ import {
   FLOAT_SCALING,
   DEEPBOOK_PREDICT,
   buildSviCurve,
+  createDepositAndMintPositionTransaction,
   createManagerTransaction,
   decodeSignedScaled,
   findLastTradeAsk,
   getSuiExplorerTxUrl,
+  getWalletVaultBalances,
   getWalletPredictManager,
   getOracleState,
   getOracleTradeAmounts,
@@ -45,6 +47,7 @@ import {
   type OracleStateResponse,
   type OracleTrade,
   type SviPoint,
+  type WalletVaultBalances,
 } from "@/lib/deepbook-predict";
 import {
   formatDate,
@@ -90,11 +93,15 @@ function OraclePage() {
   const [state, setState] = useState<OracleStateResponse | null>(null);
   const [trades, setTrades] = useState<Array<OracleTrade>>([]);
   const [manager, setManager] = useState<PredictManagerSummary | null>(null);
+  const [walletBalances, setWalletBalances] =
+    useState<WalletVaultBalances | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isManagerLoading, setIsManagerLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [managerError, setManagerError] = useState<string | null>(null);
   const [managerTxDigest, setManagerTxDigest] = useState<string | null>(null);
+  const [tradeTxDigest, setTradeTxDigest] = useState<string | null>(null);
+  const [tradeError, setTradeError] = useState<string | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [previewIsUp, setPreviewIsUp] = useState(true);
   const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
@@ -104,44 +111,44 @@ function OraclePage() {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  async function loadOracleState(showLoading: boolean, signal?: AbortSignal) {
+    if (showLoading) {
+      setIsLoading(true);
+      setError(null);
+    }
+
+    try {
+      const [oracleState, oracleTrades] = await Promise.all([
+        getOracleState(oracleId),
+        getOracleTrades(oracleId),
+      ]);
+
+      if (!signal?.aborted) {
+        setState(oracleState);
+        setTrades(oracleTrades);
+        setError(null);
+      }
+    } catch (caughtError) {
+      if (!signal?.aborted && showLoading) {
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Failed to load oracle",
+        );
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
+    }
+  }
+
   useEffect(() => {
     const abortController = new AbortController();
 
-    async function loadOracle(showLoading: boolean) {
-      if (showLoading) {
-        setIsLoading(true);
-        setError(null);
-      }
-
-      try {
-        const [oracleState, oracleTrades] = await Promise.all([
-          getOracleState(oracleId),
-          getOracleTrades(oracleId),
-        ]);
-
-        if (!abortController.signal.aborted) {
-          setState(oracleState);
-          setTrades(oracleTrades);
-          setError(null);
-        }
-      } catch (caughtError) {
-        if (!abortController.signal.aborted && showLoading) {
-          setError(
-            caughtError instanceof Error
-              ? caughtError.message
-              : "Failed to load oracle",
-          );
-        }
-      } finally {
-        if (!abortController.signal.aborted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void loadOracle(true);
+    void loadOracleState(true, abortController.signal);
     const intervalId = window.setInterval(() => {
-      void loadOracle(false);
+      void loadOracleState(false, abortController.signal);
     }, ORACLE_REFRESH_INTERVAL_MS);
 
     return () => {
@@ -163,10 +170,63 @@ function OraclePage() {
       return null;
     }
   }, [quantity]);
+  const contractQuantity =
+    parsedQuantity === null ? null : parsedQuantity * TRADE_PREVIEW_UNIT_QUANTITY;
+  const fundingPlan = useMemo(
+    () => getFundingPlan(manager, walletBalances, tradeAmounts?.mintCost),
+    [manager, tradeAmounts?.mintCost, walletBalances],
+  );
+  const tradeValidationError = useMemo(() => {
+    if (!account) {
+      return "Connect a wallet";
+    }
+
+    if (!manager) {
+      return "Create manager";
+    }
+
+    if (!walletBalances) {
+      return "Loading wallet balance";
+    }
+
+    if (!state || !isTradePreviewRenderable(state)) {
+      return "Oracle is not tradable";
+    }
+
+    if (selectedStrike === null) {
+      return "Select a strike";
+    }
+
+    if (parsedQuantity === null || parsedQuantity === 0n || contractQuantity === null) {
+      return "Enter a quantity";
+    }
+
+    if (!tradeAmounts) {
+      return isPreviewLoading ? "Loading quote" : "Quote unavailable";
+    }
+
+    if (fundingPlan.walletDeficit > 0n) {
+      return `Need ${formatManagerQuote(fundingPlan.walletDeficit)} more in wallet`;
+    }
+
+    return null;
+  }, [
+    account,
+    contractQuantity,
+    fundingPlan.walletDeficit,
+    isPreviewLoading,
+    manager,
+    parsedQuantity,
+    selectedStrike,
+    state,
+    tradeAmounts,
+    walletBalances,
+  ]);
 
   async function loadManager() {
     if (!account) {
       setManager(null);
+      setWalletBalances(null);
       setManagerError(null);
       setIsManagerLoading(false);
       return;
@@ -178,6 +238,7 @@ function OraclePage() {
     try {
       const nextManager = await getWalletPredictManager(client, account.address);
       setManager(nextManager);
+      setWalletBalances(await getWalletVaultBalances(client, account.address));
 
       if (nextManager) {
         setManagerTxDigest(null);
@@ -191,6 +252,10 @@ function OraclePage() {
     } finally {
       setIsManagerLoading(false);
     }
+  }
+
+  async function refreshTradingState() {
+    await Promise.all([loadManager(), loadOracleState(false)]);
   }
 
   useEffect(() => {
@@ -339,6 +404,46 @@ function OraclePage() {
     }
   }
 
+  async function openPosition() {
+    if (
+      !account ||
+      !manager ||
+      !state ||
+      !tradeAmounts ||
+      selectedStrike === null ||
+      contractQuantity === null ||
+      tradeValidationError
+    ) {
+      return;
+    }
+
+    setTradeError(null);
+    setTradeTxDigest(null);
+
+    try {
+      const result = await signAndExecuteTransaction({
+        transaction: createDepositAndMintPositionTransaction({
+          depositAmount: fundingPlan.requiredWalletDeposit,
+          expiry: state.oracle.expiry,
+          isUp: previewIsUp,
+          managerId: manager.id,
+          oracleId: state.oracle.oracle_id,
+          oracleSviId: state.oracle.oracle_id,
+          quantity: contractQuantity,
+          strike: selectedStrike,
+        }),
+        chain: "sui:testnet",
+      });
+
+      setTradeTxDigest(result.digest);
+      await refreshTradingState();
+    } catch (caughtError) {
+      setTradeError(
+        caughtError instanceof Error ? caughtError.message : "Trade failed",
+      );
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
@@ -461,7 +566,7 @@ function OraclePage() {
                 ))}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Metric
                   label="Estimated cost"
                   value={formatTradeAmount(tradeAmounts?.mintCost, isPreviewLoading)}
@@ -473,6 +578,30 @@ function OraclePage() {
                     isPreviewLoading,
                   )}
                 />
+                <Metric
+                  label={`Wallet ${DEEPBOOK_PREDICT.quote.symbol}`}
+                  value={
+                    account
+                      ? formatManagerQuote(walletBalances?.quote ?? 0n)
+                      : "Connect"
+                  }
+                />
+                <Metric
+                  label={`Manager ${DEEPBOOK_PREDICT.quote.symbol}`}
+                  value={manager ? formatManagerQuote(manager.quoteBalance) : "-"}
+                />
+              </div>
+
+              <div className="grid gap-3 rounded-md border border-border bg-background p-3 text-sm sm:grid-cols-3">
+                <InfoRow label="Wallet top-up">
+                  {formatManagerQuote(fundingPlan.requiredWalletDeposit)}
+                </InfoRow>
+                <InfoRow label="Wallet deficit">
+                  {formatManagerQuote(fundingPlan.walletDeficit)}
+                </InfoRow>
+                <InfoRow label="Manager after open">
+                  {formatManagerQuote(fundingPlan.managerBalanceAfterMint)}
+                </InfoRow>
               </div>
 
               {parsedQuantity === null || parsedQuantity === 0n ? (
@@ -490,6 +619,30 @@ function OraclePage() {
                   </div>
                 </div>
               )}
+
+              {tradeError ? (
+                <div className="text-sm text-destructive">{tradeError}</div>
+              ) : null}
+
+              {tradeTxDigest ? (
+                <a
+                  className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+                  href={getSuiExplorerTxUrl(tradeTxDigest)}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  View transaction
+                  <ExternalLink className="size-4" aria-hidden="true" />
+                </a>
+              ) : null}
+
+              <Button
+                disabled={isTxPending || Boolean(tradeValidationError)}
+                onClick={() => void openPosition()}
+                type="button"
+              >
+                {isTxPending ? "Waiting for wallet" : tradeValidationError ?? "Open position"}
+              </Button>
             </div>
           </Panel>
         ) : null}
@@ -1078,6 +1231,32 @@ function getManagerStatus({
   }
 
   return "Not created";
+}
+
+function getFundingPlan(
+  manager: PredictManagerSummary | null,
+  walletBalances: WalletVaultBalances | null,
+  mintCost: bigint | undefined,
+) {
+  const managerBalance = manager?.quoteBalance ?? 0n;
+  const walletBalance = walletBalances?.quote ?? 0n;
+  const cost = mintCost ?? 0n;
+  const requiredWalletDeposit =
+    cost > managerBalance ? cost - managerBalance : 0n;
+  const walletDeficit =
+    requiredWalletDeposit > walletBalance
+      ? requiredWalletDeposit - walletBalance
+      : 0n;
+  const managerBalanceAfterMint =
+    managerBalance + requiredWalletDeposit > cost
+      ? managerBalance + requiredWalletDeposit - cost
+      : 0n;
+
+  return {
+    managerBalanceAfterMint,
+    requiredWalletDeposit,
+    walletDeficit,
+  };
 }
 
 function scaleTradeAmounts(

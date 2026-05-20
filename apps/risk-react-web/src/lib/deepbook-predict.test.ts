@@ -5,6 +5,7 @@ import { describe, it } from "vitest";
 import {
   DEEPBOOK_PREDICT,
   PREDICT_BINDINGS,
+  createDepositAndMintPositionTransaction,
   createManagerDepositTransaction,
   createManagerTransaction,
   createMintPositionTransaction,
@@ -67,6 +68,27 @@ describe("DeepBook Predict transaction helpers", () => {
     assert.equal(objectInput(data, 6), BTC_ORACLE_SVI_ID);
     assert.equal(u64Input(data, 7), 7n);
     assert.equal(objectInput(data, 8), normalizedObjectId(DEEPBOOK_PREDICT.clockId));
+  });
+
+  it("composes manager DUSDC deposit before minting in one PTB", () => {
+    const data = createDepositAndMintPositionTransaction({
+      depositAmount: 4_200_000n,
+      expiry: 1_767_225_600,
+      isUp: true,
+      managerId: MANAGER_ID,
+      oracleId: BTC_ORACLE_ID,
+      oracleSviId: BTC_ORACLE_SVI_ID,
+      quantity: 2_000_000n,
+      strike: 100_000,
+    }).getData();
+
+    assertMoveTarget(data.commands[1], PREDICT_BINDINGS.predictManagerDeposit);
+    assertMoveTarget(data.commands[2], PREDICT_BINDINGS.marketKeyNew);
+    assertMoveTarget(data.commands[3], PREDICT_BINDINGS.predictMint);
+    assert.equal(objectInput(data, 0), MANAGER_ID);
+    assert.equal(objectInput(data, 5), DEEPBOOK_PREDICT.predictId);
+    assert.equal(objectInput(data, 6), BTC_ORACLE_SVI_ID);
+    assert.equal(u64Input(data, 7), 2_000_000n);
   });
 
   it("chooses owner redeem for live/owned positions and permissionless redeem for settled third-party execution", () => {

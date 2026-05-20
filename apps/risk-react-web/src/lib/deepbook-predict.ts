@@ -259,6 +259,11 @@ export type PredictPositionTransactionInput = MarketKeyInput & {
   quantity: bigint;
 };
 
+export type FundedPredictPositionTransactionInput =
+  PredictPositionTransactionInput & {
+    depositAmount: bigint;
+  };
+
 export type PredictRedeemTransactionInput = PredictPositionTransactionInput & {
   executorAddress: string;
   managerOwnerAddress: string;
@@ -615,6 +620,42 @@ export function createMintPositionTransaction(
   input: PredictPositionTransactionInput,
 ) {
   const tx = new Transaction();
+  const key = createMarketKey(tx, input);
+
+  tx.moveCall({
+    target: PREDICT_BINDINGS.predictMint,
+    typeArguments: [DEEPBOOK_PREDICT.quote.type],
+    arguments: [
+      tx.object(DEEPBOOK_PREDICT.predictId),
+      tx.object(input.managerId),
+      tx.object(input.oracleSviId),
+      key,
+      tx.pure.u64(input.quantity),
+      tx.object(DEEPBOOK_PREDICT.clockId),
+    ],
+  });
+
+  return tx;
+}
+
+export function createDepositAndMintPositionTransaction(
+  input: FundedPredictPositionTransactionInput,
+) {
+  const tx = new Transaction();
+
+  if (input.depositAmount > 0n) {
+    const quoteCoin = tx.coin({
+      type: DEEPBOOK_PREDICT.quote.type,
+      balance: input.depositAmount,
+    });
+
+    tx.moveCall({
+      target: PREDICT_BINDINGS.predictManagerDeposit,
+      typeArguments: [DEEPBOOK_PREDICT.quote.type],
+      arguments: [tx.object(input.managerId), quoteCoin],
+    });
+  }
+
   const key = createMarketKey(tx, input);
 
   tx.moveCall({
