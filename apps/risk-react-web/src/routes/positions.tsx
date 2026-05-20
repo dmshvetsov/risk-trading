@@ -1,3 +1,4 @@
+import { useCurrentAccount } from "@mysten/dapp-kit";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
@@ -10,6 +11,7 @@ import {
   truncateAddress,
 } from "@/lib/format";
 import { DEEPBOOK_PREDICT } from "@/lib/deepbook-predict";
+import { cn } from "@/lib/utils";
 
 const POSITION_FILTER_STATES = ["opened", "closed"] as const;
 const DEFAULT_POSITION_FILTER_STATE = "opened";
@@ -71,6 +73,7 @@ function isPositionFilterState(value: unknown): value is PositionFilterState {
 function Positions() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
+  const account = useCurrentAccount();
   const [openedPositions, setOpenedPositions] = useState<Array<OpenedPosition>>(
     [],
   );
@@ -212,6 +215,7 @@ function Positions() {
                     <OpenedPositionRow
                       key={position.digest}
                       position={position}
+                      walletAddress={account?.address}
                     />
                   ))
                 ) : (
@@ -219,6 +223,7 @@ function Positions() {
                     <ClosedPositionRow
                       key={position.digest}
                       position={position}
+                      walletAddress={account?.address}
                     />
                   ))
                 )}
@@ -268,9 +273,17 @@ function ClosedPositionsHeader() {
   );
 }
 
-function OpenedPositionRow({ position }: { position: OpenedPosition }) {
+function OpenedPositionRow({
+  position,
+  walletAddress,
+}: {
+  position: OpenedPosition;
+  walletAddress?: string;
+}) {
+  const isWalletPosition = isSameAddress(position.trader, walletAddress);
+
   return (
-    <tr className="border-b border-border transition-colors hover:bg-muted/50">
+    <tr className={getPositionRowClassName(isWalletPosition)}>
       <TableCell>{formatDate(position.checkpoint_timestamp_ms)}</TableCell>
       <TableCell>
         <PositionType isUp={position.is_up} />
@@ -288,15 +301,28 @@ function OpenedPositionRow({ position }: { position: OpenedPosition }) {
         {formatTokenAmount(position.ask_price, DEEPBOOK_PREDICT.quote.decimals)}
       </TableCell>
       <TableCell>{formatDate(position.expiry)}</TableCell>
-      <TableCell mono>{truncateAddress(position.trader)}</TableCell>
+      <TableCell mono>
+        <WalletAddress
+          address={position.trader}
+          isCurrentWallet={isWalletPosition}
+        />
+      </TableCell>
       <TableCell mono>{truncateAddress(position.sender)}</TableCell>
     </tr>
   );
 }
 
-function ClosedPositionRow({ position }: { position: ClosedPosition }) {
+function ClosedPositionRow({
+  position,
+  walletAddress,
+}: {
+  position: ClosedPosition;
+  walletAddress?: string;
+}) {
+  const isWalletPosition = isSameAddress(position.owner, walletAddress);
+
   return (
-    <tr className="border-b border-border transition-colors hover:bg-muted/50">
+    <tr className={getPositionRowClassName(isWalletPosition)}>
       <TableCell>{formatDate(position.checkpoint_timestamp_ms)}</TableCell>
       <TableCell>
         <PositionType isUp={position.is_up} />
@@ -315,9 +341,47 @@ function ClosedPositionRow({ position }: { position: ClosedPosition }) {
         {formatTokenAmount(position.bid_price, DEEPBOOK_PREDICT.quote.decimals)}
       </TableCell>
       <TableCell>{formatDate(position.expiry)}</TableCell>
-      <TableCell mono>{truncateAddress(position.owner)}</TableCell>
+      <TableCell mono>
+        <WalletAddress
+          address={position.owner}
+          isCurrentWallet={isWalletPosition}
+        />
+      </TableCell>
       <TableCell mono>{truncateAddress(position.sender)}</TableCell>
     </tr>
+  );
+}
+
+function getPositionRowClassName(isCurrentWallet: boolean) {
+  return cn(
+    "border-b border-border transition-colors hover:bg-muted/50",
+    isCurrentWallet &&
+      "bg-primary/10 shadow-[inset_3px_0_0_var(--primary)] hover:bg-primary/15",
+  );
+}
+
+function isSameAddress(address: string, walletAddress?: string) {
+  return Boolean(
+    walletAddress && address.toLowerCase() === walletAddress.toLowerCase(),
+  );
+}
+
+function WalletAddress({
+  address,
+  isCurrentWallet,
+}: {
+  address: string;
+  isCurrentWallet: boolean;
+}) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      {truncateAddress(address)}
+      {isCurrentWallet ? (
+        <span className="rounded-sm bg-primary px-1.5 py-0.5 font-sans text-[10px] font-medium text-primary-foreground">
+          You
+        </span>
+      ) : null}
+    </span>
   );
 }
 
