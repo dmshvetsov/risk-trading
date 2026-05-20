@@ -82,6 +82,7 @@ const chartConfig = {
 const ORACLE_REFRESH_INTERVAL_MS = 30_000;
 const MANAGER_INDEX_POLL_INTERVAL_MS = 5_000;
 const TRADE_PREVIEW_DEBOUNCE_MS = 350;
+const TRADE_PREVIEW_REFRESH_INTERVAL_MS = 5_000;
 const TRADE_PREVIEW_UNIT_QUANTITY = 1_000_000n;
 
 function OraclePage() {
@@ -110,6 +111,11 @@ function OraclePage() {
   );
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewRefreshedAt, setPreviewRefreshedAt] = useState<number | null>(
+    null,
+  );
+  const [previewRefreshTick, setPreviewRefreshTick] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   async function loadOracleState(showLoading: boolean, signal?: AbortSignal) {
     if (showLoading) {
@@ -176,6 +182,39 @@ function OraclePage() {
     () => getFundingPlan(manager, walletBalances, tradeAmounts?.mintCost),
     [manager, tradeAmounts?.mintCost, walletBalances],
   );
+  const previewAgeMs =
+    previewRefreshedAt === null ? null : Math.max(0, nowMs - previewRefreshedAt);
+  const previewRefreshInMs =
+    previewAgeMs === null
+      ? null
+      : Math.max(0, TRADE_PREVIEW_REFRESH_INTERVAL_MS - previewAgeMs);
+  const isTradePreviewStale = Boolean(
+    tradeAmounts &&
+      previewAgeMs !== null &&
+      previewAgeMs >= TRADE_PREVIEW_REFRESH_INTERVAL_MS,
+  );
+  const askBoundsValidationError = useMemo(() => {
+    if (
+      !state?.ask_bounds ||
+      !tradeAmounts ||
+      contractQuantity === null ||
+      contractQuantity === 0n
+    ) {
+      return null;
+    }
+
+    const askPrice = getScaledAskPrice(tradeAmounts.mintCost, contractQuantity);
+    const minAsk = BigInt(Math.trunc(state.ask_bounds.min_ask_price));
+    const maxAsk = BigInt(Math.trunc(state.ask_bounds.max_ask_price));
+
+    if (askPrice < minAsk || askPrice > maxAsk) {
+      return `Ask ${formatProbability(Number(askPrice))} is outside bounds ${formatProbability(
+        state.ask_bounds.min_ask_price,
+      )} - ${formatProbability(state.ask_bounds.max_ask_price)}`;
+    }
+
+    return null;
+  }, [contractQuantity, state?.ask_bounds, tradeAmounts]);
   const tradeValidationError = useMemo(() => {
     if (!account) {
       return "Connect a wallet";
@@ -205,6 +244,18 @@ function OraclePage() {
       return isPreviewLoading ? "Loading quote" : "Quote unavailable";
     }
 
+    if (isPreviewLoading) {
+      return "Refreshing quote";
+    }
+
+    if (isTradePreviewStale) {
+      return "Refresh quote";
+    }
+
+    if (askBoundsValidationError) {
+      return askBoundsValidationError;
+    }
+
     if (fundingPlan.walletDeficit > 0n) {
       return `Need ${formatManagerQuote(fundingPlan.walletDeficit)} more in wallet`;
     }
@@ -212,9 +263,11 @@ function OraclePage() {
     return null;
   }, [
     account,
+    askBoundsValidationError,
     contractQuantity,
     fundingPlan.walletDeficit,
     isPreviewLoading,
+    isTradePreviewStale,
     manager,
     parsedQuantity,
     selectedStrike,
@@ -300,6 +353,7 @@ function OraclePage() {
     ) {
       setTradeAmounts(null);
       setPreviewError(null);
+      setPreviewRefreshedAt(null);
       setIsPreviewLoading(false);
       return;
     }
@@ -319,11 +373,13 @@ function OraclePage() {
         .then((amounts) => {
           if (!abortController.signal.aborted) {
             setTradeAmounts(scaleTradeAmounts(amounts, parsedQuantity));
+            setPreviewRefreshedAt(Date.now());
           }
         })
         .catch((caughtError) => {
           if (!abortController.signal.aborted) {
             setTradeAmounts(null);
+            setPreviewRefreshedAt(null);
             setPreviewError(
               caughtError instanceof Error
                 ? caughtError.message
@@ -346,10 +402,44 @@ function OraclePage() {
     client,
     parsedQuantity,
     previewIsUp,
+    previewRefreshTick,
     selectedStrike,
     showTradePreview,
     state,
   ]);
+
+  useEffect(() => {
+    if (
+      !state ||
+      !showTradePreview ||
+      selectedStrike === null ||
+      parsedQuantity === null ||
+      parsedQuantity === 0n
+    ) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setPreviewRefreshTick((tick) => tick + 1);
+    }, TRADE_PREVIEW_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    parsedQuantity,
+    previewIsUp,
+    selectedStrike,
+    showTradePreview,
+    state?.oracle.expiry,
+    state?.oracle.oracle_id,
+  ]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1_000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   if (isLoading) {
     return <PageShell title="Oracle" description="Loading oracle state..." />;
@@ -604,10 +694,30 @@ function OraclePage() {
                 </InfoRow>
               </div>
 
+              <div className="grid gap-3 rounded-md border border-border bg-background p-3 text-sm sm:grid-cols-3">
+                <InfoRow label="Quote refresh">
+                  {formatPreviewRefresh(previewRefreshInMs, isPreviewLoading)}
+                </InfoRow>
+                <InfoRow label="Quote age">
+                  {formatPreviewAge(previewAgeMs)}
+                </InfoRow>
+                <InfoRow label="Ask bounds">
+                  {askBoundsValidationError ?? "Accepted"}
+                </InfoRow>
+              </div>
+
               {parsedQuantity === null || parsedQuantity === 0n ? (
                 <div className="text-sm text-destructive">Enter a quantity.</div>
               ) : previewError ? (
                 <div className="text-sm text-destructive">{previewError}</div>
+              ) : isTradePreviewStale ? (
+                <div className="text-sm text-destructive">
+                  Quote is stale. Wait for the next refresh before signing.
+                </div>
+              ) : askBoundsValidationError ? (
+                <div className="text-sm text-destructive">
+                  {askBoundsValidationError}
+                </div>
               ) : (
                 <div className="space-y-1 text-xs text-muted-foreground">
                   <div>
@@ -805,7 +915,7 @@ function OraclePage() {
               </InfoRow>
               <InfoRow label="Edge model">fair probability - ask</InfoRow>
               <InfoRow label="Range fair value">UP lower - UP higher</InfoRow>
-              <InfoRow label="Trade scope">Read-only decision support</InfoRow>
+              <InfoRow label="Trade scope">BTC/DUSDC open positions</InfoRow>
             </div>
           </Panel>
         </section>
@@ -1193,6 +1303,26 @@ function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
   return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
 }
 
+function formatPreviewRefresh(value: number | null, isLoading: boolean) {
+  if (isLoading) {
+    return "Refreshing";
+  }
+
+  if (value === null) {
+    return "-";
+  }
+
+  return `${Math.ceil(value / 1_000)}s`;
+}
+
+function formatPreviewAge(value: number | null) {
+  if (value === null) {
+    return "-";
+  }
+
+  return `${Math.floor(value / 1_000)}s`;
+}
+
 function formatManagerQuote(value: bigint) {
   return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
 }
@@ -1271,6 +1401,10 @@ function scaleTradeAmounts(
 
 function scaleTradeAmount(amount: bigint, quantity: bigint) {
   return amount * quantity;
+}
+
+function getScaledAskPrice(mintCost: bigint, quantity: bigint) {
+  return (mintCost * BigInt(FLOAT_SCALING)) / quantity;
 }
 
 function formatQuantityInput(value: number) {
