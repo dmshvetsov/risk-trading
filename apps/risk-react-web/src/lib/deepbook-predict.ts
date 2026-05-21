@@ -346,8 +346,13 @@ export async function getVaultSummary(
   };
 }
 
-export async function getOracleState(oracleId: string): Promise<OracleStateResponse> {
-  const response = await fetch(`${PREDICT_SERVER_URL}/oracles/${oracleId}/state`);
+export async function getOracleState(
+  oracleId: string,
+  signal?: AbortSignal,
+): Promise<OracleStateResponse> {
+  const response = await fetch(`${PREDICT_SERVER_URL}/oracles/${oracleId}/state`, {
+    signal,
+  });
 
   if (!response.ok) {
     throw new Error(`Oracle state request failed with ${response.status}`);
@@ -356,8 +361,13 @@ export async function getOracleState(oracleId: string): Promise<OracleStateRespo
   return (await response.json()) as OracleStateResponse;
 }
 
-export async function getOracleTrades(oracleId: string): Promise<Array<OracleTrade>> {
-  const response = await fetch(`${PREDICT_SERVER_URL}/oracles/${oracleId}/trades`);
+export async function getOracleTrades(
+  oracleId: string,
+  signal?: AbortSignal,
+): Promise<Array<OracleTrade>> {
+  const response = await fetch(`${PREDICT_SERVER_URL}/oracles/${oracleId}/trades`, {
+    signal,
+  });
 
   if (!response.ok) {
     return [];
@@ -382,9 +392,11 @@ export async function getOracleTrades(oracleId: string): Promise<Array<OracleTra
 export async function getWalletPredictManager(
   client: SuiClient,
   owner: string,
+  signal?: AbortSignal,
 ): Promise<PredictManagerSummary | null> {
   const response = await fetch(
     `${PREDICT_SERVER_URL}/managers?owner=${encodeURIComponent(owner)}`,
+    { signal },
   );
 
   if (!response.ok) {

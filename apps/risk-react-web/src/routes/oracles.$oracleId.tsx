@@ -7,7 +7,7 @@ import {
 import { createFileRoute } from "@tanstack/react-router";
 import { ExternalLink, Minus, Plus, RefreshCw } from "lucide-react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -83,7 +83,16 @@ const ORACLE_REFRESH_INTERVAL_MS = 30_000;
 const MANAGER_INDEX_POLL_INTERVAL_MS = 5_000;
 const TRADE_PREVIEW_DEBOUNCE_MS = 350;
 const TRADE_PREVIEW_REFRESH_INTERVAL_MS = 5_000;
+const TRADE_PREVIEW_STALE_AFTER_MS = 15_000;
 const TRADE_PREVIEW_UNIT_QUANTITY = 1_000_000n;
+
+type TradePreviewInput = {
+  expiry: number;
+  isUp: boolean;
+  oracleId: string;
+  quantity: bigint;
+  strike: number;
+};
 
 function OraclePage() {
   const client = useSuiClient();
@@ -114,10 +123,14 @@ function OraclePage() {
   const [previewRefreshedAt, setPreviewRefreshedAt] = useState<number | null>(
     null,
   );
-  const [previewRefreshTick, setPreviewRefreshTick] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const oracleRequestIdRef = useRef(0);
+  const managerRequestIdRef = useRef(0);
+  const tradePreviewRequestIdRef = useRef(0);
 
   async function loadOracleState(showLoading: boolean, signal?: AbortSignal) {
+    const requestId = (oracleRequestIdRef.current += 1);
+
     if (showLoading) {
       setIsLoading(true);
       setError(null);
@@ -125,17 +138,22 @@ function OraclePage() {
 
     try {
       const [oracleState, oracleTrades] = await Promise.all([
-        getOracleState(oracleId),
-        getOracleTrades(oracleId),
+        getOracleState(oracleId, signal),
+        getOracleTrades(oracleId, signal),
       ]);
 
-      if (!signal?.aborted) {
+      if (!signal?.aborted && requestId === oracleRequestIdRef.current) {
         setState(oracleState);
         setTrades(oracleTrades);
         setError(null);
       }
     } catch (caughtError) {
-      if (!signal?.aborted && showLoading) {
+      if (
+        !isAbortError(caughtError) &&
+        !signal?.aborted &&
+        requestId === oracleRequestIdRef.current &&
+        showLoading
+      ) {
         setError(
           caughtError instanceof Error
             ? caughtError.message
@@ -143,7 +161,7 @@ function OraclePage() {
         );
       }
     } finally {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && requestId === oracleRequestIdRef.current) {
         setIsLoading(false);
       }
     }
@@ -151,15 +169,27 @@ function OraclePage() {
 
   useEffect(() => {
     const abortController = new AbortController();
+    let timeoutId: number | undefined;
 
-    void loadOracleState(true, abortController.signal);
-    const intervalId = window.setInterval(() => {
-      void loadOracleState(false, abortController.signal);
-    }, ORACLE_REFRESH_INTERVAL_MS);
+    const scheduleRefresh = () => {
+      timeoutId = window.setTimeout(() => {
+        void loadOracleState(false, abortController.signal).finally(() => {
+          if (!abortController.signal.aborted) {
+            scheduleRefresh();
+          }
+        });
+      }, ORACLE_REFRESH_INTERVAL_MS);
+    };
+
+    void loadOracleState(true, abortController.signal).finally(() => {
+      if (!abortController.signal.aborted) {
+        scheduleRefresh();
+      }
+    });
 
     return () => {
       abortController.abort();
-      window.clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
     };
   }, [oracleId]);
 
@@ -178,6 +208,34 @@ function OraclePage() {
   }, [quantity]);
   const contractQuantity =
     parsedQuantity === null ? null : parsedQuantity * TRADE_PREVIEW_UNIT_QUANTITY;
+  const tradePreviewInput = useMemo<TradePreviewInput | null>(() => {
+    if (
+      !state ||
+      state.oracle.oracle_id !== oracleId ||
+      !showTradePreview ||
+      selectedStrike === null ||
+      parsedQuantity === null ||
+      parsedQuantity === 0n
+    ) {
+      return null;
+    }
+
+    return {
+      expiry: state.oracle.expiry,
+      isUp: previewIsUp,
+      oracleId: state.oracle.oracle_id,
+      quantity: parsedQuantity,
+      strike: selectedStrike,
+    };
+  }, [
+    parsedQuantity,
+    oracleId,
+    previewIsUp,
+    selectedStrike,
+    showTradePreview,
+    state?.oracle.expiry,
+    state?.oracle.oracle_id,
+  ]);
   const fundingPlan = useMemo(
     () => getFundingPlan(manager, walletBalances, tradeAmounts?.mintCost),
     [manager, tradeAmounts?.mintCost, walletBalances],
@@ -191,7 +249,7 @@ function OraclePage() {
   const isTradePreviewStale = Boolean(
     tradeAmounts &&
       previewAgeMs !== null &&
-      previewAgeMs >= TRADE_PREVIEW_REFRESH_INTERVAL_MS,
+      previewAgeMs >= TRADE_PREVIEW_STALE_AFTER_MS,
   );
   const askBoundsValidationError = useMemo(() => {
     if (
@@ -244,10 +302,6 @@ function OraclePage() {
       return isPreviewLoading ? "Loading quote" : "Quote unavailable";
     }
 
-    if (isPreviewLoading) {
-      return "Refreshing quote";
-    }
-
     if (isTradePreviewStale) {
       return "Refresh quote";
     }
@@ -276,7 +330,9 @@ function OraclePage() {
     walletBalances,
   ]);
 
-  async function loadManager() {
+  async function loadManager(signal?: AbortSignal) {
+    const requestId = (managerRequestIdRef.current += 1);
+
     if (!account) {
       setManager(null);
       setWalletBalances(null);
@@ -289,21 +345,34 @@ function OraclePage() {
     setManagerError(null);
 
     try {
-      const nextManager = await getWalletPredictManager(client, account.address);
+      const [nextManager, nextWalletBalances] = await Promise.all([
+        getWalletPredictManager(client, account.address, signal),
+        getWalletVaultBalances(client, account.address),
+      ]);
+      if (signal?.aborted || requestId !== managerRequestIdRef.current) {
+        return;
+      }
+
       setManager(nextManager);
-      setWalletBalances(await getWalletVaultBalances(client, account.address));
+      setWalletBalances(nextWalletBalances);
 
       if (nextManager) {
         setManagerTxDigest(null);
       }
     } catch (caughtError) {
+      if (isAbortError(caughtError) || signal?.aborted) {
+        return;
+      }
+
       setManagerError(
         caughtError instanceof Error
           ? caughtError.message
           : "Failed to load PredictManager",
       );
     } finally {
-      setIsManagerLoading(false);
+      if (!signal?.aborted && requestId === managerRequestIdRef.current) {
+        setIsManagerLoading(false);
+      }
     }
   }
 
@@ -311,8 +380,52 @@ function OraclePage() {
     await Promise.all([loadManager(), loadOracleState(false)]);
   }
 
+  async function loadTradePreview(
+    input: TradePreviewInput,
+    requestId: number,
+    clearOnError: boolean,
+    isCancelled: () => boolean,
+  ) {
+    try {
+      const amounts = await getOracleTradeAmounts(client, {
+        expiry: input.expiry,
+        isUp: input.isUp,
+        oracleId: input.oracleId,
+        quantity: TRADE_PREVIEW_UNIT_QUANTITY,
+        strike: input.strike,
+      });
+
+      if (!isCancelled() && requestId === tradePreviewRequestIdRef.current) {
+        setTradeAmounts(scaleTradeAmounts(amounts, input.quantity));
+        setPreviewRefreshedAt(Date.now());
+        setPreviewError(null);
+      }
+    } catch (caughtError) {
+      if (!isCancelled() && requestId === tradePreviewRequestIdRef.current) {
+        if (clearOnError) {
+          setTradeAmounts(null);
+          setPreviewRefreshedAt(null);
+        }
+
+        setPreviewError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Failed to load trade preview",
+        );
+      }
+    } finally {
+      if (!isCancelled() && requestId === tradePreviewRequestIdRef.current) {
+        setIsPreviewLoading(false);
+      }
+    }
+  }
+
   useEffect(() => {
-    void loadManager();
+    const abortController = new AbortController();
+
+    void loadManager(abortController.signal);
+
+    return () => abortController.abort();
   }, [account?.address, client]);
 
   useEffect(() => {
@@ -320,12 +433,26 @@ function OraclePage() {
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      void loadManager();
-    }, MANAGER_INDEX_POLL_INTERVAL_MS);
+    const abortController = new AbortController();
+    let timeoutId: number | undefined;
 
-    return () => window.clearInterval(intervalId);
-  }, [account, manager, managerTxDigest]);
+    const scheduleRefresh = () => {
+      timeoutId = window.setTimeout(() => {
+        void loadManager(abortController.signal).finally(() => {
+          if (!abortController.signal.aborted) {
+            scheduleRefresh();
+          }
+        });
+      }, MANAGER_INDEX_POLL_INTERVAL_MS);
+    };
+
+    scheduleRefresh();
+
+    return () => {
+      abortController.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [account?.address, client, manager, managerTxDigest]);
 
   useEffect(() => {
     if (!showTradePreview) {
@@ -344,13 +471,7 @@ function OraclePage() {
   }, [previewStrikeRows, selectedStrike, showTradePreview, state?.latest_price?.spot]);
 
   useEffect(() => {
-    if (
-      !state ||
-      !showTradePreview ||
-      selectedStrike === null ||
-      parsedQuantity === null ||
-      parsedQuantity === 0n
-    ) {
+    if (!tradePreviewInput) {
       setTradeAmounts(null);
       setPreviewError(null);
       setPreviewRefreshedAt(null);
@@ -358,80 +479,50 @@ function OraclePage() {
       return;
     }
 
-    const abortController = new AbortController();
+    let isCancelled = false;
+    const requestId = (tradePreviewRequestIdRef.current += 1);
     setIsPreviewLoading(true);
     setPreviewError(null);
 
     const timeoutId = window.setTimeout(() => {
-      getOracleTradeAmounts(client, {
-        expiry: state.oracle.expiry,
-        isUp: previewIsUp,
-        oracleId: state.oracle.oracle_id,
-        quantity: TRADE_PREVIEW_UNIT_QUANTITY,
-        strike: selectedStrike,
-      })
-        .then((amounts) => {
-          if (!abortController.signal.aborted) {
-            setTradeAmounts(scaleTradeAmounts(amounts, parsedQuantity));
-            setPreviewRefreshedAt(Date.now());
-          }
-        })
-        .catch((caughtError) => {
-          if (!abortController.signal.aborted) {
-            setTradeAmounts(null);
-            setPreviewRefreshedAt(null);
-            setPreviewError(
-              caughtError instanceof Error
-                ? caughtError.message
-                : "Failed to load trade preview",
-            );
-          }
-        })
-        .finally(() => {
-          if (!abortController.signal.aborted) {
-            setIsPreviewLoading(false);
-          }
-        });
+      void loadTradePreview(tradePreviewInput, requestId, true, () => isCancelled);
     }, TRADE_PREVIEW_DEBOUNCE_MS);
 
     return () => {
-      abortController.abort();
+      isCancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [
-    client,
-    parsedQuantity,
-    previewIsUp,
-    previewRefreshTick,
-    selectedStrike,
-    showTradePreview,
-    state,
-  ]);
+  }, [client, tradePreviewInput]);
 
   useEffect(() => {
-    if (
-      !state ||
-      !showTradePreview ||
-      selectedStrike === null ||
-      parsedQuantity === null ||
-      parsedQuantity === 0n
-    ) {
+    if (!tradePreviewInput) {
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      setPreviewRefreshTick((tick) => tick + 1);
-    }, TRADE_PREVIEW_REFRESH_INTERVAL_MS);
+    let isCancelled = false;
+    let timeoutId: number | undefined;
 
-    return () => window.clearInterval(intervalId);
-  }, [
-    parsedQuantity,
-    previewIsUp,
-    selectedStrike,
-    showTradePreview,
-    state?.oracle.expiry,
-    state?.oracle.oracle_id,
-  ]);
+    const scheduleRefresh = () => {
+      timeoutId = window.setTimeout(() => {
+        const requestId = (tradePreviewRequestIdRef.current += 1);
+        setIsPreviewLoading(true);
+        setPreviewError(null);
+        void loadTradePreview(tradePreviewInput, requestId, false, () => isCancelled)
+          .finally(() => {
+            if (!isCancelled) {
+              scheduleRefresh();
+            }
+          });
+      }, TRADE_PREVIEW_REFRESH_INTERVAL_MS);
+    };
+
+    scheduleRefresh();
+
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [client, tradePreviewInput]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -1292,15 +1383,12 @@ function formatEdge(fair: number, ask: number | null) {
 }
 
 function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
-  if (isLoading) {
-    return "Loading...";
+  if (value !== undefined) {
+    const formatted = `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
+    return isLoading ? `${formatted} (refreshing)` : formatted;
   }
 
-  if (value === undefined) {
-    return "-";
-  }
-
-  return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
+  return isLoading ? "Loading..." : "-";
 }
 
 function formatPreviewRefresh(value: number | null, isLoading: boolean) {
@@ -1428,4 +1516,8 @@ function isTradePreviewRenderable(state: OracleStateResponse) {
   return Boolean(
     state.oracle.status === "active" && state.latest_price && state.latest_svi,
   );
+}
+
+function isAbortError(caughtError: unknown) {
+  return caughtError instanceof Error && caughtError.name === "AbortError";
 }
