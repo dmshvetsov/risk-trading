@@ -785,12 +785,9 @@ function OraclePage() {
                 </InfoRow>
               </div>
 
-              <div className="grid gap-3 rounded-md border border-border bg-background p-3 text-sm sm:grid-cols-3">
+              <div className="grid gap-3 rounded-md border border-border bg-background p-3 text-sm sm:grid-cols-2">
                 <InfoRow label="Quote refresh">
                   {formatPreviewRefresh(previewRefreshInMs, isPreviewLoading)}
-                </InfoRow>
-                <InfoRow label="Quote age">
-                  {formatPreviewAge(previewAgeMs)}
                 </InfoRow>
                 <InfoRow label="Ask bounds">
                   {askBoundsValidationError ?? "Accepted"}
@@ -1401,14 +1398,6 @@ function formatPreviewRefresh(value: number | null, isLoading: boolean) {
   }
 
   return `${Math.ceil(value / 1_000)}s`;
-}
-
-function formatPreviewAge(value: number | null) {
-  if (value === null) {
-    return "-";
-  }
-
-  return `${Math.floor(value / 1_000)}s`;
 }
 
 function formatManagerQuote(value: bigint) {
