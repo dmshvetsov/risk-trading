@@ -20,6 +20,7 @@ type NullableFormatOptions = {
 
 type TickValueFormatOptions = NullableFormatOptions & {
   minimumFractionDigits?: 0;
+  maximumFractionDigits?: 0 | 4;
 };
 
 export function formatDate(
@@ -59,6 +60,10 @@ export function formatTickValue(
 ) {
   if (value === null) {
     return opts.nullValue ?? "";
+  }
+
+  if (opts.maximumFractionDigits === 0) {
+    return integerFormatter.format(value / tickSize);
   }
 
   return flexibleNumberFormatter.format(value / tickSize);

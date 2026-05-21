@@ -35,17 +35,14 @@ import {
   createDepositAndMintPositionTransaction,
   createManagerTransaction,
   decodeSignedScaled,
-  findLastTradeAsk,
   getSuiExplorerTxUrl,
   getWalletVaultBalances,
   getWalletPredictManager,
   getOracleState,
   getOracleTradeAmounts,
-  getOracleTrades,
   type OracleTradeAmounts,
   type PredictManagerSummary,
   type OracleStateResponse,
-  type OracleTrade,
   type SviPoint,
   type WalletVaultBalances,
 } from "@/lib/deepbook-predict";
@@ -101,7 +98,6 @@ function OraclePage() {
     useSignAndExecuteTransaction();
   const { oracleId } = Route.useParams();
   const [state, setState] = useState<OracleStateResponse | null>(null);
-  const [trades, setTrades] = useState<Array<OracleTrade>>([]);
   const [manager, setManager] = useState<PredictManagerSummary | null>(null);
   const [walletBalances, setWalletBalances] =
     useState<WalletVaultBalances | null>(null);
@@ -137,14 +133,10 @@ function OraclePage() {
     }
 
     try {
-      const [oracleState, oracleTrades] = await Promise.all([
-        getOracleState(oracleId, signal),
-        getOracleTrades(oracleId, signal),
-      ]);
+      const oracleState = await getOracleState(oracleId, signal);
 
       if (!signal?.aborted && requestId === oracleRequestIdRef.current) {
         setState(oracleState);
-        setTrades(oracleTrades);
         setError(null);
       }
     } catch (caughtError) {
@@ -242,10 +234,6 @@ function OraclePage() {
   );
   const previewAgeMs =
     previewRefreshedAt === null ? null : Math.max(0, nowMs - previewRefreshedAt);
-  const previewRefreshInMs =
-    previewAgeMs === null
-      ? null
-      : Math.max(0, TRADE_PREVIEW_REFRESH_INTERVAL_MS - previewAgeMs);
   const isTradePreviewStale = Boolean(
     tradeAmounts &&
       previewAgeMs !== null &&
@@ -545,8 +533,7 @@ function OraclePage() {
     );
   }
 
-  const { oracle, latest_price: price, latest_svi: svi, ask_bounds: askBounds } =
-    state;
+  const { oracle, latest_price: price, latest_svi: svi } = state;
   const spot = price?.spot ?? null;
   const forward = price?.forward ?? null;
   const isSettled = oracle.status === "settled";
@@ -630,15 +617,12 @@ function OraclePage() {
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <div className="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="text-sm text-muted-foreground">
-              {oracle.underlying_asset} oracle
-            </div>
-            <h1 className="mt-1 text-2xl font-semibold">
-              {truncateAddress(oracle.oracle_id)}
+            <h1 className="text-2xl font-semibold">
+              {oracle.underlying_asset} binary prediction / expiration {formatDate(oracle.expiry)}
             </h1>
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
               <Badge>{oracle.status}</Badge>
-              <Badge>expiry {formatDate(oracle.expiry)}</Badge>
+              <Badge>{oracle.oracle_id}</Badge>
               {isSettled && oracle.settlement_price !== null ? (
                 <Badge>
                   settled{" "}
@@ -647,19 +631,20 @@ function OraclePage() {
               ) : null}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-            <Metric label="Spot" value={formatTickValue(spot, oracle.tick_size)} />
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <Metric
+              label="Spot"
+              value={formatTickValue(spot, oracle.tick_size, {
+                maximumFractionDigits:
+                  oracle.underlying_asset.toUpperCase() === "BTC" ? 0 : 4,
+              })}
+            />
             <Metric
               label="Forward"
-              value={formatTickValue(forward, oracle.tick_size)}
-            />
-            <Metric
-              label="Tick"
-              value={formatTickValue(oracle.tick_size, oracle.tick_size)}
-            />
-            <Metric
-              label="Min strike"
-              value={formatTickValue(oracle.min_strike, oracle.tick_size)}
+              value={formatTickValue(forward, oracle.tick_size, {
+                maximumFractionDigits:
+                  oracle.underlying_asset.toUpperCase() === "BTC" ? 0 : 4,
+              })}
             />
           </div>
         </div>
@@ -747,7 +732,7 @@ function OraclePage() {
                 ))}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <Metric
                   label="Estimated cost"
                   value={formatTradeAmount(tradeAmounts?.mintCost, isPreviewLoading)}
@@ -767,31 +752,6 @@ function OraclePage() {
                       : "Connect"
                   }
                 />
-                <Metric
-                  label={`Manager ${DEEPBOOK_PREDICT.quote.symbol}`}
-                  value={manager ? formatManagerQuote(manager.quoteBalance) : "-"}
-                />
-              </div>
-
-              <div className="grid gap-3 rounded-md border border-border bg-background p-3 text-sm sm:grid-cols-3">
-                <InfoRow label="Wallet top-up">
-                  {formatManagerQuote(fundingPlan.requiredWalletDeposit)}
-                </InfoRow>
-                <InfoRow label="Wallet deficit">
-                  {formatManagerQuote(fundingPlan.walletDeficit)}
-                </InfoRow>
-                <InfoRow label="Manager after open">
-                  {formatManagerQuote(fundingPlan.managerBalanceAfterMint)}
-                </InfoRow>
-              </div>
-
-              <div className="grid gap-3 rounded-md border border-border bg-background p-3 text-sm sm:grid-cols-2">
-                <InfoRow label="Quote refresh">
-                  {formatPreviewRefresh(previewRefreshInMs, isPreviewLoading)}
-                </InfoRow>
-                <InfoRow label="Ask bounds">
-                  {askBoundsValidationError ?? "Accepted"}
-                </InfoRow>
               </div>
 
               {parsedQuantity === null || parsedQuantity === 0n ? (
@@ -957,7 +917,7 @@ function OraclePage() {
           </Panel>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-2">
+        <section>
           <Panel title="SVI Smile">
             <ChartContainer config={chartConfig} className="h-72 w-full">
               <LineChart data={curve} margin={{ left: 8, right: 16, top: 12 }}>
@@ -988,24 +948,6 @@ function OraclePage() {
               </LineChart>
             </ChartContainer>
           </Panel>
-
-          <Panel title="Decision Inputs">
-            <div className="grid gap-3 text-sm">
-              <InfoRow label="Ask bounds">
-                {askBounds
-                  ? `${formatProbability(askBounds.min_ask_price)} - ${formatProbability(
-                      askBounds.max_ask_price,
-                    )}`
-                  : "Inherited global bounds"}
-              </InfoRow>
-              <InfoRow label="Protocol ask source">
-                Last observed trade ask when available
-              </InfoRow>
-              <InfoRow label="Edge model">fair probability - ask</InfoRow>
-              <InfoRow label="Range fair value">UP lower - UP higher</InfoRow>
-              <InfoRow label="Trade scope">BTC/DUSDC open positions</InfoRow>
-            </div>
-          </Panel>
         </section>
 
         <Panel title="Strike Decision Table">
@@ -1017,35 +959,22 @@ function OraclePage() {
                   <Th>K</Th>
                   <Th>UP fair</Th>
                   <Th>DN fair</Th>
-                  <Th>Last UP ask</Th>
-                  <Th>UP edge</Th>
-                  <Th>Last DN ask</Th>
-                  <Th>DN edge</Th>
                 </tr>
               </thead>
               <tbody>
-                {tableRows.map((row) => {
-                  const upAsk = findLastTradeAsk(trades, row.strike, true);
-                  const dnAsk = findLastTradeAsk(trades, row.strike, false);
-
-                  return (
-                    <tr
-                      className="border-b border-border transition-colors hover:bg-muted/50"
-                      key={row.strike}
-                    >
-                      <Td strong>
-                        {formatTickValue(row.strike, oracle.tick_size)}
-                      </Td>
-                      <Td>{row.k.toFixed(5)}</Td>
-                      <Td>{percent(row.upFair)}</Td>
-                      <Td>{percent(row.dnFair)}</Td>
-                      <Td>{formatProbability(upAsk)}</Td>
-                      <Td>{formatEdge(row.upFair, upAsk)}</Td>
-                      <Td>{formatProbability(dnAsk)}</Td>
-                      <Td>{formatEdge(row.dnFair, dnAsk)}</Td>
-                    </tr>
-                  );
-                })}
+                {tableRows.map((row) => (
+                  <tr
+                    className="border-b border-border transition-colors hover:bg-muted/50"
+                    key={row.strike}
+                  >
+                    <Td strong>
+                      {formatTickValue(row.strike, oracle.tick_size)}
+                    </Td>
+                    <Td>{row.k.toFixed(5)}</Td>
+                    <Td>{percent(row.upFair)}</Td>
+                    <Td>{percent(row.dnFair)}</Td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -1371,32 +1300,12 @@ function formatProbability(value: number | null) {
   return percent(value / FLOAT_SCALING);
 }
 
-function formatEdge(fair: number, ask: number | null) {
-  if (ask === null || ask === undefined) {
-    return "n/a";
-  }
-
-  return `${((fair - ask / FLOAT_SCALING) * 100).toFixed(2)} pts`;
-}
-
 function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
   if (value !== undefined) {
     return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
   }
 
   return isLoading ? "Loading..." : "-";
-}
-
-function formatPreviewRefresh(value: number | null, isLoading: boolean) {
-  if (isLoading) {
-    return "Refreshing";
-  }
-
-  if (value === null) {
-    return "-";
-  }
-
-  return `${Math.ceil(value / 1_000)}s`;
 }
 
 function formatManagerQuote(value: bigint) {
