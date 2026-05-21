@@ -82,6 +82,9 @@ const TRADE_PREVIEW_DEBOUNCE_MS = 350;
 const TRADE_PREVIEW_REFRESH_INTERVAL_MS = 5_000;
 const TRADE_PREVIEW_STALE_AFTER_MS = 15_000;
 const TRADE_PREVIEW_UNIT_QUANTITY = 1_000_000n;
+const PREVIEW_STRIKE_ROUNDING_USD = 1_000;
+const PREVIEW_STRIKE_STEP_USD = 2_000;
+const PREVIEW_STRIKE_STEPS_EACH_SIDE = 8;
 
 type TradePreviewInput = {
   expiry: number;
@@ -90,6 +93,8 @@ type TradePreviewInput = {
   quantity: bigint;
   strike: number;
 };
+
+type PreviewStrikeRow = Pick<SviPoint, "strike">;
 
 function OraclePage() {
   const client = useSuiClient();
@@ -187,9 +192,17 @@ function OraclePage() {
 
   const curve = useMemo(() => (state ? buildSviCurve(state) : []), [state]);
   const tableRows = useMemo(() => selectDecisionRows(curve), [curve]);
-  const previewStrikeRows = tableRows;
+  const previewStrikeRows = useMemo(
+    () => (state ? buildPreviewStrikeRows(state) : []),
+    [state?.latest_price?.spot, state?.oracle.min_strike, state?.oracle.tick_size],
+  );
   const showTradePreview = Boolean(
     state && isTradePreviewRenderable(state) && previewStrikeRows.length > 0,
+  );
+  const isSelectedStrikeUnavailable = Boolean(
+    selectedStrike !== null &&
+      showTradePreview &&
+      !previewStrikeRows.some((row) => row.strike === selectedStrike),
   );
   const parsedQuantity = useMemo(() => {
     try {
@@ -206,6 +219,7 @@ function OraclePage() {
       state.oracle.oracle_id !== oracleId ||
       !showTradePreview ||
       selectedStrike === null ||
+      isSelectedStrikeUnavailable ||
       parsedQuantity === null ||
       parsedQuantity === 0n
     ) {
@@ -224,6 +238,7 @@ function OraclePage() {
     oracleId,
     previewIsUp,
     selectedStrike,
+    isSelectedStrikeUnavailable,
     showTradePreview,
     state?.oracle.expiry,
     state?.oracle.oracle_id,
@@ -282,6 +297,10 @@ function OraclePage() {
       return "Select a strike";
     }
 
+    if (isSelectedStrikeUnavailable) {
+      return "Strike unavailable";
+    }
+
     if (parsedQuantity === null || parsedQuantity === 0n || contractQuantity === null) {
       return "Enter a quantity";
     }
@@ -309,6 +328,7 @@ function OraclePage() {
     contractQuantity,
     fundingPlan.walletDeficit,
     isPreviewLoading,
+    isSelectedStrikeUnavailable,
     isTradePreviewStale,
     manager,
     parsedQuantity,
@@ -448,10 +468,7 @@ function OraclePage() {
       return;
     }
 
-    if (
-      selectedStrike === null ||
-      !previewStrikeRows.some((row) => row.strike === selectedStrike)
-    ) {
+    if (selectedStrike === null) {
       setSelectedStrike(
         nearestPreviewStrike(previewStrikeRows, state?.latest_price?.spot),
       );
@@ -1255,7 +1272,52 @@ function selectDecisionRows(curve: Array<SviPoint>) {
   return curve.filter((_, index) => index % step === 0).slice(0, 17);
 }
 
-function nearestPreviewStrike(rows: Array<SviPoint>, spot: number | null | undefined) {
+function buildPreviewStrikeRows(state: OracleStateResponse) {
+  const spot = state.latest_price?.spot;
+  const tickSize = state.oracle.tick_size;
+
+  if (!spot || tickSize <= 0) {
+    return [];
+  }
+
+  const roundedSpotUsd =
+    Math.floor(spot / tickSize / PREVIEW_STRIKE_ROUNDING_USD + 0.5) *
+    PREVIEW_STRIKE_ROUNDING_USD;
+  const roundedSpotStrike = roundedSpotUsd * tickSize;
+  const rows: Array<PreviewStrikeRow> = [];
+  const seenStrikes = new Set<number>();
+
+  for (
+    let offset = -PREVIEW_STRIKE_STEPS_EACH_SIDE;
+    offset <= PREVIEW_STRIKE_STEPS_EACH_SIDE;
+    offset += 1
+  ) {
+    if (offset === 0) {
+      continue;
+    }
+
+    const strike = Math.max(
+      state.oracle.min_strike,
+      (roundedSpotUsd + offset * PREVIEW_STRIKE_STEP_USD) * tickSize,
+    );
+
+    if (strike === roundedSpotStrike) {
+      continue;
+    }
+
+    if (!seenStrikes.has(strike)) {
+      rows.push({ strike });
+      seenStrikes.add(strike);
+    }
+  }
+
+  return rows;
+}
+
+function nearestPreviewStrike(
+  rows: Array<PreviewStrikeRow>,
+  spot: number | null | undefined,
+) {
   if (rows.length === 0) {
     return null;
   }
