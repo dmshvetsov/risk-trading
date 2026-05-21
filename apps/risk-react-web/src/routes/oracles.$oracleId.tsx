@@ -1381,8 +1381,7 @@ function formatEdge(fair: number, ask: number | null) {
 
 function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
   if (value !== undefined) {
-    const formatted = `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
-    return isLoading ? `${formatted} (refreshing)` : formatted;
+    return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
   }
 
   return isLoading ? "Loading..." : "-";
