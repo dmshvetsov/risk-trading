@@ -39,6 +39,7 @@ const REFRESH_INTERVAL_MS = 30_000;
 const PREVIEW_REFRESH_INTERVAL_MS = 5_000;
 
 type PortfolioPosition = WalletPredictPosition & {
+  cost: bigint | null;
   oracleState: OracleStateResponse | null;
   payoutError: string | null;
   redeemPayout: bigint | null;
@@ -129,17 +130,21 @@ function Positions() {
           const oracleState = oracleStates.get(position.oracleId) ?? null;
 
           try {
+            const amounts = oracleState
+              ? await getEstimatedTradeAmounts(position, oracleState)
+              : null;
+
             return {
               ...position,
+              cost: amounts?.cost ?? null,
               oracleState,
               payoutError: null,
-              redeemPayout: oracleState
-                ? await getEstimatedRedeemPayout(position, oracleState)
-                : null,
+              redeemPayout: amounts?.redeemPayout ?? null,
             };
           } catch (caughtError) {
             return {
               ...position,
+              cost: null,
               oracleState,
               payoutError:
                 caughtError instanceof Error
@@ -176,12 +181,15 @@ function Positions() {
     return new Map(entries);
   }
 
-  async function getEstimatedRedeemPayout(
+  async function getEstimatedTradeAmounts(
     position: WalletPredictPosition,
     oracleState: OracleStateResponse,
   ) {
     if (oracleState.oracle.status === "settled") {
-      return getSettledPayout(position, oracleState);
+      return {
+        cost: null,
+        redeemPayout: getSettledPayout(position, oracleState),
+      };
     }
 
     if (!isQuoteable(oracleState)) {
@@ -196,7 +204,10 @@ function Positions() {
       strike: position.strike,
     });
 
-    return amounts.redeemPayout;
+    return {
+      cost: amounts.mintCost,
+      redeemPayout: amounts.redeemPayout,
+    };
   }
 
   useEffect(() => {
@@ -410,7 +421,8 @@ function Positions() {
                   <Th>Side</Th>
                   <Th align="right">Strike</Th>
                   <Th align="right">Quantity</Th>
-                  <Th align="right">Redeem payout</Th>
+                  <Th align="right">Cost</Th>
+                  <Th align="right">PnL</Th>
                   <Th>Expiry</Th>
                   <Th>Settlement</Th>
                   <Th>State</Th>
@@ -446,11 +458,22 @@ function Positions() {
                         {formatPositionQuantity(position.quantity)}
                       </Td>
                       <Td align="right" mono>
+                        {position.cost === null
+                          ? position.payoutError
+                            ? "Unavailable"
+                            : "-"
+                          : formatManagerQuote(position.cost)}
+                      </Td>
+                      <Td align="right" mono>
                         {position.redeemPayout === null
                           ? position.payoutError
                             ? "Unavailable"
                             : "-"
-                          : formatManagerQuote(position.redeemPayout)}
+                          : position.cost === null
+                            ? "-"
+                            : formatSignedManagerQuote(
+                                position.redeemPayout - position.cost,
+                              )}
                       </Td>
                       <Td>{formatDate(position.expiry)}</Td>
                       <Td>{formatSettlement(position.oracleState)}</Td>
@@ -725,6 +748,14 @@ function formatManagerQuote(value: bigint) {
   return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
 }
 
+function formatSignedManagerQuote(value: bigint) {
+  if (value < 0n) {
+    return `-${formatManagerQuote(-value)}`;
+  }
+
+  return formatManagerQuote(value);
+}
+
 function formatTokenInput(value: bigint) {
   const divisor = 10n ** BigInt(DEEPBOOK_PREDICT.quote.decimals);
   const whole = value / divisor;
@@ -761,7 +792,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 function EmptyRow({ children }: { children: React.ReactNode }) {
   return (
     <tr className="border-b border-border">
-      <td className="p-6 text-center text-muted-foreground" colSpan={9}>
+      <td className="p-6 text-center text-muted-foreground" colSpan={10}>
         {children}
       </td>
     </tr>
