@@ -10,12 +10,16 @@ import type React from "react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
   ReferenceLine,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
 
 import {
@@ -38,12 +42,14 @@ import {
   getSuiExplorerTxUrl,
   getWalletVaultBalances,
   getWalletPredictManager,
+  getWalletPredictPositions,
   getOracleState,
   getOracleTradeAmounts,
   type OracleTradeAmounts,
   type PredictManagerSummary,
   type OracleStateResponse,
   type SviPoint,
+  type WalletPredictPosition,
   type WalletVaultBalances,
 } from "@/lib/deepbook-predict";
 import {
@@ -85,6 +91,8 @@ const TRADE_PREVIEW_UNIT_QUANTITY = 1_000_000n;
 const PREVIEW_STRIKE_ROUNDING_USD = 1_000;
 const PREVIEW_STRIKE_STEP_USD = 2_000;
 const PREVIEW_STRIKE_STEPS_EACH_SIDE = 8;
+const OPEN_POSITIONS_WINDOW_MS = 24 * 60 * 60 * 1_000;
+const OPEN_POSITIONS_PRICE_STEP = 500;
 
 type TradePreviewInput = {
   expiry: number;
@@ -104,6 +112,9 @@ function OraclePage() {
   const { oracleId } = Route.useParams();
   const [state, setState] = useState<OracleStateResponse | null>(null);
   const [manager, setManager] = useState<PredictManagerSummary | null>(null);
+  const [openPositions, setOpenPositions] = useState<Array<WalletPredictPosition>>(
+    [],
+  );
   const [walletBalances, setWalletBalances] =
     useState<WalletVaultBalances | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -335,6 +346,7 @@ function OraclePage() {
 
     if (!account) {
       setManager(null);
+      setOpenPositions([]);
       setWalletBalances(null);
       setManagerError(null);
       setIsManagerLoading(false);
@@ -355,6 +367,9 @@ function OraclePage() {
 
       setManager(nextManager);
       setWalletBalances(nextWalletBalances);
+      setOpenPositions(
+        nextManager ? await getWalletPredictPositions(client, nextManager) : [],
+      );
 
       if (nextManager) {
         setManagerTxDigest(null);
@@ -826,6 +841,12 @@ function OraclePage() {
           </Panel>
         ) : null}
 
+        <OpenPositionsScatterPanel
+          positions={openPositions}
+          spot={spot}
+          tickSize={oracle.tick_size}
+        />
+
         <section className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
           <FairProbabilityCurvePanel
             curve={curve}
@@ -1039,6 +1060,141 @@ const SviSmilePanel = memo(function SviSmilePanel({
     </Panel>
   );
 });
+
+type OpenPositionChartPoint = {
+  direction: "UP" | "DOWN";
+  hour: number;
+  id: string;
+  quantity: number;
+  strike: number;
+};
+
+const openPositionsChartConfig = {
+  up: {
+    label: "UP",
+    color: "var(--chart-1)",
+  },
+  down: {
+    label: "DOWN",
+    color: "var(--chart-2)",
+  },
+} satisfies ChartConfig;
+
+const OpenPositionsScatterPanel = memo(function OpenPositionsScatterPanel({
+  positions,
+  spot,
+  tickSize,
+}: {
+  positions: Array<WalletPredictPosition>;
+  spot: number | null;
+  tickSize: number;
+}) {
+  const now = Date.now();
+  const windowEnd = now + OPEN_POSITIONS_WINDOW_MS;
+  const chartPoints = useMemo(
+    () => buildOpenPositionChartPoints(positions, now, windowEnd, tickSize),
+    [positions, now, tickSize, windowEnd],
+  );
+  const upPoints = chartPoints.filter((point) => point.direction === "UP");
+  const downPoints = chartPoints.filter((point) => point.direction === "DOWN");
+  const yDomain = getOpenPositionsPriceDomain(chartPoints, spot, tickSize);
+  const maxQuantity = Math.max(1, ...chartPoints.map((point) => point.quantity));
+
+  return (
+    <Panel
+      title="Open Positions"
+      action={
+        <div className="flex flex-wrap gap-3 text-xs">
+          <LegendItem color="var(--chart-1)" label="UP">
+            Open long-up quantity.
+          </LegendItem>
+          <LegendItem color="var(--chart-2)" label="DOWN">
+            Open long-down quantity.
+          </LegendItem>
+        </div>
+      }
+    >
+      {chartPoints.length > 0 ? (
+        <ChartContainer config={openPositionsChartConfig} className="h-80 w-full">
+          <ScatterChart margin={{ bottom: 8, left: 8, right: 20, top: 12 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis
+              dataKey="hour"
+              domain={[now, windowEnd]}
+              name="Hour"
+              scale="time"
+              tickFormatter={(value) => formatHour(Number(value))}
+              tickMargin={8}
+              type="number"
+            />
+            <YAxis
+              dataKey="strike"
+              domain={yDomain}
+              name="Strike"
+              tickFormatter={(value) => formatTickValue(Number(value), tickSize)}
+              type="number"
+            />
+            <ZAxis dataKey="quantity" domain={[0, maxQuantity]} range={[90, 720]} />
+            {spot ? (
+              <ReferenceLine
+                y={roundPriceToStep(spot, tickSize)}
+                stroke="var(--muted-foreground)"
+                strokeDasharray="4 4"
+              />
+            ) : null}
+            <Tooltip
+              content={<OpenPositionsTooltip tickSize={tickSize} />}
+              cursor={{ stroke: "var(--border)" }}
+              isAnimationActive={false}
+            />
+            <Scatter data={upPoints} dataKey="quantity" isAnimationActive={false}>
+              {upPoints.map((point) => (
+                <Cell fill="var(--color-up)" key={point.id} />
+              ))}
+            </Scatter>
+            <Scatter data={downPoints} dataKey="quantity" isAnimationActive={false}>
+              {downPoints.map((point) => (
+                <Cell fill="var(--color-down)" key={point.id} />
+              ))}
+            </Scatter>
+          </ScatterChart>
+        </ChartContainer>
+      ) : (
+        <EmptyState>No open positions expiring in the next 24 hours.</EmptyState>
+      )}
+    </Panel>
+  );
+});
+
+function OpenPositionsTooltip({
+  active,
+  payload,
+  tickSize,
+}: React.ComponentProps<typeof Tooltip> & { tickSize: number }) {
+  const point = payload?.[0]?.payload as OpenPositionChartPoint | undefined;
+
+  if (!active || !point) {
+    return null;
+  }
+
+  return (
+    <div className="grid min-w-40 gap-1.5 rounded-md border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+      <div className="font-medium">{formatHour(point.hour)}</div>
+      <div className="flex justify-between gap-4">
+        <span className="text-muted-foreground">Direction</span>
+        <span className="font-mono">{point.direction}</span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span className="text-muted-foreground">Strike</span>
+        <span className="font-mono">{formatTickValue(point.strike, tickSize)}</span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span className="text-muted-foreground">Quantity</span>
+        <span className="font-mono">{point.quantity.toLocaleString()}</span>
+      </div>
+    </div>
+  );
+}
 
 function PredictManagerPanel({
   accountAddress,
@@ -1311,6 +1467,80 @@ function nearestStrike(curve: Array<SviPoint>, strike: number) {
   });
 
   return nearest;
+}
+
+function buildOpenPositionChartPoints(
+  positions: Array<WalletPredictPosition>,
+  now: number,
+  windowEnd: number,
+  tickSize: number,
+) {
+  const grouped = new Map<string, OpenPositionChartPoint>();
+
+  for (const position of positions) {
+    const expiryMs = position.expiry;
+    if (expiryMs < now || expiryMs > windowEnd) {
+      continue;
+    }
+
+    const hour = floorToHour(expiryMs);
+    const strike = roundPriceToStep(position.strike, tickSize);
+    const direction = position.isUp ? "UP" : "DOWN";
+    const key = `${hour}:${strike}:${direction}`;
+    const quantity = Number(position.quantity) / Number(TRADE_PREVIEW_UNIT_QUANTITY);
+    const current = grouped.get(key);
+
+    if (current) {
+      current.quantity += quantity;
+    } else {
+      grouped.set(key, {
+        direction,
+        hour,
+        id: key,
+        quantity,
+        strike,
+      });
+    }
+  }
+
+  return [...grouped.values()].sort((a, b) => a.hour - b.hour || a.strike - b.strike);
+}
+
+function getOpenPositionsPriceDomain(
+  points: Array<OpenPositionChartPoint>,
+  spot: number | null,
+  tickSize: number,
+): [number, number] {
+  const priceStep = OPEN_POSITIONS_PRICE_STEP * tickSize;
+  const prices = points.map((point) => point.strike);
+  const center = spot ? roundPriceToStep(spot, tickSize) : prices[0] ?? 0;
+  const lowerData = Math.min(center, ...prices);
+  const upperData = Math.max(center, ...prices);
+  const radius = Math.max(
+    priceStep,
+    Math.ceil(Math.max(center - lowerData, upperData - center) / priceStep) *
+      priceStep,
+  );
+
+  return [center - radius, center + radius];
+}
+
+function floorToHour(timestamp: number) {
+  const date = new Date(timestamp);
+  date.setMinutes(0, 0, 0);
+  return date.getTime();
+}
+
+function formatHour(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function roundPriceToStep(value: number, tickSize: number) {
+  const priceStep = OPEN_POSITIONS_PRICE_STEP * tickSize;
+  return Math.round(value / priceStep) * priceStep;
 }
 
 function scaled(value: number) {
