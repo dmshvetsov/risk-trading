@@ -7,7 +7,7 @@ import {
 import { createFileRoute } from "@tanstack/react-router";
 import { ExternalLink, Minus, Plus, RefreshCw } from "lucide-react";
 import type React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -124,7 +124,7 @@ function OraclePage() {
   const [previewRefreshedAt, setPreviewRefreshedAt] = useState<number | null>(
     null,
   );
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [isTradePreviewStale, setIsTradePreviewStale] = useState(false);
   const oracleRequestIdRef = useRef(0);
   const managerRequestIdRef = useRef(0);
   const tradePreviewRequestIdRef = useRef(0);
@@ -246,13 +246,6 @@ function OraclePage() {
   const fundingPlan = useMemo(
     () => getFundingPlan(manager, walletBalances, tradeAmounts?.mintCost),
     [manager, tradeAmounts?.mintCost, walletBalances],
-  );
-  const previewAgeMs =
-    previewRefreshedAt === null ? null : Math.max(0, nowMs - previewRefreshedAt);
-  const isTradePreviewStale = Boolean(
-    tradeAmounts &&
-      previewAgeMs !== null &&
-      previewAgeMs >= TRADE_PREVIEW_STALE_AFTER_MS,
   );
   const askBoundsValidationError = useMemo(() => {
     if (
@@ -406,6 +399,7 @@ function OraclePage() {
       if (!isCancelled() && requestId === tradePreviewRequestIdRef.current) {
         setTradeAmounts(scaleTradeAmounts(amounts, input.quantity));
         setPreviewRefreshedAt(Date.now());
+        setIsTradePreviewStale(false);
         setPreviewError(null);
       }
     } catch (caughtError) {
@@ -413,6 +407,7 @@ function OraclePage() {
         if (clearOnError) {
           setTradeAmounts(null);
           setPreviewRefreshedAt(null);
+          setIsTradePreviewStale(false);
         }
 
         setPreviewError(
@@ -480,6 +475,7 @@ function OraclePage() {
       setTradeAmounts(null);
       setPreviewError(null);
       setPreviewRefreshedAt(null);
+      setIsTradePreviewStale(false);
       setIsPreviewLoading(false);
       return;
     }
@@ -530,12 +526,21 @@ function OraclePage() {
   }, [client, tradePreviewInput]);
 
   useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1_000);
+    if (!tradeAmounts || previewRefreshedAt === null) {
+      setIsTradePreviewStale(false);
+      return;
+    }
 
-    return () => window.clearInterval(intervalId);
-  }, []);
+    const staleInMs = Math.max(
+      0,
+      TRADE_PREVIEW_STALE_AFTER_MS - (Date.now() - previewRefreshedAt),
+    );
+    const timeoutId = window.setTimeout(() => {
+      setIsTradePreviewStale(true);
+    }, staleInMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [previewRefreshedAt, tradeAmounts]);
 
   if (isLoading) {
     return <PageShell title="Oracle" description="Loading oracle state..." />;
@@ -823,74 +828,11 @@ function OraclePage() {
         ) : null}
 
         <section className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
-          <Panel
-            title="Fair Probability Curve"
-            action={
-              <div className="flex flex-wrap gap-3 text-xs">
-                <LegendItem color="var(--chart-1)" label="UP fair">
-                  Chance settlement finishes above strike.
-                </LegendItem>
-                <LegendItem color="var(--chart-2)" label="DN fair">
-                  Chance settlement finishes at or below strike.
-                </LegendItem>
-                <LegendItem
-                  color="var(--muted-foreground)"
-                  dashed
-                  label="Forward"
-                >
-                  Reference strike used by the SVI pricing curve.
-                </LegendItem>
-              </div>
-            }
-          >
-            <ChartContainer config={chartConfig} className="h-80 w-full">
-              <LineChart data={curve} margin={{ left: 8, right: 16, top: 12 }}>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="strike"
-                  tickMargin={8}
-                  minTickGap={24}
-                  tickFormatter={(value) =>
-                    formatTickValue(Number(value), oracle.tick_size)
-                  }
-                />
-                <YAxis
-                  domain={[0, 1]}
-                  tickFormatter={(value) => `${Math.round(Number(value) * 100)}%`}
-                />
-                {forward ? (
-                  <ReferenceLine
-                    x={nearestStrike(curve, forward)}
-                    stroke="var(--muted-foreground)"
-                    strokeDasharray="4 4"
-                  />
-                ) : null}
-                <Tooltip
-                  content={
-                    <ChartTooltipContent
-                      valueFormatter={(value) =>
-                        `${(Number(value) * 100).toFixed(4)}%`
-                      }
-                    />
-                  }
-                />
-                <Line
-                  dataKey="upFair"
-                  dot={false}
-                  stroke="var(--color-upFair)"
-                  strokeWidth={2}
-                  type="monotone"
-                />
-                <Line
-                  dataKey="dnFair"
-                  dot={false}
-                  stroke="var(--color-dnFair)"
-                  strokeWidth={2}
-                  type="monotone"
-                />
-              </LineChart>
-            </ChartContainer>
-          </Panel>
+          <FairProbabilityCurvePanel
+            curve={curve}
+            forward={forward}
+            tickSize={oracle.tick_size}
+          />
 
           <Panel title="SVI Parameters">
             {svi ? (
@@ -935,36 +877,7 @@ function OraclePage() {
         </section>
 
         <section>
-          <Panel title="SVI Smile">
-            <ChartContainer config={chartConfig} className="h-72 w-full">
-              <LineChart data={curve} margin={{ left: 8, right: 16, top: 12 }}>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="strike"
-                  tickMargin={8}
-                  minTickGap={24}
-                  tickFormatter={(value) =>
-                    formatTickValue(Number(value), oracle.tick_size)
-                  }
-                />
-                <YAxis tickFormatter={(value) => Number(value).toExponential(1)} />
-                <Tooltip
-                  content={
-                    <ChartTooltipContent
-                      valueFormatter={(value) => Number(value).toExponential(4)}
-                    />
-                  }
-                />
-                <Line
-                  dataKey="totalVariance"
-                  dot={false}
-                  stroke="var(--color-totalVariance)"
-                  strokeWidth={2}
-                  type="monotone"
-                />
-              </LineChart>
-            </ChartContainer>
-          </Panel>
+          <SviSmilePanel curve={curve} tickSize={oracle.tick_size} />
         </section>
 
         <Panel title="Strike Decision Table">
@@ -1037,6 +950,125 @@ function Panel({
     </div>
   );
 }
+
+const FairProbabilityCurvePanel = memo(function FairProbabilityCurvePanel({
+  curve,
+  forward,
+  tickSize,
+}: {
+  curve: Array<SviPoint>;
+  forward: number | null;
+  tickSize: number;
+}) {
+  return (
+    <Panel
+      title="Fair Probability Curve"
+      action={
+        <div className="flex flex-wrap gap-3 text-xs">
+          <LegendItem color="var(--chart-1)" label="UP fair">
+            Chance settlement finishes above strike.
+          </LegendItem>
+          <LegendItem color="var(--chart-2)" label="DN fair">
+            Chance settlement finishes at or below strike.
+          </LegendItem>
+          <LegendItem color="var(--muted-foreground)" dashed label="Forward">
+            Reference strike used by the SVI pricing curve.
+          </LegendItem>
+        </div>
+      }
+    >
+      <ChartContainer config={chartConfig} className="h-80 w-full">
+        <LineChart data={curve} margin={{ left: 8, right: 16, top: 12 }}>
+          <CartesianGrid vertical={false} />
+          <XAxis
+            dataKey="strike"
+            tickMargin={8}
+            minTickGap={24}
+            tickFormatter={(value) => formatTickValue(Number(value), tickSize)}
+          />
+          <YAxis
+            domain={[0, 1]}
+            tickFormatter={(value) => `${Math.round(Number(value) * 100)}%`}
+          />
+          {forward ? (
+            <ReferenceLine
+              x={nearestStrike(curve, forward)}
+              stroke="var(--muted-foreground)"
+              strokeDasharray="4 4"
+            />
+          ) : null}
+          <Tooltip
+            isAnimationActive={false}
+            content={
+              <ChartTooltipContent
+                valueFormatter={(value) =>
+                  `${(Number(value) * 100).toFixed(4)}%`
+                }
+              />
+            }
+          />
+          <Line
+            dataKey="upFair"
+            dot={false}
+            isAnimationActive={false}
+            stroke="var(--color-upFair)"
+            strokeWidth={2}
+            type="monotone"
+          />
+          <Line
+            dataKey="dnFair"
+            dot={false}
+            isAnimationActive={false}
+            stroke="var(--color-dnFair)"
+            strokeWidth={2}
+            type="monotone"
+          />
+        </LineChart>
+      </ChartContainer>
+    </Panel>
+  );
+});
+
+const SviSmilePanel = memo(function SviSmilePanel({
+  curve,
+  tickSize,
+}: {
+  curve: Array<SviPoint>;
+  tickSize: number;
+}) {
+  return (
+    <Panel title="SVI Smile">
+      <ChartContainer config={chartConfig} className="h-72 w-full">
+        <LineChart data={curve} margin={{ left: 8, right: 16, top: 12 }}>
+          <CartesianGrid vertical={false} />
+          <XAxis
+            dataKey="strike"
+            tickMargin={8}
+            minTickGap={24}
+            tickFormatter={(value) => formatTickValue(Number(value), tickSize)}
+          />
+          <YAxis tickFormatter={(value) => Number(value).toExponential(1)} />
+          <Tooltip
+            isAnimationActive={false}
+            content={
+              <ChartTooltipContent
+                valueFormatter={(value) => Number(value).toExponential(4)}
+              />
+            }
+          />
+          <Line
+            dataKey="totalVariance"
+            dot={false}
+            isAnimationActive={false}
+            stroke="var(--color-totalVariance)"
+            strokeWidth={2}
+            type="monotone"
+          />
+        </LineChart>
+      </ChartContainer>
+    </Panel>
+  );
+});
 
 function PredictManagerPanel({
   accountAddress,

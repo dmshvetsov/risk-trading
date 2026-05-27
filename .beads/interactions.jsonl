@@ -41,3 +41,5 @@
 {"id":"int-6d62d459","kind":"field_change","created_at":"2026-05-27T05:38:24.815189Z","actor":"dmshvetsov","issue_id":"risk-trading-3ec.8","extra":{"field":"priority","new_value":"3","old_value":"2"}}
 {"id":"int-117eeae7","kind":"field_change","created_at":"2026-05-27T05:38:31.768887Z","actor":"dmshvetsov","issue_id":"risk-trading-3ec.9","extra":{"field":"priority","new_value":"3","old_value":"2"}}
 {"id":"int-44e5aad0","kind":"field_change","created_at":"2026-05-27T05:48:02.977115Z","actor":"dmshvetsov","issue_id":"risk-trading-yrc","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Debugged root cause and linked completed fix task risk-trading-0go."}}
+{"id":"int-e2420d48","kind":"field_change","created_at":"2026-05-27T05:58:03.246485Z","actor":"dmshvetsov","issue_id":"risk-trading-yrc","extra":{"field":"status","new_value":"in_progress","old_value":"closed"}}
+{"id":"int-6db936d0","kind":"field_change","created_at":"2026-05-27T06:13:47.770096Z","actor":"dmshvetsov","issue_id":"risk-trading-yrc","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Fixed oracle page chart-driven memory growth."}}
