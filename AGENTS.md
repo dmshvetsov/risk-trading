@@ -122,3 +122,4 @@ bd prime                # Refresh Beads context
 ## Git rules
 
 - commits format `<name of the monorepo package>: <explain what changes are in the commit>`
+- each beads task must be committed to git separately, do not combine multiple task into single git commit
