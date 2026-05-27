@@ -104,6 +104,11 @@ type TradePreviewInput = {
   strike: number;
 };
 
+type PendingOpenPosition = Pick<
+  WalletPredictPosition,
+  "isUp" | "oracleId" | "quantity" | "strike"
+>;
+
 type PreviewStrikeRow = Pick<SviPoint, "strike">;
 
 function OraclePage() {
@@ -126,6 +131,8 @@ function OraclePage() {
   const [managerError, setManagerError] = useState<string | null>(null);
   const [managerTxDigest, setManagerTxDigest] = useState<string | null>(null);
   const [tradeTxDigest, setTradeTxDigest] = useState<string | null>(null);
+  const [pendingOpenPosition, setPendingOpenPosition] =
+    useState<PendingOpenPosition | null>(null);
   const [tradeError, setTradeError] = useState<string | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [previewIsUp, setPreviewIsUp] = useState(true);
@@ -372,11 +379,16 @@ function OraclePage() {
         return;
       }
 
+      const nextOpenPositions = nextManager
+        ? await getWalletPredictPositions(client, nextManager)
+        : [];
+      if (signal?.aborted || requestId !== managerRequestIdRef.current) {
+        return;
+      }
+
       setManager(nextManager);
       setWalletBalances(nextWalletBalances);
-      setOpenPositions(
-        nextManager ? await getWalletPredictPositions(client, nextManager) : [],
-      );
+      setOpenPositions(nextOpenPositions);
 
       if (nextManager) {
         setManagerTxDigest(null);
@@ -477,6 +489,33 @@ function OraclePage() {
       window.clearTimeout(timeoutId);
     };
   }, [account?.address, client, manager, managerTxDigest]);
+
+  useEffect(() => {
+    if (!account || !pendingOpenPosition || !tradeTxDigest) {
+      return;
+    }
+
+    if (hasIndexedOpenPosition(openPositions, pendingOpenPosition)) {
+      setPendingOpenPosition(null);
+      return;
+    }
+
+    const abortController = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      void loadManager(abortController.signal);
+    }, MANAGER_INDEX_POLL_INTERVAL_MS);
+
+    return () => {
+      abortController.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    account?.address,
+    client,
+    openPositions,
+    pendingOpenPosition,
+    tradeTxDigest,
+  ]);
 
   useEffect(() => {
     if (!showTradePreview) {
@@ -647,6 +686,12 @@ function OraclePage() {
       });
 
       setTradeTxDigest(result.digest);
+      setPendingOpenPosition({
+        isUp: previewIsUp,
+        oracleId: state.oracle.oracle_id,
+        quantity: contractQuantity,
+        strike: selectedStrike,
+      });
       await refreshTradingState();
     } catch (caughtError) {
       setTradeError(
@@ -1484,6 +1529,19 @@ function nearestStrike(curve: Array<SviPoint>, strike: number) {
   });
 
   return nearest;
+}
+
+function hasIndexedOpenPosition(
+  positions: Array<WalletPredictPosition>,
+  pending: PendingOpenPosition,
+) {
+  return positions.some(
+    (position) =>
+      position.oracleId === pending.oracleId &&
+      position.strike === pending.strike &&
+      position.isUp === pending.isUp &&
+      position.quantity >= pending.quantity,
+  );
 }
 
 function buildOpenPositionChartPoints({
