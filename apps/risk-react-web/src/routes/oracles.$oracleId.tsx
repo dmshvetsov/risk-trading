@@ -1122,6 +1122,15 @@ type OpenPositionChartPoint = {
   strike: number;
 };
 
+type SplitOpenPositionChartPoint = {
+  downQuantity: number;
+  hour: number;
+  id: string;
+  quantity: number;
+  strike: number;
+  upQuantity: number;
+};
+
 const openPositionsChartConfig = {
   up: {
     label: "UP",
@@ -1157,8 +1166,14 @@ const OpenPositionsScatterPanel = memo(function OpenPositionsScatterPanel({
       }),
     [positions, now, tickSize, trades, windowStart],
   );
-  const upPoints = chartPoints.filter((point) => point.direction === "UP");
-  const downPoints = chartPoints.filter((point) => point.direction === "DOWN");
+  const splitPoints = useMemo(
+    () => buildSplitOpenPositionChartPoints(chartPoints),
+    [chartPoints],
+  );
+  const xTicks = useMemo(() => buildOpenPositionsHourTicks(windowStart, now), [
+    now,
+    windowStart,
+  ]);
   const yDomain = getOpenPositionsPriceDomain(chartPoints, spot, tickSize);
   const maxQuantity = Math.max(1, ...chartPoints.map((point) => point.quantity));
 
@@ -1185,8 +1200,10 @@ const OpenPositionsScatterPanel = memo(function OpenPositionsScatterPanel({
               domain={[windowStart, now]}
               name="Hour"
               scale="time"
+              interval="preserveStartEnd"
               tickFormatter={(value) => formatHour(Number(value))}
               tickMargin={8}
+              ticks={xTicks}
               type="number"
             />
             <YAxis
@@ -1209,16 +1226,12 @@ const OpenPositionsScatterPanel = memo(function OpenPositionsScatterPanel({
               cursor={{ stroke: "var(--border)" }}
               isAnimationActive={false}
             />
-            <Scatter data={upPoints} dataKey="quantity" isAnimationActive={false}>
-              {upPoints.map((point) => (
-                <Cell fill="var(--color-up)" key={point.id} />
-              ))}
-            </Scatter>
-            <Scatter data={downPoints} dataKey="quantity" isAnimationActive={false}>
-              {downPoints.map((point) => (
-                <Cell fill="var(--color-down)" key={point.id} />
-              ))}
-            </Scatter>
+            <Scatter
+              data={splitPoints}
+              dataKey="quantity"
+              isAnimationActive={false}
+              shape={<SplitPositionShape maxQuantity={maxQuantity} />}
+            />
           </ScatterChart>
         </ChartContainer>
       ) : (
@@ -1233,7 +1246,7 @@ function OpenPositionsTooltip({
   payload,
   tickSize,
 }: React.ComponentProps<typeof Tooltip> & { tickSize: number }) {
-  const point = payload?.[0]?.payload as OpenPositionChartPoint | undefined;
+  const point = payload?.[0]?.payload as SplitOpenPositionChartPoint | undefined;
 
   if (!active || !point) {
     return null;
@@ -1243,18 +1256,107 @@ function OpenPositionsTooltip({
     <div className="grid min-w-40 gap-1.5 rounded-md border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
       <div className="font-medium">{formatHour(point.hour)}</div>
       <div className="flex justify-between gap-4">
-        <span className="text-muted-foreground">Direction</span>
-        <span className="font-mono">{point.direction}</span>
+        <span className="text-muted-foreground">UP</span>
+        <span className="font-mono">{formatChartQuantity(point.upQuantity)}</span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span className="text-muted-foreground">DOWN</span>
+        <span className="font-mono">{formatChartQuantity(point.downQuantity)}</span>
       </div>
       <div className="flex justify-between gap-4">
         <span className="text-muted-foreground">Strike</span>
         <span className="font-mono">{formatTickValue(point.strike, tickSize)}</span>
       </div>
       <div className="flex justify-between gap-4">
-        <span className="text-muted-foreground">Quantity</span>
-        <span className="font-mono">{point.quantity.toLocaleString()}</span>
+        <span className="text-muted-foreground">Total</span>
+        <span className="font-mono">{formatChartQuantity(point.quantity)}</span>
       </div>
     </div>
+  );
+}
+
+function SplitPositionShape({
+  cx,
+  cy,
+  maxQuantity,
+  payload,
+}: {
+  cx?: number;
+  cy?: number;
+  maxQuantity: number;
+  payload?: SplitOpenPositionChartPoint;
+}) {
+  if (!payload || cx === undefined || cy === undefined) {
+    return null;
+  }
+
+  const maxRadius = 18;
+  const minRadius = 4;
+  const upRadius =
+    payload.upQuantity > 0
+      ? Math.max(minRadius, Math.sqrt(payload.upQuantity / maxQuantity) * maxRadius)
+      : 0;
+  const downRadius =
+    payload.downQuantity > 0
+      ? Math.max(minRadius, Math.sqrt(payload.downQuantity / maxQuantity) * maxRadius)
+      : 0;
+  const hasUp = payload.upQuantity > 0;
+  const hasDown = payload.downQuantity > 0;
+
+  if (hasUp && !hasDown) {
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        fill="var(--color-up)"
+        r={upRadius}
+        stroke="var(--background)"
+        strokeWidth={1}
+      />
+    );
+  }
+
+  if (hasDown && !hasUp) {
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        fill="var(--color-down)"
+        r={downRadius}
+        stroke="var(--background)"
+        strokeWidth={1}
+      />
+    );
+  }
+
+  return (
+    <g>
+      {upRadius > 0 ? (
+        <path
+          d={upperSemicirclePath(cx, cy, upRadius)}
+          fill="var(--color-up)"
+          stroke="var(--background)"
+          strokeWidth={1}
+        />
+      ) : null}
+      {downRadius > 0 ? (
+        <path
+          d={lowerSemicirclePath(cx, cy, downRadius)}
+          fill="var(--color-down)"
+          stroke="var(--background)"
+          strokeWidth={1}
+        />
+      ) : null}
+      <line
+        stroke="var(--foreground)"
+        strokeOpacity={0.45}
+        strokeWidth={1}
+        x1={cx - Math.max(upRadius, downRadius)}
+        x2={cx + Math.max(upRadius, downRadius)}
+        y1={cy}
+        y2={cy}
+      />
+    </g>
   );
 }
 
@@ -1617,6 +1719,46 @@ function addOpenPositionChartPoint(
   }
 }
 
+function buildSplitOpenPositionChartPoints(points: Array<OpenPositionChartPoint>) {
+  const grouped = new Map<string, SplitOpenPositionChartPoint>();
+
+  for (const point of points) {
+    const key = `${point.hour}:${point.strike}`;
+    const current =
+      grouped.get(key) ??
+      ({
+        downQuantity: 0,
+        hour: point.hour,
+        id: key,
+        quantity: 0,
+        strike: point.strike,
+        upQuantity: 0,
+      } satisfies SplitOpenPositionChartPoint);
+
+    if (point.direction === "UP") {
+      current.upQuantity += point.quantity;
+    } else {
+      current.downQuantity += point.quantity;
+    }
+
+    current.quantity = current.upQuantity + current.downQuantity;
+    grouped.set(key, current);
+  }
+
+  return [...grouped.values()].sort((a, b) => a.hour - b.hour || a.strike - b.strike);
+}
+
+function buildOpenPositionsHourTicks(windowStart: number, now: number) {
+  const ticks: Array<number> = [];
+  const firstHour = floorToHour(windowStart + 60 * 60 * 1_000);
+
+  for (let tick = firstHour; tick < now; tick += 4 * 60 * 60 * 1_000) {
+    ticks.push(tick);
+  }
+
+  return [windowStart, ...ticks, now];
+}
+
 function normalizeTradeChartInput(trade: OracleTrade) {
   const timestamp = normalizeTradeTimestamp(trade.tx_timestamp_ms ?? trade.timestamp);
 
@@ -1651,14 +1793,17 @@ function getOpenPositionsPriceDomain(
   tickSize: number,
 ): [number, number] {
   const priceStep = OPEN_POSITIONS_PRICE_STEP * tickSize;
+  const axisPadding = 1_000 * tickSize;
   const prices = points.map((point) => point.strike);
   const center = spot ? roundPriceToStep(spot, tickSize) : prices[0] ?? 0;
   const lowerData = Math.min(center, ...prices);
   const upperData = Math.max(center, ...prices);
   const radius = Math.max(
     priceStep,
-    Math.ceil(Math.max(center - lowerData, upperData - center) / priceStep) *
-      priceStep,
+    Math.ceil(
+      Math.max(center - lowerData + axisPadding, upperData - center + axisPadding) /
+        priceStep,
+    ) * priceStep,
   );
 
   return [center - radius, center + radius];
@@ -1675,6 +1820,30 @@ function formatHour(timestamp: number) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(timestamp));
+}
+
+function formatChartQuantity(quantity: number) {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 4,
+  }).format(quantity);
+}
+
+function upperSemicirclePath(cx: number, cy: number, radius: number) {
+  return [
+    `M ${cx - radius} ${cy}`,
+    `A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`,
+    `L ${cx - radius} ${cy}`,
+    "Z",
+  ].join(" ");
+}
+
+function lowerSemicirclePath(cx: number, cy: number, radius: number) {
+  return [
+    `M ${cx - radius} ${cy}`,
+    `A ${radius} ${radius} 0 0 0 ${cx + radius} ${cy}`,
+    `L ${cx - radius} ${cy}`,
+    "Z",
+  ].join(" ");
 }
 
 function roundPriceToStep(value: number, tickSize: number) {
