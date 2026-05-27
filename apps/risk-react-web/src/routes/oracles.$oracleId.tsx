@@ -1016,12 +1016,13 @@ const SviSmilePanel = memo(function SviSmilePanel({
             minTickGap={24}
             tickFormatter={(value) => formatTickValue(Number(value), tickSize)}
           />
-          <YAxis tickFormatter={(value) => Number(value).toExponential(1)} />
+          <YAxis />
           <Tooltip
             isAnimationActive={false}
             content={
               <ChartTooltipContent
-                valueFormatter={(value) => Number(value).toExponential(4)}
+                labelFormatter={(label) => `Strike ${formatTickValue(Number(label), tickSize)}`}
+                valueFormatter={(value) => Number(value).toFixed(6)}
               />
             }
           />
