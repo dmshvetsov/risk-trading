@@ -39,12 +39,14 @@ import {
   createDepositAndMintPositionTransaction,
   createManagerTransaction,
   decodeSignedScaled,
+  getOracleTrades,
   getSuiExplorerTxUrl,
   getWalletVaultBalances,
   getWalletPredictManager,
   getWalletPredictPositions,
   getOracleState,
   getOracleTradeAmounts,
+  type OracleTrade,
   type OracleTradeAmounts,
   type PredictManagerSummary,
   type OracleStateResponse,
@@ -115,6 +117,7 @@ function OraclePage() {
   const [openPositions, setOpenPositions] = useState<Array<WalletPredictPosition>>(
     [],
   );
+  const [oracleTrades, setOracleTrades] = useState<Array<OracleTrade>>([]);
   const [walletBalances, setWalletBalances] =
     useState<WalletVaultBalances | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -149,10 +152,14 @@ function OraclePage() {
     }
 
     try {
-      const oracleState = await getOracleState(oracleId, signal);
+      const [oracleState, trades] = await Promise.all([
+        getOracleState(oracleId, signal),
+        getOracleTrades(oracleId, signal),
+      ]);
 
       if (!signal?.aborted && requestId === oracleRequestIdRef.current) {
         setState(oracleState);
+        setOracleTrades(trades);
         setError(null);
       }
     } catch (caughtError) {
@@ -843,6 +850,7 @@ function OraclePage() {
 
         <OpenPositionsScatterPanel
           positions={openPositions}
+          trades={oracleTrades}
           spot={spot}
           tickSize={oracle.tick_size}
         />
@@ -1082,18 +1090,27 @@ const openPositionsChartConfig = {
 
 const OpenPositionsScatterPanel = memo(function OpenPositionsScatterPanel({
   positions,
+  trades,
   spot,
   tickSize,
 }: {
   positions: Array<WalletPredictPosition>;
+  trades: Array<OracleTrade>;
   spot: number | null;
   tickSize: number;
 }) {
   const now = Date.now();
-  const windowEnd = now + OPEN_POSITIONS_WINDOW_MS;
+  const windowStart = now - OPEN_POSITIONS_WINDOW_MS;
   const chartPoints = useMemo(
-    () => buildOpenPositionChartPoints(positions, now, windowEnd, tickSize),
-    [positions, now, tickSize, windowEnd],
+    () =>
+      buildOpenPositionChartPoints({
+        fallbackPositions: positions,
+        now,
+        tickSize,
+        trades,
+        windowStart,
+      }),
+    [positions, now, tickSize, trades, windowStart],
   );
   const upPoints = chartPoints.filter((point) => point.direction === "UP");
   const downPoints = chartPoints.filter((point) => point.direction === "DOWN");
@@ -1120,7 +1137,7 @@ const OpenPositionsScatterPanel = memo(function OpenPositionsScatterPanel({
             <CartesianGrid vertical={false} />
             <XAxis
               dataKey="hour"
-              domain={[now, windowEnd]}
+              domain={[windowStart, now]}
               name="Hour"
               scale="time"
               tickFormatter={(value) => formatHour(Number(value))}
@@ -1160,7 +1177,7 @@ const OpenPositionsScatterPanel = memo(function OpenPositionsScatterPanel({
           </ScatterChart>
         </ChartContainer>
       ) : (
-        <EmptyState>No open positions expiring in the next 24 hours.</EmptyState>
+        <EmptyState>No open position activity in the last 24 hours.</EmptyState>
       )}
     </Panel>
   );
@@ -1469,41 +1486,105 @@ function nearestStrike(curve: Array<SviPoint>, strike: number) {
   return nearest;
 }
 
-function buildOpenPositionChartPoints(
-  positions: Array<WalletPredictPosition>,
-  now: number,
-  windowEnd: number,
-  tickSize: number,
-) {
+function buildOpenPositionChartPoints({
+  fallbackPositions,
+  now,
+  tickSize,
+  trades,
+  windowStart,
+}: {
+  fallbackPositions: Array<WalletPredictPosition>;
+  now: number;
+  tickSize: number;
+  trades: Array<OracleTrade>;
+  windowStart: number;
+}) {
   const grouped = new Map<string, OpenPositionChartPoint>();
+  const tradePoints = trades
+    .map((trade) => normalizeTradeChartInput(trade))
+    .filter((trade) => trade && trade.timestamp >= windowStart && trade.timestamp <= now);
 
-  for (const position of positions) {
-    const expiryMs = position.expiry;
-    if (expiryMs < now || expiryMs > windowEnd) {
-      continue;
-    }
+  if (tradePoints.length > 0) {
+    for (const trade of tradePoints) {
+      if (!trade) {
+        continue;
+      }
 
-    const hour = floorToHour(expiryMs);
-    const strike = roundPriceToStep(position.strike, tickSize);
-    const direction = position.isUp ? "UP" : "DOWN";
-    const key = `${hour}:${strike}:${direction}`;
-    const quantity = Number(position.quantity) / Number(TRADE_PREVIEW_UNIT_QUANTITY);
-    const current = grouped.get(key);
-
-    if (current) {
-      current.quantity += quantity;
-    } else {
-      grouped.set(key, {
-        direction,
-        hour,
-        id: key,
-        quantity,
-        strike,
+      addOpenPositionChartPoint(grouped, {
+        direction: trade.isUp ? "UP" : "DOWN",
+        hour: floorToHour(trade.timestamp),
+        quantity: trade.quantity,
+        strike: roundPriceToStep(trade.strike, tickSize),
       });
     }
+
+    return [...grouped.values()].sort((a, b) => a.hour - b.hour || a.strike - b.strike);
+  }
+
+  for (const position of fallbackPositions) {
+    const hour = floorToHour(now);
+    const strike = roundPriceToStep(position.strike, tickSize);
+    const direction = position.isUp ? "UP" : "DOWN";
+    const quantity = Number(position.quantity) / Number(TRADE_PREVIEW_UNIT_QUANTITY);
+
+    addOpenPositionChartPoint(grouped, {
+      direction,
+      hour,
+      quantity,
+      strike,
+    });
   }
 
   return [...grouped.values()].sort((a, b) => a.hour - b.hour || a.strike - b.strike);
+}
+
+function addOpenPositionChartPoint(
+  grouped: Map<string, OpenPositionChartPoint>,
+  point: Pick<OpenPositionChartPoint, "direction" | "hour" | "quantity" | "strike">,
+) {
+  const { direction, hour, quantity, strike } = point;
+  const key = `${hour}:${strike}:${direction}`;
+  const current = grouped.get(key);
+
+  if (current) {
+    current.quantity += quantity;
+  } else {
+    grouped.set(key, {
+      direction,
+      hour,
+      id: key,
+      quantity,
+      strike,
+    });
+  }
+}
+
+function normalizeTradeChartInput(trade: OracleTrade) {
+  const timestamp = normalizeTradeTimestamp(trade.tx_timestamp_ms ?? trade.timestamp);
+
+  if (
+    timestamp === null ||
+    trade.strike === undefined ||
+    trade.is_up === undefined ||
+    trade.quantity === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    isUp: trade.is_up,
+    quantity: trade.quantity / Number(TRADE_PREVIEW_UNIT_QUANTITY),
+    strike: trade.strike,
+    timestamp,
+  };
+}
+
+function normalizeTradeTimestamp(timestamp: number | undefined) {
+  if (timestamp === undefined || !Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return timestamp < 10_000_000_000 ? timestamp * 1_000 : timestamp;
 }
 
 function getOpenPositionsPriceDomain(
