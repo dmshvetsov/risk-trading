@@ -89,9 +89,11 @@ export function ChartTooltipContent({
   payload,
   label,
   className,
+  labelFormatter,
   valueFormatter,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> & {
   className?: string;
+  labelFormatter?: (label: unknown) => React.ReactNode;
   valueFormatter?: (
     value: unknown,
     name: string,
@@ -106,6 +108,8 @@ export function ChartTooltipContent({
     return null;
   }
 
+  const formattedLabel = labelFormatter ? labelFormatter(label) : label;
+
   return (
     <div
       className={cn(
@@ -113,7 +117,7 @@ export function ChartTooltipContent({
         className,
       )}
     >
-      {label ? <div className="font-medium">{label}</div> : null}
+      {formattedLabel ? <div className="font-medium">{formattedLabel}</div> : null}
       <div className="grid gap-1">
         {payload.map((item) => {
           const key = String(item.dataKey ?? item.name ?? "");

@@ -977,8 +977,9 @@ const FairProbabilityCurvePanel = memo(function FairProbabilityCurvePanel({
             isAnimationActive={false}
             content={
               <ChartTooltipContent
+                labelFormatter={(label) => `Strike ${formatTickValue(Number(label), tickSize)}`}
                 valueFormatter={(value) =>
-                  `${(Number(value) * 100).toFixed(4)}%`
+                  `${(Number(value) * 100).toFixed(2)}%`
                 }
               />
             }
