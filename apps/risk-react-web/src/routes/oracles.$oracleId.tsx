@@ -838,28 +838,28 @@ function OraclePage() {
             {svi ? (
               <div className="grid gap-3">
                 <Parameter
-                  hint="Base variance level"
-                  label="a"
+                  hint="The base volatility level. Higher a lifts the whole curve up. `a` moves the smile up/down."
+                  label="volatility level a:"
                   value={scaled(svi.a)}
                 />
                 <Parameter
-                  hint="Smile slope / wing steepness"
-                  label="b"
+                  hint="The steepness of the curve. Higher b means volatility changes more aggressively as strike moves away from the center. `b` makes the smile sharper/flatter."
+                  label="steepness b:"
                   value={scaled(svi.b)}
                 />
                 <Parameter
-                  hint="Skew correlation"
-                  label="rho"
+                  hint="The tilt / skew. It decides whether the curve leans more toward lower strikes or higher strikes. `rho` tilts the smile left/right."
+                  label="skew rho:"
                   value={decodeSignedScaled(svi.rho, svi.rho_negative).toFixed(6)}
                 />
                 <Parameter
-                  hint="Smile center / log-moneyness shift"
-                  label="m"
+                  hint="The center point of the curve. It shifts the volatility “smile” left or right. `m` moves the center left/right."
+                  label="center of smile m:"
                   value={decodeSignedScaled(svi.m, svi.m_negative).toFixed(6)}
                 />
                 <Parameter
-                  hint="Smile curvature / smoothness"
-                  label="sigma"
+                  hint="The smoothness / width around the center. Higher sigma makes the middle of the curve wider and smoother. sigma controls how rounded the middle is."
+                  label="smothness sigma:"
                   value={scaled(svi.sigma)}
                 />
                 <div className="mt-2 border-t border-border pt-3 text-xs text-muted-foreground">
