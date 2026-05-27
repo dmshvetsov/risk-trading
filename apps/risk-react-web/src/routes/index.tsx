@@ -57,7 +57,9 @@ function Home() {
 
   const filteredOracles = useMemo(
     () =>
-      oracles.filter((oracle) => oracle.status === search.filterOracleStatus),
+      oracles
+        .filter((oracle) => oracle.status === search.filterOracleStatus)
+        .toSorted((left, right) => left.expiry - right.expiry),
     [oracles, search.filterOracleStatus],
   );
 

@@ -191,7 +191,6 @@ function OraclePage() {
   }, [oracleId]);
 
   const curve = useMemo(() => (state ? buildSviCurve(state) : []), [state]);
-  const tableRows = useMemo(() => selectDecisionRows(curve), [curve]);
   const previewStrikeRows = useMemo(
     () => (state ? buildPreviewStrikeRows(state) : []),
     [state?.latest_price?.spot, state?.oracle.min_strike, state?.oracle.tick_size],
@@ -831,6 +830,7 @@ function OraclePage() {
           <FairProbabilityCurvePanel
             curve={curve}
             forward={forward}
+            isUp={previewIsUp}
             tickSize={oracle.tick_size}
           />
 
@@ -880,35 +880,6 @@ function OraclePage() {
           <SviSmilePanel curve={curve} tickSize={oracle.tick_size} />
         </section>
 
-        <Panel title="Strike Decision Table">
-          <div className="overflow-x-auto">
-            <table className="w-full caption-bottom text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <Th>Strike</Th>
-                  <Th>K</Th>
-                  <Th>UP fair</Th>
-                  <Th>DN fair</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {tableRows.map((row) => (
-                  <tr
-                    className="border-b border-border transition-colors hover:bg-muted/50"
-                    key={row.strike}
-                  >
-                    <Td strong>
-                      {formatTickValue(row.strike, oracle.tick_size)}
-                    </Td>
-                    <Td>{row.k.toFixed(5)}</Td>
-                    <Td>{percent(row.upFair)}</Td>
-                    <Td>{percent(row.dnFair)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
       </div>
     </main>
   );
@@ -954,22 +925,27 @@ function Panel({
 const FairProbabilityCurvePanel = memo(function FairProbabilityCurvePanel({
   curve,
   forward,
+  isUp,
   tickSize,
 }: {
   curve: Array<SviPoint>;
   forward: number | null;
+  isUp: boolean;
   tickSize: number;
 }) {
+  const directionConfig = isUp
+    ? { color: "var(--chart-1)", dataKey: "upFair", label: "UP fair" }
+    : { color: "var(--chart-2)", dataKey: "dnFair", label: "DN fair" };
+
   return (
     <Panel
       title="Fair Probability Curve"
       action={
         <div className="flex flex-wrap gap-3 text-xs">
-          <LegendItem color="var(--chart-1)" label="UP fair">
-            Chance settlement finishes above strike.
-          </LegendItem>
-          <LegendItem color="var(--chart-2)" label="DN fair">
-            Chance settlement finishes at or below strike.
+          <LegendItem color={directionConfig.color} label={directionConfig.label}>
+            {isUp
+              ? "Chance settlement finishes above strike."
+              : "Chance settlement finishes at or below strike."}
           </LegendItem>
           <LegendItem color="var(--muted-foreground)" dashed label="Forward">
             Reference strike used by the SVI pricing curve.
@@ -1008,18 +984,10 @@ const FairProbabilityCurvePanel = memo(function FairProbabilityCurvePanel({
             }
           />
           <Line
-            dataKey="upFair"
+            dataKey={directionConfig.dataKey}
             dot={false}
             isAnimationActive={false}
-            stroke="var(--color-upFair)"
-            strokeWidth={2}
-            type="monotone"
-          />
-          <Line
-            dataKey="dnFair"
-            dot={false}
-            isAnimationActive={false}
-            stroke="var(--color-dnFair)"
+            stroke={directionConfig.color}
             strokeWidth={2}
             type="monotone"
           />
@@ -1267,41 +1235,6 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="py-8 text-center text-sm text-muted-foreground">{children}</div>;
-}
-
-function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="h-10 px-3 text-right align-middle font-medium whitespace-nowrap text-muted-foreground first:text-left">
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  strong,
-}: {
-  children: React.ReactNode;
-  strong?: boolean;
-}) {
-  return (
-    <td
-      className={`p-3 text-right align-middle font-mono whitespace-nowrap first:text-left ${
-        strong ? "font-semibold" : ""
-      }`}
-    >
-      {children}
-    </td>
-  );
-}
-
-function selectDecisionRows(curve: Array<SviPoint>) {
-  if (curve.length <= 17) {
-    return curve;
-  }
-
-  const step = Math.max(1, Math.floor(curve.length / 16));
-  return curve.filter((_, index) => index % step === 0).slice(0, 17);
 }
 
 function buildPreviewStrikeRows(state: OracleStateResponse) {
