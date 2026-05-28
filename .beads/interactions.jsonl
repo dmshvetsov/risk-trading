@@ -57,3 +57,4 @@
 {"id":"int-06177531","kind":"field_change","created_at":"2026-05-28T09:11:51.723513Z","actor":"dmshvetsov","issue_id":"risk-trading-61d","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
 {"id":"int-16f2e607","kind":"field_change","created_at":"2026-05-28T09:26:28.147827Z","actor":"dmshvetsov","issue_id":"risk-trading-acq","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
 {"id":"int-4a1f6680","kind":"field_change","created_at":"2026-05-28T09:32:11.66011Z","actor":"dmshvetsov","issue_id":"risk-trading-6lu","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
+{"id":"int-8e4bc5db","kind":"field_change","created_at":"2026-05-28T10:43:17.316431Z","actor":"dmshvetsov","issue_id":"risk-trading-d5j","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}

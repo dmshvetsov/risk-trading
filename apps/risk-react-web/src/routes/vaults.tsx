@@ -367,15 +367,25 @@ function Vaults() {
     mode === "supply" ? DEEPBOOK_PREDICT.plp.symbol : DEEPBOOK_PREDICT.quote.symbol;
   const maxAmount =
     mode === "supply" ? balances?.quote ?? 0n : balances?.plp ?? 0n;
+  const walletShare =
+    summary && summary.totalPlpSupply > 0n
+      ? Number(balances?.plp ?? 0n) / Number(summary.totalPlpSupply)
+      : 0;
 
   return (
     <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3">
           <h1 className="text-2xl font-semibold">
             Supply {DEEPBOOK_PREDICT.quote.symbol} liquidity or withdraw by
             burning {DEEPBOOK_PREDICT.plp.symbol} shares.
           </h1>
+          <p className="text-sm text-muted-foreground">
+            Accepted quote asset:{" "}
+            <span className="font-mono text-foreground break-all">
+              {DEEPBOOK_PREDICT.quote.type}
+            </span>
+          </p>
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
@@ -484,14 +494,9 @@ function Vaults() {
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <Metric label={`${DEEPBOOK_PREDICT.quote.symbol} balance`} value={`${formatQuoteAmount(balances?.quote ?? 0n)} ${DEEPBOOK_PREDICT.quote.symbol}`} />
               <Metric label={`${DEEPBOOK_PREDICT.plp.symbol} balance`} value={`${formatPlpAmount(balances?.plp ?? 0n)} ${DEEPBOOK_PREDICT.plp.symbol}`} />
+              <Metric label="Wallet LP share" value={formatPercent(walletShare)} />
               <Metric label="Max payout coverage" value={summary ? formatQuoteAmount(summary.totalMaxPayout) : "-"} />
               <Metric label="Mark-to-market liability" value={summary ? formatQuoteAmount(summary.totalMtm) : "-"} />
-            </div>
-            <div className="mt-4 rounded-md bg-muted p-3 text-xs text-muted-foreground">
-              Accepted quote asset:{" "}
-              <span className="font-mono text-foreground break-all">
-                {DEEPBOOK_PREDICT.quote.type}
-              </span>
             </div>
             {isLoading ? (
               <div className="mt-4 text-sm text-muted-foreground">Loading vault data...</div>
@@ -877,6 +882,14 @@ function formatPlpAmount(value: bigint | number) {
 
 function formatInputAmount(value: bigint | number, decimals: number) {
   return formatTokenAmount(value, decimals);
+}
+
+function formatPercent(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: value > 0 && value < 0.01 ? 4 : 2,
+    minimumFractionDigits: value > 0 && value < 0.01 ? 2 : 0,
+    style: "percent",
+  }).format(value);
 }
 
 function LegendItem({ color, label }: { color: string; label: string }) {
