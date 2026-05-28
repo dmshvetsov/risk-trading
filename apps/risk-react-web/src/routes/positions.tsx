@@ -5,6 +5,7 @@ import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { OpenPositionsChart } from "@/components/open-positions-chart";
 import { Input } from "@/components/ui/input";
 import {
   DEEPBOOK_PREDICT,
@@ -91,6 +92,13 @@ function Positions() {
     preview,
     previewError,
   });
+  const portfolioChartTickSize = useMemo(() => {
+    const tickSizes = positions
+      .map((position) => position.oracleState?.oracle.tick_size ?? null)
+      .filter((tickSize): tickSize is number => tickSize !== null && tickSize > 0);
+
+    return tickSizes.length > 0 ? Math.min(...tickSizes) : 1;
+  }, [positions]);
 
   async function loadPortfolio(showLoading = true) {
     if (!account) {
@@ -405,6 +413,13 @@ function Positions() {
         </section>
 
         {error ? <div className="text-sm text-destructive">{error}</div> : null}
+
+        <OpenPositionsChart
+          emptyState="No wallet positions available to chart."
+          positions={positions}
+          spot={null}
+          tickSize={portfolioChartTickSize}
+        />
 
         <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
