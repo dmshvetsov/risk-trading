@@ -30,7 +30,6 @@ type OracleState = {
   activated_at: number;
   created_checkpoint: number;
   expiry: number;
-  min_strike: number;
   oracle_cap_id: string;
   oracle_id: string;
   predict_id: string;
@@ -180,9 +179,6 @@ function Home() {
                   <th className="h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground">
                     Expiry
                   </th>
-                  <th className="h-10 px-3 text-right align-middle font-medium whitespace-nowrap text-muted-foreground">
-                    Min Strike
-                  </th>
                   <th className="h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground">
                     Settled
                   </th>
@@ -196,7 +192,7 @@ function Home() {
                   <tr className="border-b border-border">
                     <td
                       className="p-6 text-center text-muted-foreground"
-                      colSpan={7}
+                      colSpan={6}
                     >
                       Loading oracles...
                     </td>
@@ -205,7 +201,7 @@ function Home() {
                   <tr className="border-b border-border">
                     <td
                       className="p-6 text-center text-destructive"
-                      colSpan={7}
+                      colSpan={6}
                     >
                       {error}
                     </td>
@@ -214,7 +210,7 @@ function Home() {
                   <tr className="border-b border-border">
                     <td
                       className="p-6 text-center text-muted-foreground"
-                      colSpan={7}
+                      colSpan={6}
                     >
                       No oracle states found.
                     </td>
@@ -265,12 +261,6 @@ function Home() {
                       </td>
                       <td className="p-3 align-middle whitespace-nowrap">
                         {formatDate(oracle.expiry)}
-                      </td>
-                      <td className="p-3 text-right align-middle font-mono whitespace-nowrap">
-                        {formatTickValue(oracle.min_strike, oracle.tick_size, {
-                          minimumFractionDigits: 0,
-                          nullValue: "n/a",
-                        })}
                       </td>
                       <td className="p-3 align-middle whitespace-nowrap">
                         {formatDate(oracle.settled_at, { nullValue: "-" })}
