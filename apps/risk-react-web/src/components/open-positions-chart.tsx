@@ -315,7 +315,7 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="py-8 text-center text-sm text-muted-foreground">{children}</div>;
 }
 
-function buildTradeChartPoints({
+export function buildTradeChartPoints({
   now,
   tickSize,
   trades,
@@ -432,7 +432,9 @@ function buildOpenPositionsHourTicks(windowStart: number, now: number) {
 }
 
 function normalizeTradeChartInput(trade: OracleTrade) {
-  const timestamp = normalizeTradeTimestamp(trade.tx_timestamp_ms ?? trade.timestamp);
+  const timestamp = normalizeTradeTimestamp(
+    trade.checkpoint_timestamp_ms ?? trade.tx_timestamp_ms ?? trade.timestamp,
+  );
 
   if (
     timestamp === null ||

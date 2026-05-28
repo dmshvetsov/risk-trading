@@ -104,6 +104,7 @@ export type OracleStateResponse = {
 export type OracleTrade = {
   ask_price?: number;
   bid_price?: number;
+  checkpoint_timestamp_ms?: number;
   cost?: number;
   expiry?: number;
   is_up?: boolean;
