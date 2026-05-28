@@ -15,7 +15,7 @@ import {
   createMintPositionTransaction,
   createRedeemPositionTransaction,
   parseTokenAmount,
-} from "./deepbook-predict.ts";
+} from "./deepbook-predict";
 
 const BTC_ORACLE_ID =
   "0x1111111111111111111111111111111111111111111111111111111111111111";
@@ -168,10 +168,9 @@ describe("DeepBook Predict transaction helpers", () => {
 
 describe("DeepBook Predict API helpers", () => {
   it("fetches oracle trades from the top-level trades endpoint", async () => {
-    const fetchMock = vi.fn(async () => ({
-      json: async () => [],
-      ok: true,
-    }));
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify([]), { status: 200 }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     await getOracleTrades(BTC_ORACLE_ID);
@@ -272,13 +271,17 @@ function argumentKind(argument: unknown) {
 function objectInput(data: TransactionData, index: number) {
   const input = data.inputs[index];
   assert.ok(input && "UnresolvedObject" in input);
-  return input.UnresolvedObject.objectId;
+  const unresolvedObject = input.UnresolvedObject;
+  assert.ok(unresolvedObject);
+  return unresolvedObject.objectId;
 }
 
 function u64Input(data: TransactionData, index: number) {
   const input = data.inputs[index];
   assert.ok(input && "Pure" in input);
-  return BigInt(bcs.U64.parse(Buffer.from(input.Pure.bytes, "base64")));
+  const pure = input.Pure;
+  assert.ok(pure);
+  return BigInt(bcs.U64.parse(Buffer.from(pure.bytes, "base64")));
 }
 
 function normalizedObjectId(id: string) {

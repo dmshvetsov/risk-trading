@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
+import type { TooltipContentProps, TooltipPayloadEntry } from "recharts";
 
 import { cn } from "@/lib/utils";
 
@@ -91,15 +92,13 @@ export function ChartTooltipContent({
   className,
   labelFormatter,
   valueFormatter,
-}: React.ComponentProps<typeof RechartsPrimitive.Tooltip> & {
+}: Partial<TooltipContentProps> & {
   className?: string;
   labelFormatter?: (label: unknown) => React.ReactNode;
   valueFormatter?: (
     value: unknown,
     name: string,
-    item: NonNullable<
-      React.ComponentProps<typeof RechartsPrimitive.Tooltip>["payload"]
-    >[number],
+    item: TooltipPayloadEntry,
   ) => React.ReactNode;
 }) {
   const { config } = useChart();

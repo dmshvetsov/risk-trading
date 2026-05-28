@@ -1,5 +1,5 @@
-import type { SuiClient } from "@mysten/sui/client";
 import { bcs } from "@mysten/sui/bcs";
+import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 
 export const DEEPBOOK_PREDICT = {
@@ -304,7 +304,7 @@ export type WalletPredictPosition = MarketKeyInput & {
   quantity: bigint;
 };
 
-type DynamicFieldPage = Awaited<ReturnType<SuiClient["getDynamicFields"]>>;
+type DynamicFieldPage = Awaited<ReturnType<SuiJsonRpcClient["getDynamicFields"]>>;
 
 type PositionFieldContent = {
   dataType: "moveObject";
@@ -321,8 +321,21 @@ type PositionFieldContent = {
   };
 };
 
+function getMoveFields<T extends object>(
+  content: { dataType: "moveObject"; fields: object },
+  requiredFields: Array<keyof T & string>,
+) {
+  for (const field of requiredFields) {
+    if (!(field in content.fields)) {
+      throw new Error(`Move object field is missing: ${field}`);
+    }
+  }
+
+  return content.fields as T;
+}
+
 export async function getVaultSummary(
-  client: SuiClient,
+  client: SuiJsonRpcClient,
   sender = DUMMY_SENDER,
 ): Promise<VaultSummary> {
   const [objectResponse, rawAvailableWithdrawal] = await Promise.all([
@@ -338,7 +351,11 @@ export async function getVaultSummary(
     throw new Error("Predict object content is unavailable");
   }
 
-  const fields = (content as MoveObjectContent).fields;
+  const fields = getMoveFields<MoveObjectContent["fields"]>(content, [
+    "treasury_cap",
+    "vault",
+    "withdrawal_limiter",
+  ]);
   const totalBalance = BigInt(fields.vault.fields.balance);
   const totalMtm = BigInt(fields.vault.fields.total_mtm);
   const totalMaxPayout = BigInt(fields.vault.fields.total_max_payout);
@@ -408,7 +425,7 @@ export async function getOracleTrades(
 }
 
 export async function getWalletPredictManager(
-  client: SuiClient,
+  client: SuiJsonRpcClient,
   owner: string,
   signal?: AbortSignal,
 ): Promise<PredictManagerSummary | null> {
@@ -446,7 +463,12 @@ export async function getWalletPredictManager(
     throw new Error("PredictManager object content is unavailable");
   }
 
-  const fields = (content as PredictManagerObjectContent).fields;
+  const fields = getMoveFields<PredictManagerObjectContent["fields"]>(content, [
+    "balance_manager",
+    "owner",
+    "positions",
+    "range_positions",
+  ]);
   const positionsSize = Number(fields.positions.fields.size);
   const rangePositionsSize = Number(fields.range_positions.fields.size);
 
@@ -469,7 +491,7 @@ export async function getWalletPredictManager(
 }
 
 export async function getWalletPredictPositions(
-  client: SuiClient,
+  client: SuiJsonRpcClient,
   manager: PredictManagerSummary,
 ): Promise<Array<WalletPredictPosition>> {
   const dynamicFields = await getAllDynamicFields(client, manager.positionsTableId);
@@ -489,7 +511,10 @@ export async function getWalletPredictPositions(
         return null;
       }
 
-      const fields = (content as PositionFieldContent).fields;
+      const fields = getMoveFields<PositionFieldContent["fields"]>(content, [
+        "name",
+        "value",
+      ]);
       const quantity = BigInt(fields.value);
       if (quantity === 0n) {
         return null;
@@ -638,7 +663,7 @@ function erf(value: number) {
 }
 
 export async function getWalletVaultBalances(
-  client: SuiClient,
+  client: SuiJsonRpcClient,
   owner: string,
 ): Promise<WalletVaultBalances> {
   const [quote, plp] = await Promise.all([
@@ -652,9 +677,9 @@ export async function getWalletVaultBalances(
   };
 }
 
-async function getManagerQuoteBalance(client: SuiClient, balancesBagId: string) {
-  const fields = await client.getDynamicFields({ parentId: balancesBagId });
-  const quoteField = fields.data.find(
+async function getManagerQuoteBalance(client: SuiJsonRpcClient, balancesBagId: string) {
+  const dynamicFields = await client.getDynamicFields({ parentId: balancesBagId });
+  const quoteField = dynamicFields.data.find(
     (field) =>
       field.objectType.includes("::balance::Balance<") &&
       field.objectType.includes(DEEPBOOK_PREDICT.quote.type),
@@ -674,7 +699,10 @@ async function getManagerQuoteBalance(client: SuiClient, balancesBagId: string) 
     throw new Error("PredictManager quote balance is unavailable");
   }
 
-  return BigInt((content as DynamicFieldObjectContent).fields.value);
+  const balanceFields = getMoveFields<DynamicFieldObjectContent["fields"]>(content, [
+    "value",
+  ]);
+  return BigInt(balanceFields.value);
 }
 
 export function createSupplyTransaction(amount: bigint, recipient: string) {
@@ -853,7 +881,7 @@ function addRedeemMoveCall(tx: Transaction, input: PredictRedeemTransactionInput
 }
 
 export async function getAvailableWithdrawal(
-  client: SuiClient,
+  client: SuiJsonRpcClient,
   sender = DUMMY_SENDER,
 ) {
   const tx = new Transaction();
@@ -877,7 +905,7 @@ export async function getAvailableWithdrawal(
   return parseU64Return(returnValue[0]);
 }
 
-async function getAllDynamicFields(client: SuiClient, parentId: string) {
+async function getAllDynamicFields(client: SuiJsonRpcClient, parentId: string) {
   const data: DynamicFieldPage["data"] = [];
   let cursor: string | null | undefined = null;
 
@@ -891,7 +919,7 @@ async function getAllDynamicFields(client: SuiClient, parentId: string) {
 }
 
 export async function getOracleTradeAmounts(
-  client: SuiClient,
+  client: SuiJsonRpcClient,
   input: OracleTradeAmountsInput,
   sender = DUMMY_SENDER,
 ): Promise<OracleTradeAmounts> {

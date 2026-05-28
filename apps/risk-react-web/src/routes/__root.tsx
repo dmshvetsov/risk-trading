@@ -18,7 +18,7 @@ import { SidebarInset } from '@/components/ui/sidebar'
 const queryClient = new QueryClient()
 
 const { networkConfig } = createNetworkConfig({
-  testnet: { url: getJsonRpcFullnodeUrl('testnet') },
+  testnet: { network: 'testnet', url: getJsonRpcFullnodeUrl('testnet') },
 })
 
 export const Route = createRootRoute({

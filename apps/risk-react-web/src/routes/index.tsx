@@ -59,7 +59,8 @@ function Home() {
     () =>
       oracles
         .filter((oracle) => oracle.status === search.filterOracleStatus)
-        .toSorted((left, right) => left.expiry - right.expiry),
+        .slice()
+        .sort((left, right) => left.expiry - right.expiry),
     [oracles, search.filterOracleStatus],
   );
 

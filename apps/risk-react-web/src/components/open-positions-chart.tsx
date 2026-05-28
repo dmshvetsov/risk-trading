@@ -6,6 +6,7 @@ import {
   Scatter,
   ScatterChart,
   Tooltip,
+  type TooltipContentProps,
   XAxis,
   YAxis,
   ZAxis,
@@ -91,7 +92,7 @@ export const OpenPositionsChart = memo(function OpenPositionsChart({
         ? buildTradeChartPoints({
             now,
             tickSize,
-            trades: source.trades,
+            trades: source.trades ?? [],
             windowStart,
           })
         : buildPositionChartPoints({
@@ -184,7 +185,7 @@ function OpenPositionsTooltip({
   active,
   payload,
   tickSize,
-}: React.ComponentProps<typeof Tooltip> & { tickSize: number }) {
+}: Partial<TooltipContentProps> & { tickSize: number }) {
   const point = payload?.[0]?.payload as SplitOpenPositionChartPoint | undefined;
 
   if (!active || !point) {
@@ -345,19 +346,18 @@ export function buildTradeChartPoints({
   const openBucketsByMarket = new Map<string, Array<{ bucketKey: string; quantity: number }>>();
   const tradePoints = trades
     .map((trade) => normalizeTradeChartInput(trade))
-    .filter((trade) => trade && trade.hour >= floorToHour(windowStart) && trade.hour <= now)
+    .filter(
+      (trade): trade is NormalizedOpenPositionTrade =>
+        trade !== null && trade.hour >= floorToHour(windowStart) && trade.hour <= now,
+    )
     .sort((a, b) => a.hour - b.hour || a.strike - b.strike);
 
   for (const trade of tradePoints) {
-    if (!trade) {
-      continue;
-    }
-
     const bucket = {
       direction: trade.direction,
       hour: trade.hour,
       strike: roundPriceToStep(trade.strike, tickSize),
-    };
+    } satisfies Pick<OpenPositionChartPoint, "direction" | "hour" | "strike">;
     const marketKey = `${bucket.strike}:${bucket.direction}`;
     const openBuckets = openBucketsByMarket.get(marketKey) ?? [];
 
@@ -516,7 +516,7 @@ function normalizeTradeChartInput(trade: OracleTrade) {
     quantity: trade.quantity / Number(TRADE_PREVIEW_UNIT_QUANTITY),
     strike: trade.strike,
     tradeType: normalizeTradeType(trade.trade_type ?? trade.type),
-  };
+  } satisfies NormalizedOpenPositionTrade;
 }
 
 function normalizeTradeType(tradeType: string | undefined): "mint" | "redeem" {
