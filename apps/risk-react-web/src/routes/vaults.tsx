@@ -375,12 +375,12 @@ function Vaults() {
   return (
     <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-        <div className="flex flex-col gap-3">
+        <div>
           <h1 className="text-2xl font-semibold">
             Supply {DEEPBOOK_PREDICT.quote.symbol} liquidity or withdraw by
             burning {DEEPBOOK_PREDICT.plp.symbol} shares.
           </h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground mt-1">
             Accepted quote asset:{" "}
             <span className="font-mono text-foreground break-all">
               {DEEPBOOK_PREDICT.quote.type}
