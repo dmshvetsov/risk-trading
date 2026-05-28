@@ -48,3 +48,6 @@
 {"id":"int-ca889169","kind":"field_change","created_at":"2026-05-27T07:14:27.027828Z","actor":"dmshvetsov","issue_id":"risk-trading-cfe","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Implemented nearest-expiry sorting on oracle list"}}
 {"id":"int-699c71f8","kind":"field_change","created_at":"2026-05-27T16:20:58.986331Z","actor":"dmshvetsov","issue_id":"risk-trading-1ik","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Implemented open positions scatter chart"}}
 {"id":"int-dca4b8d2","kind":"field_change","created_at":"2026-05-27T19:01:19.647099Z","actor":"dmshvetsov","issue_id":"risk-trading-qmc","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
+{"id":"int-f15393a8","kind":"field_change","created_at":"2026-05-28T07:22:25.652968Z","actor":"dmshvetsov","issue_id":"risk-trading-vh4","extra":{"field":"priority","new_value":"1","old_value":"2"}}
+{"id":"int-c1d053d6","kind":"field_change","created_at":"2026-05-28T07:22:37.833221Z","actor":"dmshvetsov","issue_id":"risk-trading-vh4","extra":{"field":"priority","new_value":"0","old_value":"1"}}
+{"id":"int-012a7275","kind":"field_change","created_at":"2026-05-28T07:22:48.505045Z","actor":"dmshvetsov","issue_id":"risk-trading-vh4","extra":{"field":"priority","new_value":"1","old_value":"0"}}
