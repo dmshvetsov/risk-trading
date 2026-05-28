@@ -323,7 +323,7 @@ function OraclePage() {
     }
 
     if (fundingPlan.walletDeficit > 0n) {
-      return `Need ${formatManagerQuote(fundingPlan.walletDeficit)} more in wallet`;
+      return formatWalletDeficitMessage(walletBalances?.quote ?? 0n);
     }
 
     return null;
@@ -1447,6 +1447,10 @@ function formatWalletAvailability(
   }
 
   return `${available} available, max ${maxContracts.toString()} contracts`;
+}
+
+export function formatWalletDeficitMessage(walletBalance: bigint) {
+  return `You have only ${formatManagerQuote(walletBalance)} in wallet`;
 }
 
 function getMaxContracts(
