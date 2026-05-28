@@ -19,14 +19,14 @@ import type {
   OracleTrade,
   WalletPredictPosition,
 } from "@/lib/deepbook-predict";
-import { formatTickValue } from "@/lib/format";
+import { formatPredictDirection, formatTickValue } from "@/lib/format";
 
 const TRADE_PREVIEW_UNIT_QUANTITY = 1_000_000n;
 const OPEN_POSITIONS_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const OPEN_POSITIONS_PRICE_STEP = 500;
 
 type OpenPositionChartPoint = {
-  direction: "UP" | "DOWN";
+  direction: "ABOVE" | "BELOW";
   hour: number;
   id: string;
   quantity: number;
@@ -54,11 +54,11 @@ type OpenPositionsChartSource =
 
 const openPositionsChartConfig = {
   up: {
-    label: "UP",
+    label: "ABOVE",
     color: "var(--chart-1)",
   },
   down: {
-    label: "DOWN",
+    label: "BELOW",
     color: "var(--chart-2)",
   },
 } satisfies ChartConfig;
@@ -109,11 +109,11 @@ export const OpenPositionsChart = memo(function OpenPositionsChart({
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <h2 className="text-sm font-semibold">{title}</h2>
         <div className="flex flex-wrap gap-3 text-xs">
-          <LegendItem color="var(--chart-1)" label="UP">
-            Open long-up quantity.
+          <LegendItem color="var(--chart-1)" label="ABOVE">
+            Open long-above quantity.
           </LegendItem>
-          <LegendItem color="var(--chart-2)" label="DOWN">
-            Open long-down quantity.
+          <LegendItem color="var(--chart-2)" label="BELOW">
+            Open long-below quantity.
           </LegendItem>
         </div>
       </div>
@@ -187,11 +187,11 @@ function OpenPositionsTooltip({
     <div className="grid min-w-40 gap-1.5 rounded-md border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
       <div className="font-medium">{formatHour(point.hour)}</div>
       <div className="flex justify-between gap-4">
-        <span className="text-muted-foreground">UP</span>
+        <span className="text-muted-foreground">ABOVE</span>
         <span className="font-mono">{formatChartQuantity(point.upQuantity)}</span>
       </div>
       <div className="flex justify-between gap-4">
-        <span className="text-muted-foreground">DOWN</span>
+        <span className="text-muted-foreground">BELOW</span>
         <span className="font-mono">{formatChartQuantity(point.downQuantity)}</span>
       </div>
       <div className="flex justify-between gap-4">
@@ -344,7 +344,7 @@ export function buildTradeChartPoints({
     }
 
     addOpenPositionChartPoint(grouped, {
-      direction: trade.isUp ? "UP" : "DOWN",
+      direction: formatPredictDirection(trade.isUp),
       hour: floorToHour(trade.timestamp),
       quantity: trade.quantity,
       strike: roundPriceToStep(trade.strike, tickSize),
@@ -367,7 +367,7 @@ function buildPositionChartPoints({
 
   for (const position of positions) {
     addOpenPositionChartPoint(grouped, {
-      direction: position.isUp ? "UP" : "DOWN",
+      direction: formatPredictDirection(position.isUp),
       hour: floorToHour(now),
       quantity: Number(position.quantity) / Number(TRADE_PREVIEW_UNIT_QUANTITY),
       strike: roundPriceToStep(position.strike, tickSize),
@@ -414,7 +414,7 @@ function buildSplitOpenPositionChartPoints(points: Array<OpenPositionChartPoint>
         upQuantity: 0,
       } satisfies SplitOpenPositionChartPoint);
 
-    if (point.direction === "UP") {
+    if (point.direction === "ABOVE") {
       current.upQuantity += point.quantity;
     } else {
       current.downQuantity += point.quantity;

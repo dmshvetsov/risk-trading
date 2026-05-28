@@ -47,6 +47,7 @@ import {
 } from "@/lib/deepbook-predict";
 import {
   formatDate,
+  formatPredictDirection,
   formatTickValue,
   formatTokenAmount,
 } from "@/lib/format";
@@ -57,11 +58,11 @@ export const Route = createFileRoute("/oracles/$oracleId")({
 
 const chartConfig = {
   upFair: {
-    label: "UP fair",
+    label: "ABOVE fair",
     color: "var(--chart-1)",
   },
   dnFair: {
-    label: "DN fair",
+    label: "BELOW fair",
     color: "var(--chart-2)",
   },
   totalVariance: {
@@ -749,14 +750,14 @@ function OraclePage() {
                     type="button"
                     variant={previewIsUp ? "default" : "outline"}
                   >
-                    UP
+                    {formatPredictDirection(true)}
                   </Button>
                   <Button
                     onClick={() => setPreviewIsUp(false)}
                     type="button"
                     variant={previewIsUp ? "outline" : "default"}
                   >
-                    DOWN
+                    {formatPredictDirection(false)}
                   </Button>
                 </div>
 
@@ -1047,8 +1048,16 @@ const FairProbabilityCurvePanel = memo(function FairProbabilityCurvePanel({
   tickSize: number;
 }) {
   const directionConfig = isUp
-    ? { color: "var(--chart-1)", dataKey: "upFair", label: "UP fair" }
-    : { color: "var(--chart-2)", dataKey: "dnFair", label: "DN fair" };
+    ? {
+        color: "var(--chart-1)",
+        dataKey: "upFair",
+        label: `${formatPredictDirection(true)} fair`,
+      }
+    : {
+        color: "var(--chart-2)",
+        dataKey: "dnFair",
+        label: `${formatPredictDirection(false)} fair`,
+      };
 
   return (
     <Panel

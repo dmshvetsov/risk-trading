@@ -22,6 +22,7 @@ import {
 } from "@/lib/deepbook-predict";
 import {
   formatDate,
+  formatPredictDirection,
   formatTickValue,
   formatTokenAmount,
   truncateAddress,
@@ -513,7 +514,7 @@ function Positions() {
                 <h2 className="text-sm font-semibold">Close Position</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {truncateAddress(selectedPosition.oracleId)} ·{" "}
-                  {selectedPosition.isUp ? "UP" : "DOWN"} ·{" "}
+                  {formatPredictDirection(selectedPosition.isUp)} ·{" "}
                   {formatTickValue(selectedPosition.strike)}
                 </p>
               </div>
@@ -849,7 +850,7 @@ function Td({
 function SideBadge({ isUp }: { isUp: boolean }) {
   return (
     <span className="inline-flex items-center rounded-md bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground">
-      {isUp ? "UP" : "DOWN"}
+      {formatPredictDirection(isUp)}
     </span>
   );
 }
