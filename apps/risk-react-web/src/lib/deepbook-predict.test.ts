@@ -9,6 +9,7 @@ import {
   createDepositAndMintPositionTransaction,
   createManagerDepositTransaction,
   createManagerTransaction,
+  findLastTradeAsk,
   getOracleTrades,
   createRedeemAndWithdrawPositionTransaction,
   createMintPositionTransaction,
@@ -177,6 +178,69 @@ describe("DeepBook Predict API helpers", () => {
 
     assert.equal(fetchMock.mock.calls.length, 1);
     assert.equal(fetchMock.mock.calls[0]?.[0], `${PREDICT_SERVER_URL}/trades/${BTC_ORACLE_ID}`);
+  });
+
+  it("accepts the real trades payload shape with type and event metadata", async () => {
+    const payload = [
+      {
+        ask_price: 691057628,
+        checkpoint: 342047881,
+        checkpoint_timestamp_ms: 1779967848758,
+        cost: 69105762,
+        digest: "6ipbrYH1PAgXQgdv2vcEEp32rM541i2he9CehHujWKWS",
+        event_digest: "6ipbrYH1PAgXQgdv2vcEEp32rM541i2he9CehHujWKWS2",
+        event_index: 2,
+        expiry: 1780646400000,
+        is_up: true,
+        manager_id: "0x221e3269cc1758dc841e41b35b17dccfe53bb0c94ca23ca1ece3662e43ae9e7c",
+        oracle_id: BTC_ORACLE_ID,
+        package: "pkg",
+        predict_id: "predict",
+        quantity: 100000000,
+        quote_asset: "dusdc",
+        sender: OWNER,
+        strike: 71350000000000,
+        trader: OWNER,
+        tx_index: 1,
+        type: "mint",
+      },
+    ];
+    const fetchMock = vi.fn(async () => ({
+      json: async () => payload,
+      ok: true,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const trades = await getOracleTrades(BTC_ORACLE_ID);
+
+    assert.equal(trades[0]?.type, "mint");
+    assert.equal(trades[0]?.event_digest, payload[0].event_digest);
+    assert.equal(trades[0]?.checkpoint, payload[0].checkpoint);
+  });
+
+  it("finds the last mint ask and ignores later redeems", () => {
+    const trades = [
+      {
+        ask_price: 500_000_000,
+        checkpoint_timestamp_ms: 1779967740633,
+        cost: 50_000_000,
+        is_up: true,
+        quantity: 100_000_000,
+        strike: 73_450_000_000_000,
+        type: "mint",
+      },
+      {
+        bid_price: 462_198_000,
+        checkpoint_timestamp_ms: 1779967805034,
+        is_up: true,
+        payout: 46_219_800,
+        quantity: 100_000_000,
+        strike: 73_450_000_000_000,
+        type: "redeem",
+      },
+    ];
+
+    assert.equal(findLastTradeAsk(trades, 73_450_000_000_000, true), 500_000_000);
   });
 });
 

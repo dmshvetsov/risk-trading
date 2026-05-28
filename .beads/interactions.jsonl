@@ -63,3 +63,4 @@
 {"id":"int-c7138b3a","kind":"field_change","created_at":"2026-05-28T12:04:50.357724Z","actor":"dmshvetsov","issue_id":"risk-trading-d5x","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
 {"id":"int-f5d634fc","kind":"field_change","created_at":"2026-05-28T12:16:22.924331Z","actor":"dmshvetsov","issue_id":"risk-trading-fee","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
 {"id":"int-1f22adba","kind":"field_change","created_at":"2026-05-28T12:25:23.105982Z","actor":"dmshvetsov","issue_id":"risk-trading-l19","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
+{"id":"int-95b603a6","kind":"field_change","created_at":"2026-05-28T12:27:56.281668Z","actor":"dmshvetsov","issue_id":"risk-trading-0h3","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}

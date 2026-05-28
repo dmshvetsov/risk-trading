@@ -105,15 +105,30 @@ export type OracleTrade = {
   ask_price?: number;
   bid_price?: number;
   checkpoint_timestamp_ms?: number;
+  checkpoint?: number;
   cost?: number;
+  digest?: string;
+  event_digest?: string;
+  event_index?: number;
+  executor?: string;
   expiry?: number;
   is_up?: boolean;
+  is_settled?: boolean;
+  manager_id?: string;
+  owner?: string;
   oracle_id?: string;
+  package?: string;
+  payout?: number;
+  predict_id?: string;
   quantity?: number;
+  quote_asset?: string;
+  sender?: string;
   strike?: number;
   timestamp?: number;
+  trader?: string;
   type?: string;
   trade_type?: string;
+  tx_index?: number;
   tx_timestamp_ms?: number;
 };
 
@@ -585,9 +600,21 @@ export function findLastTradeAsk(
 ) {
   const trade = [...trades]
     .reverse()
-    .find((candidate) => candidate.strike === strike && candidate.is_up === isUp);
+    .find(
+      (candidate) =>
+        candidate.strike === strike &&
+        candidate.is_up === isUp &&
+        normalizeTradeKind(candidate) === "mint",
+    );
 
   return trade?.ask_price ?? trade?.cost ?? null;
+}
+
+function normalizeTradeKind(trade: OracleTrade): "mint" | "redeem" {
+  return trade.trade_type?.toLowerCase() === "redeem" ||
+    trade.type?.toLowerCase() === "redeem"
+    ? "redeem"
+    : "mint";
 }
 
 function normalCdf(value: number) {
