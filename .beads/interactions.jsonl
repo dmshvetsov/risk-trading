@@ -64,3 +64,5 @@
 {"id":"int-f5d634fc","kind":"field_change","created_at":"2026-05-28T12:16:22.924331Z","actor":"dmshvetsov","issue_id":"risk-trading-fee","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
 {"id":"int-1f22adba","kind":"field_change","created_at":"2026-05-28T12:25:23.105982Z","actor":"dmshvetsov","issue_id":"risk-trading-l19","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
 {"id":"int-95b603a6","kind":"field_change","created_at":"2026-05-28T12:27:56.281668Z","actor":"dmshvetsov","issue_id":"risk-trading-0h3","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
+{"id":"int-c0cfedec","kind":"field_change","created_at":"2026-05-28T12:33:08.304084Z","actor":"dmshvetsov","issue_id":"risk-trading-3ec.8","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"not important"}}
+{"id":"int-258a48ec","kind":"field_change","created_at":"2026-05-28T12:33:29.945221Z","actor":"dmshvetsov","issue_id":"risk-trading-3ec.9","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"not important"}}
