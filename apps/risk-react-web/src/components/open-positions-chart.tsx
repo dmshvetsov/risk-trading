@@ -515,7 +515,7 @@ function normalizeTradeChartInput(trade: OracleTrade) {
     hour: floorToHour(timestamp),
     quantity: trade.quantity / Number(TRADE_PREVIEW_UNIT_QUANTITY),
     strike: trade.strike,
-    tradeType: normalizeTradeType(trade.trade_type),
+    tradeType: normalizeTradeType(trade.trade_type ?? trade.type),
   };
 }
 

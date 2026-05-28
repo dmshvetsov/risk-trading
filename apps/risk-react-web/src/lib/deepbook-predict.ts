@@ -112,6 +112,7 @@ export type OracleTrade = {
   quantity?: number;
   strike?: number;
   timestamp?: number;
+  type?: string;
   trade_type?: string;
   tx_timestamp_ms?: number;
 };
