@@ -1,13 +1,15 @@
 import { bcs } from "@mysten/sui/bcs";
 import assert from "node:assert/strict";
-import { describe, it } from "vitest";
+import { afterEach, describe, it, vi } from "vitest";
 
 import {
   DEEPBOOK_PREDICT,
   PREDICT_BINDINGS,
+  PREDICT_SERVER_URL,
   createDepositAndMintPositionTransaction,
   createManagerDepositTransaction,
   createManagerTransaction,
+  getOracleTrades,
   createRedeemAndWithdrawPositionTransaction,
   createMintPositionTransaction,
   createRedeemPositionTransaction,
@@ -24,6 +26,10 @@ const OWNER =
   "0x4444444444444444444444444444444444444444444444444444444444444444";
 const EXECUTOR =
   "0x5555555555555555555555555555555555555555555555555555555555555555";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("DeepBook Predict transaction helpers", () => {
   it("builds manager creation and DUSDC deposit PTBs from centralized bindings", () => {
@@ -156,6 +162,21 @@ describe("DeepBook Predict transaction helpers", () => {
   it("scales DUSDC token amounts to base units", () => {
     assert.equal(parseTokenAmount("1.25"), 1_250_000n);
     assert.equal(parseTokenAmount("0.000001"), 1n);
+  });
+});
+
+describe("DeepBook Predict API helpers", () => {
+  it("fetches oracle trades from the top-level trades endpoint", async () => {
+    const fetchMock = vi.fn(async () => ({
+      json: async () => [],
+      ok: true,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getOracleTrades(BTC_ORACLE_ID);
+
+    assert.equal(fetchMock.mock.calls.length, 1);
+    assert.equal(fetchMock.mock.calls[0]?.[0], `${PREDICT_SERVER_URL}/trades/${BTC_ORACLE_ID}`);
   });
 });
 

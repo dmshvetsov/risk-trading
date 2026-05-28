@@ -365,7 +365,7 @@ export async function getOracleTrades(
   oracleId: string,
   signal?: AbortSignal,
 ): Promise<Array<OracleTrade>> {
-  const response = await fetch(`${PREDICT_SERVER_URL}/oracles/${oracleId}/trades`, {
+  const response = await fetch(`${PREDICT_SERVER_URL}/trades/${oracleId}`, {
     signal,
   });
 
