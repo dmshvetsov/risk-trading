@@ -33,6 +33,14 @@ type OpenPositionChartPoint = {
   strike: number;
 };
 
+type NormalizedOpenPositionTrade = {
+  direction: "ABOVE" | "BELOW";
+  hour: number;
+  quantity: number;
+  strike: number;
+  tradeType: "mint" | "redeem";
+};
+
 type SplitOpenPositionChartPoint = {
   downQuantity: number;
   hour: number;
@@ -334,20 +342,65 @@ export function buildTradeChartPoints({
   windowStart: number;
 }) {
   const grouped = new Map<string, OpenPositionChartPoint>();
+  const openBucketsByMarket = new Map<string, Array<{ bucketKey: string; quantity: number }>>();
   const tradePoints = trades
     .map((trade) => normalizeTradeChartInput(trade))
-    .filter((trade) => trade && trade.timestamp >= windowStart && trade.timestamp <= now);
+    .filter((trade) => trade && trade.hour >= floorToHour(windowStart) && trade.hour <= now)
+    .sort((a, b) => a.hour - b.hour || a.strike - b.strike);
 
   for (const trade of tradePoints) {
     if (!trade) {
       continue;
     }
 
-    addOpenPositionChartPoint(grouped, {
-      direction: formatPredictDirection(trade.isUp),
-      hour: floorToHour(trade.timestamp),
-      quantity: trade.quantity,
+    const bucket = {
+      direction: trade.direction,
+      hour: trade.hour,
       strike: roundPriceToStep(trade.strike, tickSize),
+    };
+    const marketKey = `${bucket.strike}:${bucket.direction}`;
+    const openBuckets = openBucketsByMarket.get(marketKey) ?? [];
+
+    if (trade.tradeType === "redeem") {
+      let remainingQuantity = trade.quantity;
+
+      for (const openBucket of openBuckets) {
+        if (remainingQuantity <= 0) {
+          break;
+        }
+
+        const matchedQuantity = Math.min(openBucket.quantity, remainingQuantity);
+        openBucket.quantity -= matchedQuantity;
+        remainingQuantity -= matchedQuantity;
+        addOpenPositionChartPoint(grouped, {
+          ...parseBucketKey(openBucket.bucketKey),
+          quantity: -matchedQuantity,
+        });
+      }
+
+      openBucketsByMarket.set(
+        marketKey,
+        openBuckets.filter((openBucket) => openBucket.quantity > 0),
+      );
+      continue;
+    }
+
+    const bucketKey = getOpenPositionChartPointKey(bucket);
+    const existingBucket = openBuckets.find((openBucket) => openBucket.bucketKey === bucketKey);
+
+    if (existingBucket) {
+      existingBucket.quantity += trade.quantity;
+    } else {
+      openBuckets.push({
+        bucketKey,
+        quantity: trade.quantity,
+      });
+      openBucketsByMarket.set(marketKey, openBuckets);
+    }
+
+    addOpenPositionChartPoint(grouped, {
+      ...bucket,
+      quantity: trade.quantity,
     });
   }
 
@@ -382,19 +435,24 @@ function addOpenPositionChartPoint(
   point: Pick<OpenPositionChartPoint, "direction" | "hour" | "quantity" | "strike">,
 ) {
   const { direction, hour, quantity, strike } = point;
-  const key = `${hour}:${strike}:${direction}`;
+  const key = getOpenPositionChartPointKey({ direction, hour, strike });
   const current = grouped.get(key);
 
   if (current) {
     current.quantity += quantity;
+    if (current.quantity <= 0) {
+      grouped.delete(key);
+    }
   } else {
-    grouped.set(key, {
-      direction,
-      hour,
-      id: key,
-      quantity,
-      strike,
-    });
+    if (quantity > 0) {
+      grouped.set(key, {
+        direction,
+        hour,
+        id: key,
+        quantity,
+        strike,
+      });
+    }
   }
 }
 
@@ -453,10 +511,33 @@ function normalizeTradeChartInput(trade: OracleTrade) {
   }
 
   return {
-    isUp: trade.is_up,
+    direction: formatPredictDirection(trade.is_up),
+    hour: floorToHour(timestamp),
     quantity: trade.quantity / Number(TRADE_PREVIEW_UNIT_QUANTITY),
     strike: trade.strike,
-    timestamp,
+    tradeType: normalizeTradeType(trade.trade_type),
+  };
+}
+
+function normalizeTradeType(tradeType: string | undefined): "mint" | "redeem" {
+  return tradeType?.toLowerCase() === "redeem" ? "redeem" : "mint";
+}
+
+function getOpenPositionChartPointKey({
+  direction,
+  hour,
+  strike,
+}: Pick<OpenPositionChartPoint, "direction" | "hour" | "strike">) {
+  return `${hour}:${strike}:${direction}`;
+}
+
+function parseBucketKey(bucketKey: string): Pick<OpenPositionChartPoint, "direction" | "hour" | "strike"> {
+  const [hour, strike, direction] = bucketKey.split(":");
+
+  return {
+    direction: direction as OpenPositionChartPoint["direction"],
+    hour: Number(hour),
+    strike: Number(strike),
   };
 }
 
