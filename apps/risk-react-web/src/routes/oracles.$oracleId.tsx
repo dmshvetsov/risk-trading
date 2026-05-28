@@ -59,11 +59,11 @@ export const Route = createFileRoute("/oracles/$oracleId")({
 const chartConfig = {
   upFair: {
     label: "ABOVE fair",
-    color: "var(--chart-1)",
+    color: "var(--chart-2)",
   },
   dnFair: {
     label: "BELOW fair",
-    color: "var(--chart-2)",
+    color: "var(--chart-5)",
   },
   totalVariance: {
     label: "Total variance",
@@ -1049,12 +1049,12 @@ const FairProbabilityCurvePanel = memo(function FairProbabilityCurvePanel({
 }) {
   const directionConfig = isUp
     ? {
-        color: "var(--chart-1)",
+        color: "var(--chart-2)",
         dataKey: "upFair",
         label: `${formatPredictDirection(true)} fair`,
       }
     : {
-        color: "var(--chart-2)",
+        color: "var(--chart-5)",
         dataKey: "dnFair",
         label: `${formatPredictDirection(false)} fair`,
       };

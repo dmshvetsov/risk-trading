@@ -64,11 +64,11 @@ type OpenPositionsChartSource =
 const openPositionsChartConfig = {
   up: {
     label: "ABOVE",
-    color: "var(--chart-1)",
+    color: "var(--chart-2)",
   },
   down: {
     label: "BELOW",
-    color: "var(--chart-2)",
+    color: "var(--chart-5)",
   },
 } satisfies ChartConfig;
 
@@ -118,10 +118,10 @@ export const OpenPositionsChart = memo(function OpenPositionsChart({
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <h2 className="text-sm font-semibold">{title}</h2>
         <div className="flex flex-wrap gap-3 text-xs">
-          <LegendItem color="var(--chart-1)" label="ABOVE">
+          <LegendItem color="var(--chart-2)" label="ABOVE">
             Open long-above quantity.
           </LegendItem>
-          <LegendItem color="var(--chart-2)" label="BELOW">
+          <LegendItem color="var(--chart-5)" label="BELOW">
             Open long-below quantity.
           </LegendItem>
         </div>
