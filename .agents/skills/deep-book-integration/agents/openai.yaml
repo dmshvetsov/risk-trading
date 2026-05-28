@@ -1,0 +1,7 @@
+interface:
+  display_name: "DeepBook Integration"
+  short_description: "Build DeepBook Predict transaction flows"
+  default_prompt: "Use $deep-book-integration to add a DeepBook Predict market integration for displaying data (market state, wallet porftolio state) or opening and closing binary options and providing withdrawing liquitidy to Predict."
+
+policy:
+  allow_implicit_invocation: true
