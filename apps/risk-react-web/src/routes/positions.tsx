@@ -1,9 +1,4 @@
-import {
-  ConnectButton,
-  useCurrentAccount,
-  useSignAndExecuteTransaction,
-  useSuiClient,
-} from "@mysten/dapp-kit";
+import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
 import { createFileRoute } from "@tanstack/react-router";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import type React from "react";
@@ -390,7 +385,6 @@ function Positions() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ConnectButton />
             <Button
               disabled={!account || isLoading}
               onClick={() => void loadPortfolio()}

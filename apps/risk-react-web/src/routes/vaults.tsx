@@ -1,4 +1,4 @@
-import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
+import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowDownToLine, ArrowUpFromLine, ExternalLink, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -376,7 +376,6 @@ function Vaults() {
             Supply {DEEPBOOK_PREDICT.quote.symbol} liquidity or withdraw by
             burning {DEEPBOOK_PREDICT.plp.symbol} shares.
           </h1>
-          <ConnectButton />
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">

@@ -1,3 +1,4 @@
+import { ConnectButton } from "@mysten/dapp-kit";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Activity, BriefcaseBusiness, Wallet } from "lucide-react";
 
@@ -38,6 +39,9 @@ export function AppSidebar() {
       <SidebarHeader>
         <div className="text-sm font-semibold">Risk Trading</div>
         <div className="text-xs text-sidebar-foreground/60">Prediction market monitor</div>
+        <div className="pt-3">
+          <ConnectButton />
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

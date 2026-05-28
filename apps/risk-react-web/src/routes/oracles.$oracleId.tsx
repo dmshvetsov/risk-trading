@@ -1,9 +1,4 @@
-import {
-  ConnectButton,
-  useCurrentAccount,
-  useSignAndExecuteTransaction,
-  useSuiClient,
-} from "@mysten/dapp-kit";
+import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
 import { createFileRoute } from "@tanstack/react-router";
 import { ExternalLink, Minus, Plus, RefreshCw } from "lucide-react";
 import type React from "react";
@@ -1392,7 +1387,6 @@ function PredictManagerPanel({
       title="Trading Account"
       action={
         <div className="flex flex-wrap items-center gap-2">
-          <ConnectButton />
           {accountAddress ? (
             <Button
               disabled={isLoading}
