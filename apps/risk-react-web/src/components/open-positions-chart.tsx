@@ -105,7 +105,7 @@ export const OpenPositionsChart = memo(function OpenPositionsChart({
   const maxQuantity = Math.max(1, ...chartPoints.map((point) => point.quantity));
 
   return (
-    <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
+    <section className="flex h-full flex-col rounded-lg border border-border bg-card p-4 shadow-sm">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <h2 className="text-sm font-semibold">{title}</h2>
         <div className="flex flex-wrap gap-3 text-xs">
@@ -118,7 +118,10 @@ export const OpenPositionsChart = memo(function OpenPositionsChart({
         </div>
       </div>
       {chartPoints.length > 0 ? (
-        <ChartContainer config={openPositionsChartConfig} className="h-80 w-full">
+        <ChartContainer
+          config={openPositionsChartConfig}
+          className="min-h-80 flex-1"
+        >
           <ScatterChart margin={{ bottom: 8, left: 8, right: 20, top: 12 }}>
             <CartesianGrid vertical={false} />
             <XAxis
@@ -312,7 +315,11 @@ function LegendItem({
 }
 
 function EmptyState({ children }: { children: React.ReactNode }) {
-  return <div className="py-8 text-center text-sm text-muted-foreground">{children}</div>;
+  return (
+    <div className="flex min-h-80 flex-1 items-center justify-center text-center text-sm text-muted-foreground">
+      {children}
+    </div>
+  );
 }
 
 export function buildTradeChartPoints({

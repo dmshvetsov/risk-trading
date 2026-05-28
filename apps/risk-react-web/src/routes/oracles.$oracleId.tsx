@@ -1,6 +1,6 @@
 import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
 import { createFileRoute } from "@tanstack/react-router";
-import { ExternalLink, Minus, Plus } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import type React from "react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/hint";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   FLOAT_SCALING,
   DEEPBOOK_PREDICT,
@@ -123,9 +122,10 @@ function OraclePage() {
   const [pendingOpenPosition, setPendingOpenPosition] =
     useState<PendingOpenPosition | null>(null);
   const [tradeError, setTradeError] = useState<string | null>(null);
-  const [quantity, setQuantity] = useState("1");
+  const [quantity, setQuantity] = useState("100");
   const [previewIsUp, setPreviewIsUp] = useState(true);
   const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
+  const [strikeInput, setStrikeInput] = useState("");
   const [tradeAmounts, setTradeAmounts] = useState<OracleTradeAmounts | null>(
     null,
   );
@@ -214,8 +214,10 @@ function OraclePage() {
   );
   const isSelectedStrikeUnavailable = Boolean(
     selectedStrike !== null &&
+      state &&
       showTradePreview &&
-      !previewStrikeRows.some((row) => row.strike === selectedStrike),
+      (selectedStrike < state.oracle.min_strike ||
+        selectedStrike % state.oracle.tick_size !== 0),
   );
   const parsedQuantity = useMemo(() => {
     try {
@@ -296,7 +298,7 @@ function OraclePage() {
     }
 
     if (selectedStrike === null) {
-      return "Select a strike";
+      return "Enter a strike";
     }
 
     if (isSelectedStrikeUnavailable) {
@@ -505,15 +507,25 @@ function OraclePage() {
   useEffect(() => {
     if (!showTradePreview) {
       setSelectedStrike(null);
+      setStrikeInput("");
       return;
     }
 
     if (selectedStrike === null) {
-      setSelectedStrike(
-        nearestPreviewStrike(previewStrikeRows, state?.latest_price?.spot),
+      const nextStrike = nearestPreviewStrike(
+        previewStrikeRows,
+        state?.latest_price?.spot,
       );
+      setSelectedStrike(nextStrike);
+      setStrikeInput(formatStrikeInput(nextStrike, state?.oracle.tick_size));
     }
-  }, [previewStrikeRows, selectedStrike, showTradePreview, state?.latest_price?.spot]);
+  }, [
+    previewStrikeRows,
+    selectedStrike,
+    showTradePreview,
+    state?.latest_price?.spot,
+    state?.oracle.tick_size,
+  ]);
 
   useEffect(() => {
     if (!tradePreviewInput) {
@@ -604,16 +616,6 @@ function OraclePage() {
   const spot = price?.spot ?? null;
   const forward = price?.forward ?? null;
   const isSettled = oracle.status === "settled";
-
-  function adjustQuantity(delta: number) {
-    const currentQuantity = Number(quantity);
-    const nextQuantity = Math.max(
-      0,
-      (Number.isFinite(currentQuantity) ? currentQuantity : 0) + delta,
-    );
-
-    setQuantity(formatQuantityInput(nextQuantity));
-  }
 
   async function createManager() {
     if (!account) {
@@ -722,194 +724,220 @@ function OraclePage() {
           </div>
         </div>
 
-        {showTradePreview ? (
-          <Panel title="Trade Cost Preview">
-            <div className="grid gap-5">
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-                <div className="grid gap-2">
-                  <Label htmlFor="trade-preview-quantity">Quantity</Label>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      aria-label="Decrease quantity"
-                      onClick={() => adjustQuantity(-1)}
-                      size="icon"
-                      type="button"
-                      variant="outline"
-                    >
-                      <Minus aria-hidden="true" />
-                    </Button>
-                    <Input
-                      className="font-mono"
-                      id="trade-preview-quantity"
-                      inputMode="numeric"
-                      onChange={(event) => setQuantity(event.target.value)}
-                      placeholder="1"
-                      value={quantity}
-                    />
-                    <Button
-                      aria-label="Increase quantity"
-                      onClick={() => adjustQuantity(1)}
-                      size="icon"
-                      type="button"
-                      variant="outline"
-                    >
-                      <Plus aria-hidden="true" />
-                    </Button>
-                  </div>
+        <section
+          className={`grid gap-4 ${
+            showTradePreview ? "lg:grid-cols-[1.35fr_0.65fr]" : ""
+          }`}
+        >
+          <OpenPositionsChart
+            trades={oracleTrades}
+            emptyState="No oracle trade activity in the last 24 hours."
+            spot={spot}
+            tickSize={oracle.tick_size}
+          />
+
+          {showTradePreview ? (
+            <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+              <div className="grid gap-5">
+                <div className="text-sm font-semibold">
+                  New Position
                 </div>
-                <div className="flex h-9 items-center gap-3 rounded-md border border-border px-3">
-                  <span
-                    className={`text-sm ${
-                      previewIsUp ? "text-muted-foreground" : "font-medium"
-                    }`}
-                  >
-                    DOWN
-                  </span>
-                  <Switch
-                    aria-label="Show UP strike prices"
-                    checked={previewIsUp}
-                    onCheckedChange={setPreviewIsUp}
-                  />
-                  <span
-                    className={`text-sm ${
-                      previewIsUp ? "font-medium" : "text-muted-foreground"
-                    }`}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    onClick={() => setPreviewIsUp(true)}
+                    type="button"
+                    variant={previewIsUp ? "default" : "outline"}
                   >
                     UP
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {previewStrikeRows.map((row) => (
-                  <Button
-                    key={row.strike}
-                    onClick={() => setSelectedStrike(row.strike)}
-                    size="sm"
-                    type="button"
-                    variant={selectedStrike === row.strike ? "default" : "outline"}
-                  >
-                    {formatTickValue(row.strike, oracle.tick_size)}
                   </Button>
-                ))}
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <Metric
-                  label="Estimated cost"
-                  value={formatTradeAmount(tradeAmounts?.mintCost, isPreviewLoading)}
-                />
-                <Metric
-                  label="Redeem payout"
-                  value={formatTradeAmount(
-                    tradeAmounts?.redeemPayout,
-                    isPreviewLoading,
-                  )}
-                />
-                <Metric
-                  label={`Wallet ${DEEPBOOK_PREDICT.quote.symbol}`}
-                  value={
-                    account
-                      ? formatManagerQuote(walletBalances?.quote ?? 0n)
-                      : "Connect"
-                  }
-                />
-              </div>
-
-              {parsedQuantity === null || parsedQuantity === 0n ? (
-                <div className="text-sm text-destructive">Enter a quantity.</div>
-              ) : previewError ? (
-                <div className="text-sm text-destructive">{previewError}</div>
-              ) : isTradePreviewStale ? (
-                <div className="text-sm text-destructive">
-                  Quote is stale. Wait for the next refresh before signing.
+                  <Button
+                    onClick={() => setPreviewIsUp(false)}
+                    type="button"
+                    variant={previewIsUp ? "outline" : "default"}
+                  >
+                    DOWN
+                  </Button>
                 </div>
-              ) : askBoundsValidationError ? (
-                <div className="text-sm text-destructive">
-                  {askBoundsValidationError}
-                </div>
-              ) : (
-                <div className="space-y-1 text-xs text-muted-foreground">
-                  <div>
-                    Amounts are shown in {DEEPBOOK_PREDICT.quote.symbol}.
-                  </div>
-                  <div>
-                    Formula: estimated cost = protocol ask price x quantity;
-                    redeem payout = protocol bid price x quantity.
+
+                <div className="grid gap-2">
+                  <Label htmlFor="trade-preview-strike">Strike</Label>
+                  <Input
+                    className="font-mono"
+                    id="trade-preview-strike"
+                    inputMode="decimal"
+                    onChange={(event) => {
+                      const nextStrikeInput = event.target.value;
+                      setStrikeInput(nextStrikeInput);
+                      setSelectedStrike(
+                        parseStrikeInput(nextStrikeInput, oracle.tick_size),
+                      );
+                    }}
+                    placeholder={formatStrikeInput(spot, oracle.tick_size)}
+                    value={strikeInput}
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    {selectedStrike === null
+                      ? "Enter a strike"
+                      : `Wins if ${oracle.underlying_asset} ${
+                          previewIsUp ? ">" : "<="
+                        } ${formatTickValue(selectedStrike, oracle.tick_size)} by ${formatDate(
+                          oracle.expiry,
+                        )}`}
                   </div>
                 </div>
-              )}
 
-              {tradeError ? (
-                <div className="text-sm text-destructive">{tradeError}</div>
-              ) : null}
+                <div className="grid gap-2">
+                  <Label htmlFor="trade-preview-quantity">Contracts</Label>
+                  <Input
+                    className="font-mono"
+                    id="trade-preview-quantity"
+                    inputMode="numeric"
+                    onChange={(event) => setQuantity(event.target.value)}
+                    placeholder="1"
+                    value={quantity}
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    {formatWalletAvailability(
+                      account ? walletBalances?.quote : undefined,
+                      tradeAmounts?.mintCost,
+                      parsedQuantity,
+                      isPreviewLoading,
+                    )}
+                  </div>
+                </div>
 
-              {tradeTxDigest ? (
-                <a
-                  className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
-                  href={getSuiExplorerTxUrl(tradeTxDigest)}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  View transaction
-                  <ExternalLink className="size-4" aria-hidden="true" />
-                </a>
-              ) : null}
+                <div className="divide-y divide-border text-sm">
+                  <SummaryRow
+                    label="Contract price"
+                    value={formatContractPrice(
+                      tradeAmounts?.mintCost,
+                      parsedQuantity,
+                      isPreviewLoading,
+                    )}
+                  />
+                  <SummaryRow
+                    label="Estimated cost"
+                    value={formatTradeAmount(
+                      tradeAmounts?.mintCost,
+                      isPreviewLoading,
+                    )}
+                  />
+                  <SummaryRow
+                    label="Potential payout"
+                    value={
+                      <span
+                        className={
+                          tradeAmounts?.mintCost !== undefined &&
+                          parsedQuantity !== null
+                            ? "text-chart-2"
+                            : undefined
+                        }
+                      >
+                        {formatPotentialPayout(
+                          tradeAmounts?.mintCost,
+                          parsedQuantity,
+                          isPreviewLoading,
+                        )}
+                      </span>
+                    }
+                  />
+                  <SummaryRow
+                    label="Risk/Reward"
+                    value={formatRiskReward(
+                      tradeAmounts?.mintCost,
+                      parsedQuantity,
+                      isPreviewLoading,
+                    )}
+                  />
+                </div>
 
-              {managerError && !manager ? (
-                <div className="text-sm text-destructive">{managerError}</div>
-              ) : null}
+                {selectedStrike === null ? (
+                  <div className="text-sm text-destructive">Enter a strike.</div>
+                ) : isSelectedStrikeUnavailable ? (
+                  <div className="text-sm text-destructive">
+                    Strike must be at least{" "}
+                    {formatTickValue(oracle.min_strike, oracle.tick_size)} and align
+                    to the oracle tick size.
+                  </div>
+                ) : parsedQuantity === null || parsedQuantity === 0n ? (
+                  <div className="text-sm text-destructive">Enter a quantity.</div>
+                ) : previewError ? (
+                  <div className="text-sm text-destructive">{previewError}</div>
+                ) : isTradePreviewStale ? (
+                  <div className="text-sm text-destructive">
+                    Quote is stale. Wait for the next refresh before signing.
+                  </div>
+                ) : askBoundsValidationError ? (
+                  <div className="text-sm text-destructive">
+                    {askBoundsValidationError}
+                  </div>
+                ) : null}
 
-              {managerTxDigest && !manager ? (
-                <div className="text-sm text-muted-foreground">
-                  Predict account transaction submitted. Waiting for the indexed
-                  server to catch up.{" "}
+                {tradeError ? (
+                  <div className="text-sm text-destructive">{tradeError}</div>
+                ) : null}
+
+                {tradeTxDigest ? (
                   <a
-                    className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline"
-                    href={getSuiExplorerTxUrl(managerTxDigest)}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+                    href={getSuiExplorerTxUrl(tradeTxDigest)}
                     rel="noreferrer"
                     target="_blank"
                   >
                     View transaction
-                    <ExternalLink className="size-3" aria-hidden="true" />
+                    <ExternalLink className="size-4" aria-hidden="true" />
                   </a>
-                </div>
-              ) : null}
+                ) : null}
 
-              <Button
-                disabled={
-                  isTxPending ||
-                  isManagerLoading ||
-                  (!manager && !account) ||
-                  (Boolean(tradeValidationError) && Boolean(manager))
-                }
-                onClick={() =>
-                  manager ? void openPosition() : void createManager()
-                }
-                type="button"
-              >
-                {isTxPending
-                  ? manager
-                    ? "Waiting for wallet"
-                    : "Creating..."
-                  : isManagerLoading && !manager
-                    ? "Loading account"
-                    : manager
-                      ? tradeValidationError ?? "Open position"
-                      : account
-                        ? "Create Predict Account"
-                        : "Connect a wallet"}
-              </Button>
+                {managerError && !manager ? (
+                  <div className="text-sm text-destructive">{managerError}</div>
+                ) : null}
+
+                {managerTxDigest && !manager ? (
+                  <div className="text-sm text-muted-foreground">
+                    Predict account transaction submitted. Waiting for the indexed
+                    server to catch up.{" "}
+                    <a
+                      className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline"
+                      href={getSuiExplorerTxUrl(managerTxDigest)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      View transaction
+                      <ExternalLink className="size-3" aria-hidden="true" />
+                    </a>
+                  </div>
+                ) : null}
+
+                <Button
+                  disabled={
+                    isTxPending ||
+                    isManagerLoading ||
+                    (!manager && !account) ||
+                    (Boolean(tradeValidationError) && Boolean(manager))
+                  }
+                  onClick={() =>
+                    manager ? void openPosition() : void createManager()
+                  }
+                  type="button"
+                >
+                  {isTxPending
+                    ? manager
+                      ? "Waiting for wallet"
+                      : "Creating..."
+                    : isManagerLoading && !manager
+                      ? "Loading account"
+                      : manager
+                        ? tradeValidationError ?? "Open position"
+                        : account
+                          ? "Create Predict Account"
+                          : "Connect a wallet"}
+                </Button>
+              </div>
             </div>
-          </Panel>
-        ) : null}
-
-        <OpenPositionsChart
-          trades={oracleTrades}
-          emptyState="No oracle trade activity in the last 24 hours."
-          spot={spot}
-          tickSize={oracle.tick_size}
-        />
+          ) : null}
+        </section>
 
         <section className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
           <FairProbabilityCurvePanel
@@ -1204,6 +1232,21 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
+function SummaryRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-medium">{value}</span>
+    </div>
+  );
+}
+
 function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="py-8 text-center text-sm text-muted-foreground">{children}</div>;
 }
@@ -1319,6 +1362,117 @@ function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
   return isLoading ? "Loading..." : "-";
 }
 
+function formatContractPrice(
+  mintCost: bigint | undefined,
+  quantity: bigint | null,
+  isLoading: boolean,
+) {
+  if (mintCost === undefined || quantity === null || quantity === 0n) {
+    return isLoading ? "Loading..." : "-";
+  }
+
+  return `${formatTokenAmount(
+    mintCost / quantity,
+    DEEPBOOK_PREDICT.quote.decimals,
+  )} ${DEEPBOOK_PREDICT.quote.symbol}`;
+}
+
+function formatPotentialPayout(
+  mintCost: bigint | undefined,
+  quantity: bigint | null,
+  isLoading: boolean,
+) {
+  if (mintCost === undefined || quantity === null) {
+    return isLoading ? "Loading..." : "-";
+  }
+
+  const oneContractPayout = 10n ** BigInt(DEEPBOOK_PREDICT.quote.decimals);
+  const potentialPayout = oneContractPayout * quantity - mintCost;
+
+  return `${formatSignedTokenAmount(
+    potentialPayout,
+    DEEPBOOK_PREDICT.quote.decimals,
+  )} ${DEEPBOOK_PREDICT.quote.symbol}`;
+}
+
+function formatRiskReward(
+  mintCost: bigint | undefined,
+  quantity: bigint | null,
+  isLoading: boolean,
+) {
+  if (mintCost === undefined || quantity === null) {
+    return isLoading ? "Loading..." : "-";
+  }
+
+  const oneContractPayout = 10n ** BigInt(DEEPBOOK_PREDICT.quote.decimals);
+  const potentialPayout = oneContractPayout * quantity - mintCost;
+
+  if (potentialPayout <= 0n) {
+    return "-";
+  }
+
+  if (mintCost === 0n) {
+    return "-";
+  }
+
+  return formatRatio(Number(potentialPayout) / Number(mintCost));
+}
+
+function formatRatio(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatSignedTokenAmount(value: bigint, decimals: number) {
+  if (value < 0n) {
+    return `-${formatTokenAmount(-value, decimals)}`;
+  }
+
+  return formatTokenAmount(value, decimals);
+}
+
+function formatWalletAvailability(
+  walletBalance: bigint | undefined,
+  mintCost: bigint | undefined,
+  quantity: bigint | null,
+  isLoading: boolean,
+) {
+  if (walletBalance === undefined) {
+    return "Connect wallet to see how many contract you can afford";
+  }
+
+  const available = formatManagerQuote(walletBalance);
+  const maxContracts = getMaxContracts(walletBalance, mintCost, quantity);
+
+  if (maxContracts === null) {
+    return isLoading
+      ? `${available} available, loading max contracts`
+      : `${available} available, max - contracts`;
+  }
+
+  return `${available} available, max ${maxContracts.toString()} contracts`;
+}
+
+function getMaxContracts(
+  walletBalance: bigint,
+  mintCost: bigint | undefined,
+  quantity: bigint | null,
+) {
+  if (mintCost === undefined || quantity === null || quantity === 0n) {
+    return null;
+  }
+
+  const contractCost = mintCost / quantity;
+
+  if (contractCost === 0n) {
+    return null;
+  }
+
+  return walletBalance / contractCost;
+}
+
 function formatManagerQuote(value: bigint) {
   return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
 }
@@ -1367,10 +1521,6 @@ function getScaledAskPrice(mintCost: bigint, quantity: bigint) {
   return (mintCost * BigInt(FLOAT_SCALING)) / quantity;
 }
 
-function formatQuantityInput(value: number) {
-  return Math.trunc(value).toString();
-}
-
 function parseContractQuantity(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -1382,6 +1532,30 @@ function parseContractQuantity(value: string) {
   }
 
   return BigInt(trimmed);
+}
+
+function parseStrikeInput(value: string, tickSize: number) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+
+  if (!Number.isFinite(parsed) || parsed < 0 || tickSize <= 0) {
+    return null;
+  }
+
+  return Math.round(parsed * tickSize);
+}
+
+function formatStrikeInput(value: number | null | undefined, tickSize = 1) {
+  if (value === null || value === undefined || tickSize <= 0) {
+    return "";
+  }
+
+  return (value / tickSize).toString();
 }
 
 function isTradePreviewRenderable(state: OracleStateResponse) {
