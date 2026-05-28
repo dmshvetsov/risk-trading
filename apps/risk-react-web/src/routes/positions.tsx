@@ -1,5 +1,5 @@
 import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -457,7 +457,15 @@ function Positions() {
                       className="border-b border-border transition-colors hover:bg-muted/50"
                       key={position.id}
                     >
-                      <Td mono>{truncateAddress(position.oracleId)}</Td>
+                      <Td mono>
+                        <Link
+                          className="text-primary underline-offset-4 hover:underline"
+                          params={{ oracleId: position.oracleId }}
+                          to="/oracles/$oracleId"
+                        >
+                          {truncateAddress(position.oracleId)}
+                        </Link>
+                      </Td>
                       <Td>
                         <SideBadge isUp={position.isUp} />
                       </Td>
