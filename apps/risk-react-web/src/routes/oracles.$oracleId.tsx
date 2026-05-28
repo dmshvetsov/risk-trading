@@ -1,6 +1,6 @@
 import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
 import { createFileRoute } from "@tanstack/react-router";
-import { ExternalLink, Minus, Plus, RefreshCw } from "lucide-react";
+import { ExternalLink, Minus, Plus } from "lucide-react";
 import type React from "react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -53,7 +53,6 @@ import {
   formatDate,
   formatTickValue,
   formatTokenAmount,
-  truncateAddress,
 } from "@/lib/format";
 
 export const Route = createFileRoute("/oracles/$oracleId")({
@@ -291,10 +290,6 @@ function OraclePage() {
   const tradeValidationError = useMemo(() => {
     if (!account) {
       return "Connect a wallet";
-    }
-
-    if (!manager) {
-      return "Create manager";
     }
 
     if (!walletBalances) {
@@ -732,17 +727,6 @@ function OraclePage() {
           </div>
         </div>
 
-        <PredictManagerPanel
-          accountAddress={account?.address}
-          error={managerError}
-          isCreating={isTxPending}
-          isLoading={isManagerLoading}
-          manager={manager}
-          onCreate={() => void createManager()}
-          onRefresh={() => void loadManager()}
-          txDigest={managerTxDigest}
-        />
-
         {showTradePreview ? (
           <Panel title="Trade Cost Preview">
             <div className="grid gap-5">
@@ -877,12 +861,49 @@ function OraclePage() {
                 </a>
               ) : null}
 
+              {managerError && !manager ? (
+                <div className="text-sm text-destructive">{managerError}</div>
+              ) : null}
+
+              {managerTxDigest && !manager ? (
+                <div className="text-sm text-muted-foreground">
+                  Predict account transaction submitted. Waiting for the indexed
+                  server to catch up.{" "}
+                  <a
+                    className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline"
+                    href={getSuiExplorerTxUrl(managerTxDigest)}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    View transaction
+                    <ExternalLink className="size-3" aria-hidden="true" />
+                  </a>
+                </div>
+              ) : null}
+
               <Button
-                disabled={isTxPending || Boolean(tradeValidationError)}
-                onClick={() => void openPosition()}
+                disabled={
+                  isTxPending ||
+                  isManagerLoading ||
+                  (!manager && !account) ||
+                  (Boolean(tradeValidationError) && Boolean(manager))
+                }
+                onClick={() =>
+                  manager ? void openPosition() : void createManager()
+                }
                 type="button"
               >
-                {isTxPending ? "Waiting for wallet" : tradeValidationError ?? "Open position"}
+                {isTxPending
+                  ? manager
+                    ? "Waiting for wallet"
+                    : "Creating..."
+                  : isManagerLoading && !manager
+                    ? "Loading account"
+                    : manager
+                      ? tradeValidationError ?? "Open position"
+                      : account
+                        ? "Create Predict Account"
+                        : "Connect a wallet"}
               </Button>
             </div>
           </Panel>
@@ -1355,121 +1376,6 @@ function SplitPositionShape({
   );
 }
 
-function PredictManagerPanel({
-  accountAddress,
-  error,
-  isCreating,
-  isLoading,
-  manager,
-  onCreate,
-  onRefresh,
-  txDigest,
-}: {
-  accountAddress: string | undefined;
-  error: string | null;
-  isCreating: boolean;
-  isLoading: boolean;
-  manager: PredictManagerSummary | null;
-  onCreate: () => void;
-  onRefresh: () => void;
-  txDigest: string | null;
-}) {
-  const status = getManagerStatus({
-    accountAddress,
-    error,
-    isLoading,
-    manager,
-    txDigest,
-  });
-
-  return (
-    <Panel
-      title="Trading Account"
-      action={
-        <div className="flex flex-wrap items-center gap-2">
-          {accountAddress ? (
-            <Button
-              disabled={isLoading}
-              onClick={onRefresh}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <RefreshCw aria-hidden="true" />
-              Refresh
-            </Button>
-          ) : null}
-        </div>
-      }
-    >
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-        <div className="grid gap-3 sm:grid-cols-4">
-          <Metric label="Status" value={status} />
-          <Metric
-            label="Manager"
-            value={manager ? truncateAddress(manager.id) : "-"}
-          />
-          <Metric
-            label={`${DEEPBOOK_PREDICT.quote.symbol} balance`}
-            value={
-              manager
-                ? formatManagerQuote(manager.quoteBalance)
-                : accountAddress
-                  ? "-"
-                  : "Connect"
-            }
-          />
-          <Metric
-            label="Position state"
-            value={
-              manager
-                ? manager.hasPositions
-                  ? `${manager.positionsSize + manager.rangePositionsSize} active`
-                  : "Empty"
-                : "-"
-            }
-          />
-        </div>
-
-        {accountAddress && !manager ? (
-          <Button
-            disabled={isCreating || isLoading}
-            onClick={onCreate}
-            type="button"
-          >
-            {isCreating ? "Creating..." : "Create manager"}
-          </Button>
-        ) : null}
-      </div>
-
-      {manager ? (
-        <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-          <span>Owner {truncateAddress(manager.owner)}</span>
-          <span>Created {formatDate(manager.createdAtMs)}</span>
-        </div>
-      ) : null}
-
-      {txDigest && !manager ? (
-        <div className="mt-3 text-sm text-muted-foreground">
-          Manager transaction submitted. Waiting for the indexed server to catch
-          up.{" "}
-          <a
-            className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline"
-            href={getSuiExplorerTxUrl(txDigest)}
-            rel="noreferrer"
-            target="_blank"
-          >
-            View transaction
-            <ExternalLink className="size-3" aria-hidden="true" />
-          </a>
-        </div>
-      ) : null}
-
-      {error ? <div className="mt-3 text-sm text-destructive">{error}</div> : null}
-    </Panel>
-  );
-}
-
 function LegendItem({
   children,
   color,
@@ -1871,42 +1777,6 @@ function formatTradeAmount(value: bigint | undefined, isLoading: boolean) {
 
 function formatManagerQuote(value: bigint) {
   return `${formatTokenAmount(value, DEEPBOOK_PREDICT.quote.decimals)} ${DEEPBOOK_PREDICT.quote.symbol}`;
-}
-
-function getManagerStatus({
-  accountAddress,
-  error,
-  isLoading,
-  manager,
-  txDigest,
-}: {
-  accountAddress: string | undefined;
-  error: string | null;
-  isLoading: boolean;
-  manager: PredictManagerSummary | null;
-  txDigest: string | null;
-}) {
-  if (!accountAddress) {
-    return "Wallet needed";
-  }
-
-  if (isLoading) {
-    return "Loading";
-  }
-
-  if (manager) {
-    return "Ready";
-  }
-
-  if (txDigest) {
-    return "Indexing";
-  }
-
-  if (error) {
-    return "Error";
-  }
-
-  return "Not created";
 }
 
 function getFundingPlan(
