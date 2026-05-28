@@ -67,7 +67,7 @@ export const OpenPositionsChart = memo(function OpenPositionsChart({
   emptyState,
   spot,
   tickSize,
-  title = "Open Positions",
+  title = "Open Contracts",
   ...source
 }: OpenPositionsChartSource & {
   emptyState?: string;
