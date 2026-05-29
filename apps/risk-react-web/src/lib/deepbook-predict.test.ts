@@ -7,9 +7,11 @@ import {
   PREDICT_BINDINGS,
   PREDICT_SERVER_URL,
   createDepositAndMintPositionTransaction,
+  createDepositAndMintRangePositionTransaction,
   createManagerDepositTransaction,
   createManagerTransaction,
   findLastTradeAsk,
+  getOracleRangeTradeAmounts,
   getOracleTrades,
   createRedeemAndWithdrawPositionTransaction,
   createMintPositionTransaction,
@@ -93,6 +95,27 @@ describe("DeepBook Predict transaction helpers", () => {
     assertMoveTarget(data.commands[1], PREDICT_BINDINGS.predictManagerDeposit);
     assertMoveTarget(data.commands[2], PREDICT_BINDINGS.marketKeyNew);
     assertMoveTarget(data.commands[3], PREDICT_BINDINGS.predictMint);
+    assert.equal(objectInput(data, 0), MANAGER_ID);
+    assert.equal(objectInput(data, 5), DEEPBOOK_PREDICT.predictId);
+    assert.equal(objectInput(data, 6), BTC_ORACLE_SVI_ID);
+    assert.equal(u64Input(data, 7), 2_000_000n);
+  });
+
+  it("composes manager DUSDC deposit before minting a range position", () => {
+    const data = createDepositAndMintRangePositionTransaction({
+      depositAmount: 4_200_000n,
+      expiry: 1_767_225_600,
+      highStrike: 105_000,
+      lowStrike: 95_000,
+      managerId: MANAGER_ID,
+      oracleId: BTC_ORACLE_ID,
+      oracleSviId: BTC_ORACLE_SVI_ID,
+      quantity: 2_000_000n,
+    }).getData();
+
+    assertMoveTarget(data.commands[1], PREDICT_BINDINGS.predictManagerDeposit);
+    assertMoveTarget(data.commands[2], PREDICT_BINDINGS.rangeKeyNew);
+    assertMoveTarget(data.commands[3], PREDICT_BINDINGS.predictMintRange);
     assert.equal(objectInput(data, 0), MANAGER_ID);
     assert.equal(objectInput(data, 5), DEEPBOOK_PREDICT.predictId);
     assert.equal(objectInput(data, 6), BTC_ORACLE_SVI_ID);
@@ -215,6 +238,46 @@ describe("DeepBook Predict API helpers", () => {
     assert.equal(trades[0]?.type, "mint");
     assert.equal(trades[0]?.event_digest, payload[0].event_digest);
     assert.equal(trades[0]?.checkpoint, payload[0].checkpoint);
+  });
+
+  it("fetches range trade amounts with a range key", async () => {
+    const devInspectTransactionBlock = vi.fn(
+      async (_input: { transactionBlock: ReturnType<typeof createManagerTransaction> }) => ({
+        results: [
+          {},
+          {
+            returnValues: [
+              [Array.from(bcs.U64.serialize(123n).toBytes())],
+              [Array.from(bcs.U64.serialize(45n).toBytes())],
+            ],
+          },
+        ],
+      }),
+    );
+
+    const amounts = await getOracleRangeTradeAmounts(
+      { devInspectTransactionBlock } as never,
+      {
+        expiry: 1_767_225_600,
+        highStrike: 105_000,
+        lowStrike: 95_000,
+        oracleId: BTC_ORACLE_ID,
+        quantity: 1_000_000n,
+      },
+    );
+    const [devInspectInput] = devInspectTransactionBlock.mock.calls[0] ?? [];
+    assert.ok(devInspectInput);
+    const tx = (
+      devInspectInput as {
+        transactionBlock: ReturnType<typeof createManagerTransaction>;
+      }
+    ).transactionBlock;
+    const data = tx.getData();
+
+    assertMoveTarget(data.commands[0], PREDICT_BINDINGS.rangeKeyNew);
+    assertMoveTarget(data.commands[1], PREDICT_BINDINGS.predictGetRangeTradeAmounts);
+    assert.equal(amounts.mintCost, 123n);
+    assert.equal(amounts.redeemPayout, 45n);
   });
 
   it("finds the last mint ask and ignores later redeems", () => {

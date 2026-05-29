@@ -26,14 +26,17 @@ export const PREDICT_BINDINGS = {
   marketKeyNew: `${DEEPBOOK_PREDICT.packageId}::market_key::new`,
   predictAvailableWithdrawal: `${DEEPBOOK_PREDICT.packageId}::predict::available_withdrawal`,
   predictCreateManager: `${DEEPBOOK_PREDICT.packageId}::predict::create_manager`,
+  predictGetRangeTradeAmounts: `${DEEPBOOK_PREDICT.packageId}::predict::get_range_trade_amounts`,
   predictGetTradeAmounts: `${DEEPBOOK_PREDICT.packageId}::predict::get_trade_amounts`,
   predictManagerDeposit: `${DEEPBOOK_PREDICT.packageId}::predict_manager::deposit`,
+  predictMintRange: `${DEEPBOOK_PREDICT.packageId}::predict::mint_range`,
   predictManagerWithdraw: `${DEEPBOOK_PREDICT.packageId}::predict_manager::withdraw`,
   predictMint: `${DEEPBOOK_PREDICT.packageId}::predict::mint`,
   predictRedeem: `${DEEPBOOK_PREDICT.packageId}::predict::redeem`,
   predictRedeemPermissionless: `${DEEPBOOK_PREDICT.packageId}::predict::redeem_permissionless`,
   predictSupply: `${DEEPBOOK_PREDICT.packageId}::predict::supply`,
   predictWithdraw: `${DEEPBOOK_PREDICT.packageId}::predict::withdraw`,
+  rangeKeyNew: `${DEEPBOOK_PREDICT.packageId}::range_key::new`,
 } as const;
 
 const DUMMY_SENDER =
@@ -276,7 +279,20 @@ export type MarketKeyInput = {
   strike: number;
 };
 
+export type RangeKeyInput = {
+  expiry: number;
+  highStrike: number;
+  lowStrike: number;
+  oracleId: string;
+};
+
 export type PredictPositionTransactionInput = MarketKeyInput & {
+  managerId: string;
+  oracleSviId: string;
+  quantity: bigint;
+};
+
+export type PredictRangePositionTransactionInput = RangeKeyInput & {
   managerId: string;
   oracleSviId: string;
   quantity: bigint;
@@ -284,6 +300,11 @@ export type PredictPositionTransactionInput = MarketKeyInput & {
 
 export type FundedPredictPositionTransactionInput =
   PredictPositionTransactionInput & {
+    depositAmount: bigint;
+  };
+
+export type FundedPredictRangePositionTransactionInput =
+  PredictRangePositionTransactionInput & {
     depositAmount: bigint;
   };
 
@@ -828,6 +849,42 @@ export function createDepositAndMintPositionTransaction(
   return tx;
 }
 
+export function createDepositAndMintRangePositionTransaction(
+  input: FundedPredictRangePositionTransactionInput,
+) {
+  const tx = new Transaction();
+
+  if (input.depositAmount > 0n) {
+    const quoteCoin = tx.coin({
+      type: DEEPBOOK_PREDICT.quote.type,
+      balance: input.depositAmount,
+    });
+
+    tx.moveCall({
+      target: PREDICT_BINDINGS.predictManagerDeposit,
+      typeArguments: [DEEPBOOK_PREDICT.quote.type],
+      arguments: [tx.object(input.managerId), quoteCoin],
+    });
+  }
+
+  const key = createRangeKey(tx, input);
+
+  tx.moveCall({
+    target: PREDICT_BINDINGS.predictMintRange,
+    typeArguments: [DEEPBOOK_PREDICT.quote.type],
+    arguments: [
+      tx.object(DEEPBOOK_PREDICT.predictId),
+      tx.object(input.managerId),
+      tx.object(input.oracleSviId),
+      key,
+      tx.pure.u64(input.quantity),
+      tx.object(DEEPBOOK_PREDICT.clockId),
+    ],
+  });
+
+  return tx;
+}
+
 export function createRedeemPositionTransaction(
   input: PredictRedeemTransactionInput,
 ) {
@@ -953,6 +1010,41 @@ export async function getOracleTradeAmounts(
   };
 }
 
+export async function getOracleRangeTradeAmounts(
+  client: SuiJsonRpcClient,
+  input: RangeKeyInput & { quantity: bigint },
+  sender = DUMMY_SENDER,
+): Promise<OracleTradeAmounts> {
+  const tx = new Transaction();
+  const key = createRangeKey(tx, input);
+
+  tx.moveCall({
+    target: PREDICT_BINDINGS.predictGetRangeTradeAmounts,
+    arguments: [
+      tx.object(DEEPBOOK_PREDICT.predictId),
+      tx.object(input.oracleId),
+      key,
+      tx.pure.u64(input.quantity),
+      tx.object(DEEPBOOK_PREDICT.clockId),
+    ],
+  });
+
+  const result = await client.devInspectTransactionBlock({
+    sender,
+    transactionBlock: tx,
+  });
+
+  const [mintCost, redeemPayout] = result.results?.[1]?.returnValues ?? [];
+  if (!mintCost || !redeemPayout) {
+    throw new Error("Unable to read range trade amount preview");
+  }
+
+  return {
+    mintCost: parseU64Return(mintCost[0]),
+    redeemPayout: parseU64Return(redeemPayout[0]),
+  };
+}
+
 export function createMarketKey(tx: Transaction, input: MarketKeyInput) {
   const [key] = tx.moveCall({
     target: PREDICT_BINDINGS.marketKeyNew,
@@ -961,6 +1053,20 @@ export function createMarketKey(tx: Transaction, input: MarketKeyInput) {
       tx.pure.u64(input.expiry),
       tx.pure.u64(input.strike),
       tx.pure.bool(input.isUp),
+    ],
+  });
+
+  return key;
+}
+
+export function createRangeKey(tx: Transaction, input: RangeKeyInput) {
+  const [key] = tx.moveCall({
+    target: PREDICT_BINDINGS.rangeKeyNew,
+    arguments: [
+      tx.pure.id(input.oracleId),
+      tx.pure.u64(input.expiry),
+      tx.pure.u64(input.lowStrike),
+      tx.pure.u64(input.highStrike),
     ],
   });
 

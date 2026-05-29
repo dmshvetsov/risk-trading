@@ -28,8 +28,10 @@ import {
   DEEPBOOK_PREDICT,
   buildSviCurve,
   createDepositAndMintPositionTransaction,
+  createDepositAndMintRangePositionTransaction,
   createManagerTransaction,
   decodeSignedScaled,
+  getOracleRangeTradeAmounts,
   getOracleTrades,
   getSuiExplorerTxUrl,
   getWalletVaultBalances,
@@ -87,11 +89,21 @@ const PREVIEW_STRIKE_STEPS_EACH_SIDE = 8;
 
 type TradePreviewInput = {
   expiry: number;
-  isUp: boolean;
   oracleId: string;
   quantity: bigint;
-  strike: number;
-};
+} & (
+  | {
+      side: "above" | "below";
+      strike: number;
+    }
+  | {
+      highStrike: number;
+      lowStrike: number;
+      side: "range";
+    }
+);
+
+type PositionSide = TradePreviewInput["side"];
 
 type PendingOpenPosition = Pick<
   WalletPredictPosition,
@@ -124,8 +136,12 @@ function OraclePage() {
     useState<PendingOpenPosition | null>(null);
   const [tradeError, setTradeError] = useState<string | null>(null);
   const [quantity, setQuantity] = useState("100");
-  const [previewIsUp, setPreviewIsUp] = useState(true);
+  const [positionSide, setPositionSide] = useState<PositionSide>("above");
   const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
+  const [selectedHighStrike, setSelectedHighStrike] = useState<number | null>(null);
+  const [selectedLowStrike, setSelectedLowStrike] = useState<number | null>(null);
+  const [highStrikeInput, setHighStrikeInput] = useState("");
+  const [lowStrikeInput, setLowStrikeInput] = useState("");
   const [strikeInput, setStrikeInput] = useState("");
   const [tradeAmounts, setTradeAmounts] = useState<OracleTradeAmounts | null>(
     null,
@@ -220,6 +236,37 @@ function OraclePage() {
       (selectedStrike < state.oracle.min_strike ||
         selectedStrike % state.oracle.tick_size !== 0),
   );
+  const rangeStrikeValidationError = useMemo(() => {
+    if (positionSide !== "range") {
+      return null;
+    }
+
+    if (selectedLowStrike === null || selectedHighStrike === null) {
+      return "Enter low and high strikes";
+    }
+
+    if (
+      state &&
+      (selectedLowStrike < state.oracle.min_strike ||
+        selectedHighStrike < state.oracle.min_strike ||
+        selectedLowStrike % state.oracle.tick_size !== 0 ||
+        selectedHighStrike % state.oracle.tick_size !== 0)
+    ) {
+      return "Strikes unavailable";
+    }
+
+    if (selectedLowStrike >= selectedHighStrike) {
+      return "Low strike must be below high strike";
+    }
+
+    return null;
+  }, [
+    positionSide,
+    selectedHighStrike,
+    selectedLowStrike,
+    state?.oracle.min_strike,
+    state?.oracle.tick_size,
+  ]);
   const parsedQuantity = useMemo(() => {
     try {
       return parseContractQuantity(quantity);
@@ -234,25 +281,49 @@ function OraclePage() {
       !state ||
       state.oracle.oracle_id !== oracleId ||
       !showTradePreview ||
-      selectedStrike === null ||
-      isSelectedStrikeUnavailable ||
       parsedQuantity === null ||
       parsedQuantity === 0n
     ) {
       return null;
     }
 
+    if (positionSide === "range") {
+      if (
+        selectedLowStrike === null ||
+        selectedHighStrike === null ||
+        rangeStrikeValidationError
+      ) {
+        return null;
+      }
+
+      return {
+        expiry: state.oracle.expiry,
+        highStrike: selectedHighStrike,
+        lowStrike: selectedLowStrike,
+        oracleId: state.oracle.oracle_id,
+        quantity: parsedQuantity,
+        side: "range",
+      };
+    }
+
+    if (selectedStrike === null || isSelectedStrikeUnavailable) {
+      return null;
+    }
+
     return {
       expiry: state.oracle.expiry,
-      isUp: previewIsUp,
       oracleId: state.oracle.oracle_id,
       quantity: parsedQuantity,
+      side: positionSide,
       strike: selectedStrike,
     };
   }, [
     parsedQuantity,
     oracleId,
-    previewIsUp,
+    positionSide,
+    rangeStrikeValidationError,
+    selectedHighStrike,
+    selectedLowStrike,
     selectedStrike,
     isSelectedStrikeUnavailable,
     showTradePreview,
@@ -298,11 +369,15 @@ function OraclePage() {
       return "Oracle is not tradable";
     }
 
-    if (selectedStrike === null) {
+    if (positionSide === "range") {
+      if (rangeStrikeValidationError) {
+        return rangeStrikeValidationError;
+      }
+    } else if (selectedStrike === null) {
       return "Enter a strike";
     }
 
-    if (isSelectedStrikeUnavailable) {
+    if (positionSide !== "range" && isSelectedStrikeUnavailable) {
       return "Strike unavailable";
     }
 
@@ -337,6 +412,8 @@ function OraclePage() {
     isTradePreviewStale,
     manager,
     parsedQuantity,
+    positionSide,
+    rangeStrikeValidationError,
     selectedStrike,
     state,
     tradeAmounts,
@@ -409,13 +486,22 @@ function OraclePage() {
     isCancelled: () => boolean,
   ) {
     try {
-      const amounts = await getOracleTradeAmounts(client, {
-        expiry: input.expiry,
-        isUp: input.isUp,
-        oracleId: input.oracleId,
-        quantity: TRADE_PREVIEW_UNIT_QUANTITY,
-        strike: input.strike,
-      });
+      const amounts =
+        input.side === "range"
+          ? await getOracleRangeTradeAmounts(client, {
+              expiry: input.expiry,
+              highStrike: input.highStrike,
+              lowStrike: input.lowStrike,
+              oracleId: input.oracleId,
+              quantity: TRADE_PREVIEW_UNIT_QUANTITY,
+            })
+          : await getOracleTradeAmounts(client, {
+              expiry: input.expiry,
+              isUp: input.side === "above",
+              oracleId: input.oracleId,
+              quantity: TRADE_PREVIEW_UNIT_QUANTITY,
+              strike: input.strike,
+            });
 
       if (!isCancelled() && requestId === tradePreviewRequestIdRef.current) {
         setTradeAmounts(scaleTradeAmounts(amounts, input.quantity));
@@ -508,6 +594,10 @@ function OraclePage() {
   useEffect(() => {
     if (!showTradePreview) {
       setSelectedStrike(null);
+      setSelectedHighStrike(null);
+      setSelectedLowStrike(null);
+      setHighStrikeInput("");
+      setLowStrikeInput("");
       setStrikeInput("");
       return;
     }
@@ -520,8 +610,31 @@ function OraclePage() {
       setSelectedStrike(nextStrike);
       setStrikeInput(formatStrikeInput(nextStrike, state?.oracle.tick_size));
     }
+
+    if (selectedLowStrike === null || selectedHighStrike === null) {
+      const nearestIndex = nearestPreviewStrikeIndex(
+        previewStrikeRows,
+        state?.latest_price?.spot,
+      );
+      const lowStrike =
+        previewStrikeRows[Math.max(0, nearestIndex - 1)]?.strike ??
+        previewStrikeRows[0]?.strike ??
+        null;
+      const highStrike =
+        previewStrikeRows[Math.min(previewStrikeRows.length - 1, nearestIndex + 1)]
+          ?.strike ??
+        previewStrikeRows.at(-1)?.strike ??
+        null;
+
+      setSelectedLowStrike(lowStrike);
+      setSelectedHighStrike(highStrike);
+      setLowStrikeInput(formatStrikeInput(lowStrike, state?.oracle.tick_size));
+      setHighStrikeInput(formatStrikeInput(highStrike, state?.oracle.tick_size));
+    }
   }, [
     previewStrikeRows,
+    selectedHighStrike,
+    selectedLowStrike,
     selectedStrike,
     showTradePreview,
     state?.latest_price?.spot,
@@ -648,7 +761,6 @@ function OraclePage() {
       !manager ||
       !state ||
       !tradeAmounts ||
-      selectedStrike === null ||
       contractQuantity === null ||
       tradeValidationError
     ) {
@@ -659,27 +771,44 @@ function OraclePage() {
     setTradeTxDigest(null);
 
     try {
+      const transaction =
+        positionSide === "range"
+          ? createDepositAndMintRangePositionTransaction({
+              depositAmount: fundingPlan.requiredWalletDeposit,
+              expiry: state.oracle.expiry,
+              highStrike: selectedHighStrike!,
+              lowStrike: selectedLowStrike!,
+              managerId: manager.id,
+              oracleId: state.oracle.oracle_id,
+              oracleSviId: state.oracle.oracle_id,
+              quantity: contractQuantity,
+            })
+          : createDepositAndMintPositionTransaction({
+              depositAmount: fundingPlan.requiredWalletDeposit,
+              expiry: state.oracle.expiry,
+              isUp: positionSide === "above",
+              managerId: manager.id,
+              oracleId: state.oracle.oracle_id,
+              oracleSviId: state.oracle.oracle_id,
+              quantity: contractQuantity,
+              strike: selectedStrike!,
+            });
       const result = await signAndExecuteTransaction({
-        transaction: createDepositAndMintPositionTransaction({
-          depositAmount: fundingPlan.requiredWalletDeposit,
-          expiry: state.oracle.expiry,
-          isUp: previewIsUp,
-          managerId: manager.id,
-          oracleId: state.oracle.oracle_id,
-          oracleSviId: state.oracle.oracle_id,
-          quantity: contractQuantity,
-          strike: selectedStrike,
-        }),
+        transaction,
         chain: "sui:testnet",
       });
 
       setTradeTxDigest(result.digest);
-      setPendingOpenPosition({
-        isUp: previewIsUp,
-        oracleId: state.oracle.oracle_id,
-        quantity: contractQuantity,
-        strike: selectedStrike,
-      });
+      setPendingOpenPosition(
+        positionSide === "range"
+          ? null
+          : {
+              isUp: positionSide === "above",
+              oracleId: state.oracle.oracle_id,
+              quantity: contractQuantity,
+              strike: selectedStrike!,
+            },
+      );
       await refreshTradingState();
     } catch (caughtError) {
       setTradeError(
@@ -744,49 +873,111 @@ function OraclePage() {
                   New Position
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <Button
-                    onClick={() => setPreviewIsUp(true)}
+                    onClick={() => setPositionSide("above")}
                     type="button"
-                    variant={previewIsUp ? "default" : "outline"}
+                    variant={positionSide === "above" ? "default" : "outline"}
                   >
                     {formatPredictDirection(true)}
                   </Button>
                   <Button
-                    onClick={() => setPreviewIsUp(false)}
+                    onClick={() => setPositionSide("range")}
                     type="button"
-                    variant={previewIsUp ? "outline" : "default"}
+                    variant={positionSide === "range" ? "default" : "outline"}
+                  >
+                    RANGE
+                  </Button>
+                  <Button
+                    onClick={() => setPositionSide("below")}
+                    type="button"
+                    variant={positionSide === "below" ? "default" : "outline"}
                   >
                     {formatPredictDirection(false)}
                   </Button>
                 </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="trade-preview-strike">Strike</Label>
-                  <Input
-                    className="font-mono"
-                    id="trade-preview-strike"
-                    inputMode="decimal"
-                    onChange={(event) => {
-                      const nextStrikeInput = event.target.value;
-                      setStrikeInput(nextStrikeInput);
-                      setSelectedStrike(
-                        parseStrikeInput(nextStrikeInput, oracle.tick_size),
-                      );
-                    }}
-                    placeholder={formatStrikeInput(spot, oracle.tick_size)}
-                    value={strikeInput}
-                  />
-                  <div className="text-xs text-muted-foreground">
-                    {selectedStrike === null
-                      ? "Enter a strike"
-                      : `Wins if ${oracle.underlying_asset} ${
-                          previewIsUp ? ">" : "<="
-                        } ${formatTickValue(selectedStrike, oracle.tick_size)} by ${formatDate(
-                          oracle.expiry,
-                        )}`}
+                {positionSide === "range" ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor="trade-preview-strike-low">Strike Low</Label>
+                      <Input
+                        className="font-mono"
+                        id="trade-preview-strike-low"
+                        inputMode="decimal"
+                        onChange={(event) => {
+                          const nextStrikeInput = event.target.value;
+                          setLowStrikeInput(nextStrikeInput);
+                          setSelectedLowStrike(
+                            parseStrikeInput(nextStrikeInput, oracle.tick_size),
+                          );
+                        }}
+                        placeholder={formatStrikeInput(spot, oracle.tick_size)}
+                        value={lowStrikeInput}
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        {selectedLowStrike === null
+                          ? "Enter a low strike"
+                          : `Wins if ${oracle.underlying_asset} > ${formatTickValue(
+                              selectedLowStrike,
+                              oracle.tick_size,
+                            )}`}
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="trade-preview-strike-high">Strike High</Label>
+                      <Input
+                        className="font-mono"
+                        id="trade-preview-strike-high"
+                        inputMode="decimal"
+                        onChange={(event) => {
+                          const nextStrikeInput = event.target.value;
+                          setHighStrikeInput(nextStrikeInput);
+                          setSelectedHighStrike(
+                            parseStrikeInput(nextStrikeInput, oracle.tick_size),
+                          );
+                        }}
+                        placeholder={formatStrikeInput(spot, oracle.tick_size)}
+                        value={highStrikeInput}
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        {selectedHighStrike === null
+                          ? "Enter a high strike"
+                          : `Wins if ${oracle.underlying_asset} < ${formatTickValue(
+                              selectedHighStrike,
+                              oracle.tick_size,
+                            )} by ${formatDate(oracle.expiry)}`}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="grid gap-2">
+                    <Label htmlFor="trade-preview-strike">Strike</Label>
+                    <Input
+                      className="font-mono"
+                      id="trade-preview-strike"
+                      inputMode="decimal"
+                      onChange={(event) => {
+                        const nextStrikeInput = event.target.value;
+                        setStrikeInput(nextStrikeInput);
+                        setSelectedStrike(
+                          parseStrikeInput(nextStrikeInput, oracle.tick_size),
+                        );
+                      }}
+                      placeholder={formatStrikeInput(spot, oracle.tick_size)}
+                      value={strikeInput}
+                    />
+                    <div className="text-xs text-muted-foreground">
+                      {selectedStrike === null
+                        ? "Enter a strike"
+                        : `Wins if ${oracle.underlying_asset} ${
+                            positionSide === "above" ? ">" : "<="
+                          } ${formatTickValue(selectedStrike, oracle.tick_size)} by ${formatDate(
+                            oracle.expiry,
+                          )}`}
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid gap-2">
                   <Label htmlFor="trade-preview-quantity">Contracts</Label>
@@ -853,9 +1044,13 @@ function OraclePage() {
                   />
                 </div>
 
-                {selectedStrike === null ? (
+                {positionSide === "range" && rangeStrikeValidationError ? (
+                  <div className="text-sm text-destructive">
+                    {rangeStrikeValidationError}
+                  </div>
+                ) : selectedStrike === null && positionSide !== "range" ? (
                   <div className="text-sm text-destructive">Enter a strike.</div>
-                ) : isSelectedStrikeUnavailable ? (
+                ) : isSelectedStrikeUnavailable && positionSide !== "range" ? (
                   <div className="text-sm text-destructive">
                     Strike must be at least{" "}
                     {formatTickValue(oracle.min_strike, oracle.tick_size)} and align
@@ -944,7 +1139,7 @@ function OraclePage() {
           <FairProbabilityCurvePanel
             curve={curve}
             forward={forward}
-            isUp={previewIsUp}
+            isUp={positionSide !== "below"}
             tickSize={oracle.tick_size}
           />
 
@@ -1302,6 +1497,24 @@ function nearestPreviewStrike(
   return rows.reduce((nearest, row) =>
     Math.abs(row.strike - spot) < Math.abs(nearest.strike - spot) ? row : nearest,
   ).strike;
+}
+
+function nearestPreviewStrikeIndex(
+  rows: Array<PreviewStrikeRow>,
+  spot: number | null | undefined,
+) {
+  if (rows.length === 0 || !spot) {
+    return 0;
+  }
+
+  return rows.reduce(
+    (nearestIndex, row, index) =>
+      Math.abs(row.strike - spot) <
+      Math.abs((rows[nearestIndex]?.strike ?? row.strike) - spot)
+        ? index
+        : nearestIndex,
+    0,
+  );
 }
 
 function nearestStrike(curve: Array<SviPoint>, strike: number) {
