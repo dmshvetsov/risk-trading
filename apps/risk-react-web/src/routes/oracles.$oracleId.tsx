@@ -898,24 +898,45 @@ function OraclePage() {
                 </div>
 
                 {positionSide === "range" ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="grid gap-2">
-                      <Label htmlFor="trade-preview-strike-low">Strike Low</Label>
-                      <Input
-                        className="font-mono"
-                        id="trade-preview-strike-low"
-                        inputMode="decimal"
-                        onChange={(event) => {
-                          const nextStrikeInput = event.target.value;
-                          setLowStrikeInput(nextStrikeInput);
-                          setSelectedLowStrike(
-                            parseStrikeInput(nextStrikeInput, oracle.tick_size),
-                          );
-                        }}
-                        placeholder={formatStrikeInput(spot, oracle.tick_size)}
-                        value={lowStrikeInput}
-                      />
-                      <div className="text-xs text-muted-foreground">
+                  <div className="grid gap-2">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-2">
+                        <Label htmlFor="trade-preview-strike-low">Strike Low</Label>
+                        <Input
+                          className="font-mono"
+                          id="trade-preview-strike-low"
+                          inputMode="decimal"
+                          onChange={(event) => {
+                            const nextStrikeInput = event.target.value;
+                            setLowStrikeInput(nextStrikeInput);
+                            setSelectedLowStrike(
+                              parseStrikeInput(nextStrikeInput, oracle.tick_size),
+                            );
+                          }}
+                          placeholder={formatStrikeInput(spot, oracle.tick_size)}
+                          value={lowStrikeInput}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="trade-preview-strike-high">Strike High</Label>
+                        <Input
+                          className="font-mono"
+                          id="trade-preview-strike-high"
+                          inputMode="decimal"
+                          onChange={(event) => {
+                            const nextStrikeInput = event.target.value;
+                            setHighStrikeInput(nextStrikeInput);
+                            setSelectedHighStrike(
+                              parseStrikeInput(nextStrikeInput, oracle.tick_size),
+                            );
+                          }}
+                          placeholder={formatStrikeInput(spot, oracle.tick_size)}
+                          value={highStrikeInput}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                      <div>
                         {selectedLowStrike === null
                           ? "Enter a low strike"
                           : `Wins if ${oracle.underlying_asset} > ${formatTickValue(
@@ -923,24 +944,7 @@ function OraclePage() {
                               oracle.tick_size,
                             )}`}
                       </div>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="trade-preview-strike-high">Strike High</Label>
-                      <Input
-                        className="font-mono"
-                        id="trade-preview-strike-high"
-                        inputMode="decimal"
-                        onChange={(event) => {
-                          const nextStrikeInput = event.target.value;
-                          setHighStrikeInput(nextStrikeInput);
-                          setSelectedHighStrike(
-                            parseStrikeInput(nextStrikeInput, oracle.tick_size),
-                          );
-                        }}
-                        placeholder={formatStrikeInput(spot, oracle.tick_size)}
-                        value={highStrikeInput}
-                      />
-                      <div className="text-xs text-muted-foreground">
+                      <div>
                         {selectedHighStrike === null
                           ? "Enter a high strike"
                           : `Wins if ${oracle.underlying_asset} < ${formatTickValue(
