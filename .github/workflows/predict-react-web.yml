@@ -96,4 +96,4 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm --filter predict-react-web exec wrangler pages deploy apps/predict-react-web/dist/client --project-name predict --branch "$GITHUB_REF_NAME"
+        run: pnpm --filter predict-react-web exec wrangler pages deploy dist/client --project-name predict --branch "$GITHUB_REF_NAME"
