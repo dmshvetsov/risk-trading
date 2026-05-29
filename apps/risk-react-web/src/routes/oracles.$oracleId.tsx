@@ -935,23 +935,18 @@ function OraclePage() {
                         />
                       </div>
                     </div>
-                    <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                      <div>
-                        {selectedLowStrike === null
-                          ? "Enter a low strike"
+                    <div className="text-xs text-muted-foreground">
+                      {selectedLowStrike === null
+                        ? "Enter a low strike"
+                        : selectedHighStrike === null
+                          ? "Enter a high strike"
                           : `Wins if ${oracle.underlying_asset} > ${formatTickValue(
                               selectedLowStrike,
                               oracle.tick_size,
-                            )}`}
-                      </div>
-                      <div>
-                        {selectedHighStrike === null
-                          ? "Enter a high strike"
-                          : `Wins if ${oracle.underlying_asset} < ${formatTickValue(
+                            )} and < ${formatTickValue(
                               selectedHighStrike,
                               oracle.tick_size,
                             )} by ${formatDate(oracle.expiry)}`}
-                      </div>
                     </div>
                   </div>
                 ) : (
