@@ -423,6 +423,9 @@ function Positions() {
         />
 
         <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-4 py-3 text-xs text-muted-foreground">
+            Range positions are not displayed yet.
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full caption-bottom text-sm">
               <thead>

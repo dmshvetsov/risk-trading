@@ -4,8 +4,8 @@
   "description": "",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter risk-react-web dev",
-    "build": "pnpm --filter risk-react-web build"
+    "dev": "pnpm --filter predict-react-web dev",
+    "build": "pnpm --filter predict-react-web build"
   },
   "keywords": [],
   "author": "Dmitry Shvetsov <https://dmitryshvetsov.com>",

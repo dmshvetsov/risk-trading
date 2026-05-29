@@ -8,7 +8,7 @@ importers:
 
   .: {}
 
-  apps/risk-react-web:
+  apps/predict-react-web:
     dependencies:
       '@fontsource-variable/noto-sans':
         specifier: ^5.2.10

@@ -116,7 +116,12 @@ export const OpenPositionsChart = memo(function OpenPositionsChart({
   return (
     <section className="flex h-full flex-col rounded-lg border border-border bg-card p-4 shadow-sm">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <div>
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Range positions are not displayed yet.
+          </p>
+        </div>
         <div className="flex flex-wrap gap-3 text-xs">
           <LegendItem color="var(--chart-2)" label="ABOVE">
             Open long-above quantity.

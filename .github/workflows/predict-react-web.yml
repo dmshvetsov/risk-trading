@@ -1,0 +1,88 @@
+name: predict-react-web
+
+on:
+  pull_request:
+    paths:
+      - "apps/predict-react-web/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/predict-react-web.yml"
+  push:
+    branches:
+      - "**"
+    paths:
+      - "apps/predict-react-web/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/predict-react-web.yml"
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: predict-react-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm --filter predict-react-web test
+
+      - name: Build
+        run: pnpm --filter predict-react-web build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: predict-react-web-client
+          path: apps/predict-react-web/dist/client
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy
+    needs: check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: predict-react-web-client
+          path: apps/predict-react-web/dist/client
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/predict-react-web/dist/client --project-name predict --branch ${{ github.ref_name }}
