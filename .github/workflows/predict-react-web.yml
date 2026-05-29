@@ -78,13 +78,22 @@ jobs:
           name: predict-react-web-client
           path: apps/predict-react-web/dist/client
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Deploy to Cloudflare Pages
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx --yes wrangler@3.90.0 pages deploy apps/predict-react-web/dist/client --project-name predict --branch "$GITHUB_REF_NAME"
+        run: pnpm --filter predict-react-web exec wrangler pages deploy apps/predict-react-web/dist/client --project-name predict --branch "$GITHUB_REF_NAME"
