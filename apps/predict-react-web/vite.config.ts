@@ -4,11 +4,19 @@ import tailwindcss from '@tailwindcss/vite'
 import viteReact from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-export default defineConfig({
-  plugins: [tailwindcss(), tanstackStart(), viteReact()],
-   resolve: {
-    alias: {
-      "@": resolve(__dirname, "./src"),
+export default defineConfig((config) => {
+  const tanstackStartConfig = tanstackStart({
+    prerender: {
+      enabled: config.mode === 'production',
     },
-  },
+  })
+
+  return {
+    plugins: [tailwindcss(), tanstackStartConfig, viteReact()],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, './src'),
+      },
+    },
+  }
 })
