@@ -11,3 +11,4 @@
 - https://app.aevo.xyz/option/btc options DEX
 - https://dapp.sofa.org/products?project=Earn on-chain option strategies
 - https://app.rysk.finance/earn covered call and cash secured put option strategies
+- https://www.paradigm.co/ liquidity providers for crypto derivatives
