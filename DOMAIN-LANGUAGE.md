@@ -18,9 +18,11 @@ Oracle "forward" price - expected price by Oracle at time of expiry of the optio
 
 Option "moneyness" - tells the model how far the contract is from ATM (at-the-money), ITM (in-the-moeny), OTM (out-the-money)
 
-In-the-money (ITM) - positive option moneyness, when asset spot price is above option strike price
+In-the-money (ITM) - positive option "moneyness", when option underlying asset spot price is above option strike price for a call options and when asset spot price is below option strike price for a put option
 
-Out-the-money (OTM) - negative option moneyness, when asset spot price is below option strike price
+At-the-money (ATM) - when option underlying asset spot price equals (or very close) the strike price.
+
+Out-the-money (OTM) - negative option "moneyness", when option underlying asset spot price is below option strike price
 
 Stochastic Volatility Inspired (SVI) - parametric model used to smooth and model implied volatility smiles and surfaces. 
 
@@ -37,3 +39,13 @@ Central Limit Order Book (CLOB) orderbook - a place that keep track of buyers pl
 DeepBook market key - combination of oracle, specific expiry and strike price. Can be a range key when instead of single strike price it has lower and upper strike.
 
 RFQ (Request for Quote) - is an electronic process where a trader asks liquidity providers or market makers for a custom price on a specific trade. Instead of buying or selling directly from a public order book, you solicit competitive, private bids or offers before executing.
+
+On-chain Protocol - it is software code that stored in a blockchain and called smart contract(s) with main purpose to execute predefined logic without external and/or central authority.
+
+Mobile first - is a design and software development strategy that prioritizes creating software application user interfaces for mobile devices before adapting them for larger desktop screens.
+
+PTB - programmable transaction block, a Sui blockchain transaction that can be grouped and broadcasted to Sui blockchain together as a single unit (execute all or nothing)
+
+Physical settlement of an option - is a process at contract expiration where the buyer and seller exchange the actual underlying asset rather than just transferring cash profits or losses.
+
+Cash settlement of an option - is a mechanism in derivatives trading where a contract is resolved at expiration through a monetary exchange, rather than the physical delivery of the underlying asset.
