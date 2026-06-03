@@ -148,7 +148,18 @@ User interface for takers and makers.
 MUST be mobile fist application.
 
 MUST implement following pages:
-- TODO copy all users pages from rysk.finance, docs.rysk.finance can be used to find what pages web application has
+- Home / Earn page with supported assets, covered call and cash-secured put tabs, available expiries, APR range, cap/fill status, and call to open an option income position
+- Option quote builder page for a selected asset and contract type, including strike selection, expiry selection, position size input, collateral requirements, expected premium, APR, oracle spot price, expected expiry outcome, and RFQ quote refresh state
+- Trade review and confirmation page/modal showing exact option terms, premium, protocol fee, collateral to lock, maker quote expiry, settlement rules, transaction simulation result, and wallet signature/transaction status
+- Taker dashboard page showing wallet income, open positions, settled positions, expired positions, pending settlement, notional, strike, APR, premium received, current oracle price, and projected outcome
+- Taker position detail page showing one position lifecycle from underwrite through settlement, including quote signature, option token, collateral object, settlement price, events, and transaction links
+- Maker onboarding page explaining minimum deposit, whitelisted quote-signing wallets, supported assets, API/WebSocket requirements, testnet onboarding, and integration status
+- Maker account page for deposits, withdrawals, balances, locked funds, available quote capacity, wallet whitelist management, and protocol fee accounting
+- Maker RFQ operations page showing active subscriptions, incoming quote requests, submitted quotes, accepted trades, quote rejection reasons, nonce usage, quote expiry, and API health
+- Maker positions and settlement page showing held option tokens, ITM/OTM status, required settlement funds, exercise/settlement readiness, approval requirements, and settlement history
+- Points page, if incentive program is enabled, showing user points, referral points, activity history, epochs, and distribution status
+- Leaderboard page, if incentive program is enabled, showing ranked takers and makers by volume, premium generated, or points
+- Help and legal pages including FAQ, risks, oracle and settlement policy, supported contracts, terms of service, privacy policy, and official links
 
 ## How Integration with Market Makers works
 
