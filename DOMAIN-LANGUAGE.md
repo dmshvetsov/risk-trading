@@ -1,3 +1,5 @@
+An option series - is a specific group of financial options contracts that share the same underlying asset token, quote token, collateral token, type call or put, expiration date, and strike price.
+
 Skew -  skewness measures the asymmetry in a frequency distribution, broadly means to distort, twist, or cause something to be asymmetrical, biased, or not straight.
 
 Oracle SVI "a" parameter - The base volatility level. Higher a lifts the whole curve up. "a" moves the smile up/down.
@@ -18,11 +20,13 @@ Oracle "forward" price - expected price by Oracle at time of expiry of the optio
 
 Option "moneyness" - tells the model how far the contract is from ATM (at-the-money), ITM (in-the-moeny), OTM (out-the-money)
 
+Notional value (or notional amount) - is the total underlying value of the assets an option contract controls. It represents your total market exposure and calculated by `= number of shares per contract * number of contracts * spot price`
+
 In-the-money (ITM) - positive option "moneyness", when option underlying asset spot price is above option strike price for a call options and when asset spot price is below option strike price for a put option
 
 At-the-money (ATM) - when option underlying asset spot price equals (or very close) the strike price.
 
-Out-the-money (OTM) - negative option "moneyness", when option underlying asset spot price is below option strike price
+Out-the-money (OTM) - negative option "moneyness", when option underlying asset spot price is below option strike price for call options and when option underlying asset spot price is above option strike price for call option.
 
 Stochastic Volatility Inspired (SVI) - parametric model used to smooth and model implied volatility smiles and surfaces. 
 
@@ -45,6 +49,8 @@ On-chain Protocol - it is software code that stored in a blockchain and called s
 Mobile first - is a design and software development strategy that prioritizes creating software application user interfaces for mobile devices before adapting them for larger desktop screens.
 
 PTB - programmable transaction block, a Sui blockchain transaction that can be grouped and broadcasted to Sui blockchain together as a single unit (execute all or nothing)
+
+EOA - externally owned account is a user-controlled blockchain wallet controlled by a private key.
 
 Physical settlement of an option - is a process at contract expiration where the buyer and seller exchange the actual underlying asset rather than just transferring cash profits or losses.
 
