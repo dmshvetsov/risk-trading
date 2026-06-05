@@ -6,7 +6,7 @@ function Sidebar({ className, ...props }: ComponentProps<"aside">) {
   return (
     <aside
       className={cn(
-        "hidden min-h-screen w-64 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex md:flex-col",
+        "hidden min-h-screen w-64 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex lg:flex-col",
         className,
       )}
       {...props}

@@ -42,8 +42,16 @@ function RootComponent() {
         <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
           <WalletProvider autoConnect>
             <div className="flex min-h-screen bg-background text-foreground">
+              <div className="flex min-h-screen w-full items-center justify-center px-6 text-center lg:hidden">
+                <div className="max-w-sm">
+                  <h1 className="text-xl font-semibold">Use a larger screen</h1>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    This application is designed for desktop-sized screens.
+                  </p>
+                </div>
+              </div>
               <AppSidebar />
-              <SidebarInset>
+              <SidebarInset className="hidden lg:block">
                 <Outlet />
               </SidebarInset>
             </div>

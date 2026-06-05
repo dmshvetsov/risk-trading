@@ -37,8 +37,8 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader>
-        <div className="text-sm font-semibold">Risk Trading</div>
-        <div className="text-xs text-sidebar-foreground/60">Prediction market monitor</div>
+        <div className="text-sm font-semibold">Unofficial DeepBook Predict dApp</div>
+        <div className="text-xs text-sidebar-foreground/60">Sui Testnet Network</div>
         <div className="pt-3">
           <ConnectButton />
         </div>

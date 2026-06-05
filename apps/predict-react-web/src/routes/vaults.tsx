@@ -390,8 +390,8 @@ function Vaults() {
 
         <div className="grid gap-3 md:grid-cols-4">
           <Metric label="Vault balance" value={summary ? formatQuoteAmount(summary.totalBalance) : "-"} />
+          <Metric label="Est. open position payout" value={summary ? formatQuoteAmount(summary.totalMtm) : "-"} />
           <Metric label="Vault value" value={summary ? formatQuoteAmount(summary.vaultValue) : "-"} />
-          <Metric label="Available withdrawal" value={summary ? formatQuoteAmount(summary.availableWithdrawal) : "-"} />
           <Metric label="PLP supply" value={summary ? formatPlpAmount(summary.totalPlpSupply) : "-"} />
         </div>
 
@@ -496,7 +496,6 @@ function Vaults() {
               <Metric label={`${DEEPBOOK_PREDICT.plp.symbol} balance`} value={`${formatPlpAmount(balances?.plp ?? 0n)} ${DEEPBOOK_PREDICT.plp.symbol}`} />
               <Metric label="Wallet LP share" value={formatPercent(walletShare)} />
               <Metric label="Max payout coverage" value={summary ? formatQuoteAmount(summary.totalMaxPayout) : "-"} />
-              <Metric label="Mark-to-market liability" value={summary ? formatQuoteAmount(summary.totalMtm) : "-"} />
             </div>
             {isLoading ? (
               <div className="mt-4 text-sm text-muted-foreground">Loading vault data...</div>
