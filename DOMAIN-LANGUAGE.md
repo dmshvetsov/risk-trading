@@ -26,7 +26,7 @@ In-the-money (ITM) - positive option "moneyness", when option underlying asset s
 
 At-the-money (ATM) - when option underlying asset spot price equals (or very close) the strike price.
 
-Out-the-money (OTM) - negative option "moneyness", when option underlying asset spot price is below option strike price for call options and when option underlying asset spot price is above option strike price for call option.
+Out-the-money (OTM) - negative option "moneyness", when option underlying asset spot price is below option strike price for call options and when option underlying asset spot price is above option strike price for put option.
 
 Stochastic Volatility Inspired (SVI) - parametric model used to smooth and model implied volatility smiles and surfaces. 
 
@@ -43,6 +43,8 @@ Central Limit Order Book (CLOB) orderbook - a place that keep track of buyers pl
 DeepBook market key - combination of oracle, specific expiry and strike price. Can be a range key when instead of single strike price it has lower and upper strike.
 
 RFQ (Request for Quote) - is an electronic process where a trader asks liquidity providers or market makers for a custom price on a specific trade. Instead of buying or selling directly from a public order book, you solicit competitive, private bids or offers before executing.
+
+montonic - a progression, process, or mathematical value that strictly moves in a single, unchanging direction.
 
 On-chain Protocol - it is software code that stored in a blockchain and called smart contract(s) with main purpose to execute predefined logic without external and/or central authority.
 
