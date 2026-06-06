@@ -1,5 +1,9 @@
 packages:
   - apps/*
+minimumReleaseAge: 20160
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 180d
+blockExoticSubdeps: true
 allowBuilds:
   esbuild: true
   msw: true
