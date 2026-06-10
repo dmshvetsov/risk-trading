@@ -12,3 +12,6 @@
 - https://dapp.sofa.org/products?project=Earn on-chain option strategies
 - https://app.rysk.finance/earn covered call and cash secured put option strategies
 - https://www.paradigm.co/ liquidity providers for crypto derivatives
+- Option like products built on top of UnisvapV3
+  - GammaSwap
+  - Panoptic (V1's were white-hacked in August 2025, building v2) - https://www.youtube.com/watch?v=TiTXsJn7MyE video from December 2026
