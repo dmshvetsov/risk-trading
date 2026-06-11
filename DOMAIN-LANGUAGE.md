@@ -1,4 +1,6 @@
-An option series - is a specific group of financial options contracts that share the same underlying asset token, quote token, collateral token, type call or put, expiration date, and strike price.
+Option class - is a underlying base asset and quote asset plus an asset that is used as a proxy for underlying in case if that assets is not present natively, like WBTC or HTBC that acts as physical delivery for BTC on Sui Network.
+
+Option series - is a specific group of financial options contracts in a market that share the same type call or put, expiration date, and strike price for an option class.
 
 Skew -  skewness measures the asymmetry in a frequency distribution, broadly means to distort, twist, or cause something to be asymmetrical, biased, or not straight.
 
@@ -28,6 +30,8 @@ At-the-money (ATM) - when option underlying asset spot price equals (or very clo
 
 Out-the-money (OTM) - negative option "moneyness", when option underlying asset spot price is below option strike price for call options and when option underlying asset spot price is above option strike price for put option.
 
+Exercise by exception - is an administrative procedure used by clearinghouses that automatically exercises any in-the-money (ITM) options at expiration.
+
 Stochastic Volatility Inspired (SVI) - parametric model used to smooth and model implied volatility smiles and surfaces. 
 
 Volatility smile - is the pattern where options with different strikes have different implied volatility. I.e. BTC at 50k high implied volatility, 60k lower implied volatility, 70k high implied volatility while spot price is around 60k. Markets usually price extreme moves as more risky than a simple like standard deviation based model would suggest because far-away outcomes are not as impossible as basic math says.
@@ -44,7 +48,13 @@ DeepBook market key - combination of oracle, specific expiry and strike price. C
 
 RFQ (Request for Quote) - is an electronic process where a trader asks liquidity providers or market makers for a custom price on a specific trade. Instead of buying or selling directly from a public order book, you solicit competitive, private bids or offers before executing.
 
-montonic - a progression, process, or mathematical value that strictly moves in a single, unchanging direction.
+Monotonic - a progression, process, or mathematical value that strictly moves in a single, unchanging direction.
+
+Fixed-point arithmetic - is a method of representing and calculating fractional numbers using integers by scaling all values by a fixed factor placing an implied decimal point in a predetermined position. 
+
+Fixed-point token representation - uses fixed-point arithmetic, so fixed-point value 1100000: 1100000 is base unit aka "amount", has 6 decimals, 1.1 is display amount, 1 integer part, 0.1 fractional part
+
+Checked arithmetic - are operations that verify whether a calculation exceeds (overflows) or falls below (underflows) the limits of a data type.
 
 On-chain Protocol - it is software code that stored in a blockchain and called smart contract(s) with main purpose to execute predefined logic without external and/or central authority.
 
@@ -57,3 +67,19 @@ EOA - externally owned account is a user-controlled blockchain wallet controlled
 Physical settlement of an option - is a process at contract expiration where the buyer and seller exchange the actual underlying asset rather than just transferring cash profits or losses.
 
 Cash settlement of an option - is a mechanism in derivatives trading where a contract is resolved at expiration through a monetary exchange, rather than the physical delivery of the underlying asset.
+
+BaseCoin - the physically delivered asset coin type, for example `SUI`, `DEEP`, `WBTC`, or another wrapped BTC coin.
+
+QuoteCoin - the cash/strike/premium coin type, for example `USDC`.
+
+OracleBase - the asset represented by the Pyth feed, for example `BTC` even when `BaseCoin` is `WBTC`.
+
+Market - one deployed market instance for one `OracleBase / QuoteCoin / BaseCoin` combination.
+
+LongToken - transferable semi-fungible option object with a `series_id` and `quantity`.
+
+SellerVault - non-transferable seller short-position accounting record for one seller and one series.
+
+MarginPool - shared custody object that holds all `BaseCoin` and `QuoteCoin` collateral and exercise proceeds for a single market.
+
+Series object - is the protocol’s shared accounting/state object for one option contract definition.

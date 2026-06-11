@@ -2,15 +2,16 @@
 
 ## Scope
 
-This document specifies the on-chain smart contract design for European, physically settled options on Sui.
+This document specifies MVP version of the on-chain smart contract design for European, physically settled options on Sui.
 
 The contract design uses:
 - transferable semi-fungible long option objects with quantity,
 - non-transferable seller vault records,
-- a shared margin pool,
-- Pyth expiry price finalization,
+- one `CollateralPool` per option series,
+- oracle expiry price finalization,
 - manual holder exercise within a fixed exercise window,
-- PTB-composable flash-loan exercise.
+- PTB-composable flash-loan exercise,
+- post-window net auto-settlement for unexercised ITM longs.
 
 This document does not specify RFQ servers, market-maker APIs, web UI, indexing, or off-chain quote routing.
 
@@ -18,20 +19,13 @@ This document does not specify RFQ servers, market-maker APIs, web UI, indexing,
 
 `MUST`, `MUST NOT`, `REQUIRED`, `SHOULD`, `SHOULD NOT`, `MAY`, and `OPTIONAL` are normative terms.
 
-## Core Terms
+## Core Terms and Product Language
 
-- `BaseCoin`: the physically delivered asset coin type, for example `SUI`, `DEEP`, `WBTC`, or another wrapped BTC coin.
-- `QuoteCoin`: the cash/strike/premium coin type, for example `USDC`.
-- `OracleBase`: the asset represented by the Pyth feed, for example `BTC` even when `BaseCoin` is `WBTC`.
-- `Market`: one deployed market instance for one `OracleBase / QuoteCoin / BaseCoin` combination.
-- `Series`: one option series in a market, identified by option type, strike, and expiry.
-- `Call`: holder pays `QuoteCoin` strike cash and receives `BaseCoin`.
-- `Put`: holder delivers `BaseCoin` and receives `QuoteCoin` strike cash.
-- `LongToken`: transferable semi-fungible option object with a `series_id` and `quantity`.
-- `SellerVault`: non-transferable seller short-position accounting record for one seller and one series.
-- `MarginPool`: shared custody object that holds all `BaseCoin` and `QuoteCoin` collateral and exercise proceeds for the market.
+This document uses `./DOMAIN-LANGUAGE.md` as way to describe option trading specific parts of the product used by business and technical members.
 
-## Market Model
+## Market Object Model
+
+`Market` MUST be stored as a separate shared object.
 
 Each market MUST support exactly one `OracleBase / QuoteCoin / BaseCoin` combination.
 
@@ -39,60 +33,85 @@ Examples:
 - `SUI / USDC / SUI`
 - `DEEP / USDC / DEEP`
 - `BTC / USDC / WBTC`
-- `BTC / USDC / other_wrapped_btc`
+- `BTC / USDC / HBTC`
 
-Different wrapped versions of the same oracle asset MUST be different markets. A `BTC / USDC / WBTC` long token MUST NOT merge with a `BTC / USDC / other_wrapped_btc` long token.
+Different wrapped versions of the same oracle asset MUST be different markets. A `BTC / USDC / WBTC` long token MUST NOT merge with a `BTC / USDC / HBTC` long token because they are different option class tokens. Tokens of the same option class and different option series MUST NOT be merged together, if either expiry and/or strike and/or call/put type is different, for example two tokens `BTC / USDC / WBTC` one with expiry June 12 2026 and another with June 26 2026, but with the same strike 62000 and same call type.
 
 The market MUST store:
-- Pyth feed id for `OracleBase / QuoteCoin`,
+- oracle `oracle` name
+- oracle `oracle_feed_id` for `OracleBase / QuoteCoin` pair,
 - base coin decimals,
 - quote coin decimals,
 - strike scale,
 - admin address or admin capability,
-- fee recipient,
 - pause flag,
-- margin pool id,
-- supported asset identity.
+- `QuoteCoin` asset address
+- `BaseCoin` asset address
 
 The contract MUST reject operations for unsupported coin types.
 
-## Series Lifecycle
+## Series Object Model
 
-A series MUST contain:
+`Series` MUST be stored as a separate shared object.
+
+A series object MUST contain:
 - unique `series_id`,
-- option type: `CALL` or `PUT`,
+- `market_id`
+- option type marker: `CALL` or `PUT`,
 - `strike_price`,
 - `expiry_ms`,
-- `exercise_window_end_ms = expiry_ms + 2 hours`,
+- `exercise_window_end_ms = expiry_ms + 1 hour`,
+- `exception_window_end_ms = exercise_window_end_ms + 1 hour`,
 - total short quantity,
-- total exercised quantity,
-- stored Pyth settlement price,
-- settlement price publish time,
-- settlement status,
+- total manual exercised quantity,
+- total exercise-by-exception quantity,
+- stored oracle `expiry_price`,
+- expiry price publish time,
+- collateral pool id,
+- state,
 - cumulative exercise proceeds accounting,
-- seller vault records keyed by seller address.
+- seller vault records
+
+Each option series MUST have exactly one `CollateralPool`. `Series` MUST own or reference its own `CollateralPool` through `collateral_pool_id`.
 
 Series states:
-- `Open`: created and not expired.
-- `ExpiredPendingPrice`: expiry reached, price not finalized.
-- `PriceFinalized`: expiry price stored.
-- `ExerciseClosed`: exercise window ended.
+- `Open`: series exists and expiration price has not been finalized.
+- `ExpirationPriceFinalized`: expiration price is stored and immutable.
+- `Closed`: seller payouts are complete and old series storage may be closed.
 
-Exercise MUST be allowed only when:
-- series price is finalized,
+Post-expiry phases MUST be derived from `state`, finalized price, `expiry_ms`, `exercise_window_end_ms`, and `exception_window_end_ms`. They MUST NOT require separate stored states.
+
+Derived phases:
+- price pending: `state == Open` and current time is greater than or equal to `expiry_ms`,
+- no-exercise expiry, options expired worthless: `state == ExpirationPriceFinalized` and the series is ATM or OTM,
+- manual exercise: `state == ExpirationPriceFinalized`, the series is ITM, and current time is <= to `exercise_window_end_ms`,
+- exercise-by-exception window: `state == ExpirationPriceFinalized`, the series is ITM, current time is > than `exercise_window_end_ms`, and current time is <= to `exception_window_end_ms`,
+- partial settlement: `state == ExpirationPriceFinalized`, the series is ITM, exercise-by-exception did not complete, and current time > than `exception_window_end_ms`,
+- full settlement: `state == ExpirationPriceFinalized` the series is ITM and `total_manual_exercised_quantity + total_exercise_by_exception_quantity` == `total_short_quantity`.
+
+Manual exercise MUST be allowed only when:
+- series price is finalized state = `ExpirationPriceFinalized`,
 - current time is `>= expiry_ms`,
 - current time is `<= exercise_window_end_ms`,
 - the series is ITM.
 
-An ITM call is `settlement_price > strike_price`.
+Exercise-by-exception MUST be allowed only when:
+- series price is finalized state = `ExpirationPriceFinalized`,
+- current time is `>= expiry_ms`,
+- current time is `> exercise_window_end_ms` and `<= exception_window_end_ms`,
+- the series is ITM.
 
-An ITM put is `settlement_price < strike_price`.
+An ITM call is `expiry_price > strike_price`.
 
-ATM and OTM options MUST NOT be exercisable.
+An ITM put is `expiry_price < strike_price`.
 
-Unexercised long tokens expire worthless after `exercise_window_end_ms`.
+ATM and OTM options MUST NOT be exercisable, `Long` tokens expire worthless when the expiration price is finalized.
 
-## Series Creation
+For ITM series, after `exercise_window_end_ms`, unexercised long tokens MUST NOT be used for direct physical exercise.
+
+Unexercised ITM long tokens MAY be used only to claim from the claim pool after exercise + exercise-by-exception windows ends. If exercise-by-exception has not completed before `exception_window_end_ms`, remaining unexercised `Long` tokens MUST be considered expired worthless.
+
+### Series Creation
 
 Series creation MUST be permissionless.
 
@@ -103,106 +122,108 @@ The contract MUST enforce:
 - market coin types are supported,
 - no duplicate series exists for the same market, option type, strike, and expiry.
 
-The UI MAY guide users to standard weekly and monthly expiries, but the contract MUST NOT depend on UI-only expiry helpers.
-
 ## Long Token Model
 
-Long option tokens MUST be Sui-owned objects, not PAS assets and not clawback assets.
-
-Each `LongToken` MUST contain:
+Each `Long` token MUST contain:
 - object id,
 - market id,
 - series id,
-- option type,
+- option marker type,
 - strike,
 - expiry,
-- quantity.
+- quantity `balance` using `Sui::Balance`.
 
 Long tokens MUST be freely transferable by their owner.
 
 Long tokens MUST support:
-- `split(token, quantity) -> LongToken`,
-- `merge(target, source)`,
-- partial exercise by splitting or reducing quantity,
-- full exercise by consuming the token object.
+- `split(token, quantity) -> Long`,
+- `join(target, source)`,
+- partial exercise by splitting before exercise,
+- exercise by consuming the whole provided token object.
 
-`merge` MUST require identical:
+`join` MUST require identical:
 - market id,
 - series id,
 - option type,
 - strike,
 - expiry.
 
-The protocol MUST NOT be able to force-burn long tokens from user wallets. Holder action is REQUIRED to exercise.
+`Long` tokens MUST be sent to holder, the protocol MUST NOT hold `Long` tokens for holders. Holder action is REQUIRED to exercise.
+
+After the exercise window, an unexercised ITM `Long` token is no longer a physical exercise right. It becomes a claim ticket against the isolated claim pool only if exercise-by-exception has completed for the series. After exercise-by-exception window ends `Long` token is expired worthless.
 
 ## Seller Vault Model
 
-The contract MUST use one non-transferable `SellerVault` record per seller and series.
+Stored under `Series` as dynamic fields keyed by seller address. Additionally `Series` must store `seller_vault_index: vector<address>` to allow batch processing over `SellerVault`s.
 
-The `SellerVault` SHOULD be stored as a dynamic field under the shared series object, keyed by seller address. It MUST NOT be an owned object that requires seller signature for settlement, because seller settlement MUST be permissionless after the exercise window.
+`SellerVault` acts as store of short option tokens. It records how much the seller wrote and determines what the seller receives after expiry. Sellers MUST NOT have a withdrawal or self-settlement path.
+
+The contract MUST use one non-transferable `SellerVault` record per seller address and option `Series`. The `SellerVault` SHOULD be stored under the shared `Series` object. It MUST NOT be an owned object that requires seller signature for settlement, because seller settlement MUST be permissionless for best overall (avoid waiting for both seller and buyer to sign to settle an option serries) and seller particularly UX.
 
 Each `SellerVault` MUST store:
 - seller address,
 - series id,
 - short quantity,
 - collateral quantity,
-- settlement status,
-- accounting snapshot values if index-based accounting is used.
+- settlement state,
 
-The seller vault replaces a transferable short option token. It records how much the seller wrote and determines what the seller receives after expiry.
+## Collateral Pool
 
-Sellers MUST NOT receive transferable writer tokens in V1.
+`CollateralPool` MUST be stored as a separate shared object, MUST belongs to `Series` by storing `series_id`.
 
-## Margin Pool
+`CollateralPool` MUST hold `BaseCoin` and `QuoteCoin` balances for one option series only.
 
-Each market MUST have one shared `MarginPool`.
+Seller collateral coin balance in the pool MUST NOT be treated as per-seller separate balances. `Series` and `SellerVault` accounting determines seller payout shares.
 
-The margin pool MUST hold aggregate `BaseCoin` and `QuoteCoin` balances for all series in the market.
+The `CollateralPool` MUST track accounted balances for its series so admin and operator can only recover excess or dust that is not reserved for active or unsettled positions.
 
-The controller/accounting layer MUST track which series and seller vaults are entitled to which portions of the shared balances. Physical coin balances in the pool MUST NOT be treated as per-seller segregated balances.
-
-The margin pool MUST track accounted balances so admin recovery can only recover excess or dust that is not reserved for active or unsettled positions.
+After the `Series` is `Closed`, its `CollateralPool` SHOULD be deletable after all required payouts, claim-pool transfers, and allowed dust recovery are complete.
 
 ## Underwriting
 
-Underwriting creates long tokens for a buyer and records a seller short obligation.
+Underwriting creates `Long` tokens for a buyer and records a seller short obligation.
 
 For a covered call:
-- seller deposits `BaseCoin` collateral equal to the option quantity,
+- seller deposits `BaseCoin` collateral equal to the option quantity into the series `CollateralPool`,
 - buyer pays premium in `QuoteCoin`,
-- contract mints/transfers `LongToken` to buyer,
-- seller vault short quantity increases.
+- contract mints and transfers `Long` token to buyer,
+- seller vault short quantity increases in `SellerVault`.
 
 For a cash-secured put:
-- seller deposits `QuoteCoin` collateral equal to `strike_payment(quantity)`,
+- seller deposits `QuoteCoin` collateral equal to `strike_payment(quantity)` into the series `CollateralPool`,
 - buyer pays premium in `QuoteCoin`,
-- contract mints/transfers `LongToken` to buyer,
-- seller vault short quantity increases.
+- contract mints/transfers `Long` token to buyer,
+- seller vault short quantity increases in `SellerVault`.
 
-Seller collateral MUST be fully collateralized. V1 MUST NOT support naked, undercollateralized, or cross-margin positions.
-
-V1 MUST NOT support:
-- seller collateral top-up after underwriting,
-- seller short reduction before expiry,
-- seller excess collateral withdrawal before expiry.
+Seller collateral MUST be deposited in full 1:1, in other words fully collateralized.
 
 Premium and fee handling:
 - buyer pays `premium_total` in `QuoteCoin`,
-- `protocol_fee` is deducted from `premium_total`,
-- seller receives `premium_total - protocol_fee`,
-- protocol fee is transferred to the fee recipient or treasury.
+- `operational_fee` is deducted from `premium_total`,
+- seller receives `premium_total - operational_fee`,
+- protocol fee is transferred to `fee_recipient`,
+- `fee_recipient` and `operational_fee` must be specified per underwriting transaction to allow dynamic `fee_recipient` and dynamic `operational_fee` amount.
 
-`protocol_fee` MUST NOT exceed `premium_total`.
+`operational_fee` MUST NOT exceed `premium_total`.
 
-The market MAY enforce an immutable or admin-configured maximum fee basis points. If present, underwriting MUST reject fees above that cap.
+The market MAY admin-configured maximum fee basis points. If present, the smart contract MUST reject underwriting if fees above that maximum fee.
 
 ## Strike Payment Calculation
 
-The contract MUST provide deterministic conversion between base quantity and quote strike payment.
+The contract MUST provide deterministic conversion between `BaseCoin` quantity and `QuoteCoin` strike payment.
 
 For calls, holder quote payment MUST be:
 
 `quote_required = ceil(base_quantity * strike_price * quote_scale / base_scale / strike_scale)`
+
+Example: call option for 1 SUI, strike $3.50, quote is USDC:
+- 1 Sui base_quantity = 1_000_000_000 because SUI has 9 decimals
+- $3.5 strike_price = 350_000_000 if strike scale is 1e8
+- quote_scale = 1_000_000 because USDC has 6 decimals
+- base_scale = 1_000_000_000
+- strike_scale = 100_000_000
+- 1_000_000_000 * 350_000_000 * 1_000_000 / 1_000_000_000 / 100_000_000 = 3_500_000
+- holder pays 3_500_000 USDC base units which is 3.5 USDC.
 
 For puts, seller quote collateral and holder quote payout MUST use the same formula.
 
@@ -211,128 +232,205 @@ Rounding MUST favor solvency:
 - put collateral requirement MUST round up,
 - holder payout for puts MUST NOT exceed locked quote collateral.
 
-## Price Finalization
+## Expiry Price Finalization
 
-The contract MUST use Pyth only to determine ITM/OTM status.
+The oracle is used only once per `Series` to finalize and store the expiry price; after that, all ITM/OTM checks read the stored `Series` expiry price.
 
-The contract MUST NOT use the oracle price to calculate physical settlement amounts.
+The contract MUST receive `expiry_price` finalization from off-chain with a transaction that sets expiry price for `Series` in batch. Every `Series` in one batch MUST have same `market_id`. Expiry price finalization is permissionless, anyone MAY finalize a series price after expiry.
 
-Anyone MAY finalize a series price after expiry.
-
-The accepted Pyth price MUST satisfy:
+The accepted price MUST satisfy:
 - publish time is after or equal to `expiry_ms`,
-- publish time is within a bounded first-after-expiry window,
 - price is positive,
-- feed id matches the market feed id.
+- `oracle` name and `oracle_feed_id` matches the `Market` `oracle_feed_id`.
 
-Once stored, the settlement price MUST be immutable.
+Once stored, the expiry price MUST be immutable.
 
-V1 cannot prove "first after expiry" if multiple valid Pyth updates inside the bound are available unless the oracle exposes a verifiable sequence. Therefore V1 MUST implement "first valid bounded update accepted by the contract". The bound MUST be an immutable market constant and SHOULD be short enough to leave most of the 2-hour exercise window available.
+Finalizing a valid expiration price MUST move the series from `Open` to `ExpirationPriceFinalized`.
 
-If no valid bounded price is finalized, exercise MUST remain blocked and admin recovery rules MUST be used only after a conservative recovery delay.
+If no valid bounded price is finalized, exercise MUST remain blocked.
 
 ## Manual Physical Exercise
 
 Exercise is holder-initiated.
 
 The holder MUST provide:
-- a `LongToken` or split portion of a `LongToken`,
-- required payment asset,
-- clock object,
-- finalized series.
+- a `Long` token,
+- required payment asset that acts as payout to sellers,
+- `Clock` object,
+- finalized `Series` object.
+
+Exercise MUST consume the whole provided `Long` token. The exercised quantity MUST be the provided `Long` token quantity. Holders who want to exercise only part of their position MUST split their `Long` token before exercise. Holder can split or join `Long` tokens to produce the exact token quantity they want to exercise.
 
 ### Covered Call Exercise
 
 For an ITM call:
-- holder burns or reduces call `LongToken` quantity,
+- holder burns the whole provided call `Long` token,
 - holder pays `QuoteCoin` strike cash,
-- margin pool transfers `BaseCoin` to holder,
-- series records exercised quantity,
-- series records quote proceeds received.
+- `CollateralPool` of corresponding `Series` to `Long` token transfers `BaseCoin` to holder,
+- `Series` records exercised quantity,
+- `Series` records quote proceeds received.
 
 ### Cash-Secured Put Exercise
 
 For an ITM put:
-- holder burns or reduces put `LongToken` quantity,
+- holder burns the whole provided put `Long` token,
 - holder delivers `BaseCoin`,
-- margin pool transfers `QuoteCoin` strike cash to holder,
-- series records exercised quantity,
-- series records base proceeds received.
-
-Partial exercise MUST be supported.
+- `CollateralPool` of corresponding `Series` to `Long` token transfers `QuoteCoin` strike cash to holder,
+- `Series` records exercised quantity,
+- `Series` records base proceeds received.
 
 Exercise MUST abort if:
-- series price is not finalized,
-- current time is outside exercise window,
+- `Series` expiry price is not finalized,
+- current `Clock` object time is outside exercise window,
 - option is not ITM,
-- payment asset is insufficient,
-- long token series does not match,
-- quantity is zero,
-- quantity exceeds token quantity,
-- margin pool does not have enough collateral.
+- payment asset is insufficient for the full provided `Long` token quantity,
+- `Long` token option does not match `Series`,
+- `Long` token quantity is zero,
+- `CollateralPool` of given `Series` does not have enough collateral for the full provided `Long` token quantity.
 
 ## Flash-Loan Exercise
 
-Flash-loan exercise MUST be supported through PTB composition.
+Flash-loan exercise MUST be supported through PTB composition. The core exercise functions MUST be designed so returned proceeds can be used in the same PTB to repay a flash loan or swap route.
 
-The core exercise functions MUST be designed so returned proceeds can be used in the same PTB to repay a flash loan or swap route.
-
-For calls, a PTB MAY:
+For calls, a PTB MUST:
 - borrow `QuoteCoin`,
-- call `exercise_call`,
+- call `exercise`,
 - receive `BaseCoin`,
-- swap part of `BaseCoin` to `QuoteCoin`,
+- swap exact part of `BaseCoin` to `QuoteCoin` required to repay borrowed `QuoteCoin`,
 - repay borrowed `QuoteCoin`,
-- transfer remainder to holder.
+- transfer remainder of `BaseCoin` to holder.
 
 For puts, a PTB MAY:
 - borrow `BaseCoin`,
-- call `exercise_put`,
+- call `exercise`,
 - receive `QuoteCoin`,
-- swap part of `QuoteCoin` to `BaseCoin`,
+- swap part of `QuoteCoin` to `BaseCoin` required to repay borrowed `BaseCoin`,
 - repay borrowed `BaseCoin`,
-- transfer remainder to holder.
+- transfer remainder of `QuoteCoin` to holder.
 
 The core options contract SHOULD NOT hard-code one lending protocol or DEX. Provider-specific helpers MAY be separate adapter modules.
 
-Flash exercise MUST be atomic: if borrow, exercise, swap, or repay fails, the whole PTB MUST fail.
+Flash exercise MUST be atomic: if borrow, exercise, swap, or repay fails, the whole flash-loan exercise PTB MUST fail.
+
+## Exercise-by-Exception
+
+Exercise-by-exception is a permissionless settlement for remaining unexercised ITM options during an explicit post-manual-exercise exception window. It is settlement that utilise flash-loan type of exercise for holders of ITM `Long` tokens who haven't exercise during manual exercise window.
+
+Exercise-by-exception is best effort only, when flash-loan rates, liquidity and price conditions allows. Exercise by exception MUST be atomic: if required seller payment, collateral release, external repayment, claim-pool deposit fails, liquidity cannot produce enough output to cover seller payment or flash-loan the whole PTB MUST fail.
+
+Exercise-by-exception PTB has no rewards for its caller.
+
+Anyone MAY trigger exercise-by-exception during the exception window if:
+- the series price is finalized,
+- the series is ITM,
+- current `Clock` time is greater than `exercise_window_end_ms`,
+- current `Clock` time is less than or equal to `exception_window_end_ms`,
+- the series has unexercised short quantity,
+- `total_manual_exercised_quantity + total_exercise_by_exception_quantity` < `total_short_quantity`.
+
+The exercise-by-exception quantity MUST equal: `total_short_quantity - total_manual_exercised_quantity`.
+
+The operation MUST settle sellers as if all remaining ITM `Long`s were exercised, but it MUST NOT exercise `Long`s instead assets after flash-loan exercise-by-exception must be deposited to `ClaimPool` for future exchange for `Long` token.
+
+The protocol MUST NOT guarantee that late holders receive the full theoretical intrinsic value of `Long` positions. Holders receive only the net asset amount deposited into the claim pool after required seller payment, flash-loan repayment, swap costs, and routing slippage.
+
+If exercise-by-exception does not complete before `exception_window_end_ms`, the remaining unexercised ITM long tokens MUST expire worthless and MUST NOT be claimable from `ClaimPool`.
+
+For calls:
+- the operation provides `QuoteCoin` strike cash for the remaining quantity,
+- seller accounting records the remaining quantity as paid in `QuoteCoin`,
+- the corresponding `BaseCoin` collateral is released into the same PTB,
+- the PTB MAY use part of the released `BaseCoin` to repay flash-loan or swap obligations,
+- the remaining net `BaseCoin` MUST be deposited into an `ClaimPool` for holders withdrawal in exchange for `Long` tokens.
+
+For puts:
+- the operation provides `BaseCoin` for the remaining quantity,
+- seller accounting records the remaining quantity as paid in `BaseCoin`,
+- the corresponding `QuoteCoin` collateral is released into the same PTB,
+- the PTB MAY use part of the released `QuoteCoin` to repay flash-loan or swap obligations,
+- the remaining net `QuoteCoin` MUST be deposited into an `ClaimPool` for holders withdrawal in exchange for `Long` tokens.
+
+The contract MUST NOT hard-code a DEX, lending protocol, swap route, or flash-loan provider for exercise-by-exception. External routing MUST be composed around the core settlement operation in a PTB.
+
+The operation SHOULD support caller-provided minimum net claim amounts so exercise-by-exception caller can enforce slippage limits.
+
+## Claim Pool Object Model
+
+The `ClaimPool` MUST be a separate object from the `Series`, `SellerVaults`, and `CollateralPool`. It SHOULD be created only when exercise by exception leaves non-zero net proceeds for late holders.
+
+The claim pool MUST store only the minimum data required for `Long` holder claims:
+- market id,
+- series id,
+- option type,
+- strike,
+- expiry,
+- claim asset type,
+- total claimable long quantity,
+- remaining claimable long quantity,
+- total net claim asset amount,
+- remaining net claim asset amount.
+
+Claiming from the claim pool MUST:
+- require a matching `Long` token,
+- burn the whole provided `Long` token,
+- pay the holder a pro-rata share of the remaining net claim asset,
+- reduce remaining claimable quantity and amount.
+
+Claim rounding MUST favor pool solvency. The final valid claim MAY receive remaining rounding dust.
+
+Claiming from the claim pool MUST NOT require loading the old `Series` object, seller vault records, or old collateral accounting.
+
+After exercise-by-exception completes and seller payout settlement for the series is complete, the old series and seller-vault storage SHOULD be closable so storage rebates can be claimed. The claim pool MAY remain on-chain independently until late holders claim or the pool is fully depleted and closed.
 
 ## Seller Settlement
 
-Seller settlement MUST be permissionless after `exercise_window_end_ms`.
+Seller settlement MUST be permissionless and MUST NOT require seller action.
 
-Anyone MAY settle a seller vault, but proceeds MUST be transferred only to the seller address stored in the vault.
+Seller payout MUST be performed by series-level or batched permissionless settlement. Sellers MUST NOT claim, withdraw, or settle their own vaults. SellerVault records are accounting inputs only; they are closed by protocol settlement and proceeds are transferred directly to seller addresses.
 
-Seller settlement MUST close the seller vault and return residual assets according to actual exercised quantity for the series.
+Series-level or batched settlement MUST be allowed when the series is settle-ready:
+- immediately after price finalization for ATM or OTM series,
+- after `exercise_window_end_ms` if the ITM series has been manually exercised for its full short quantity,
+- after successful exercise-by-exception,
+- after `exception_window_end_ms` if exercise-by-exception did not complete.
 
-Because long tokens are fungible by series and are not matched to seller vaults, actual physical exercises MUST be allocated across seller vaults pro-rata by each vault's short quantity.
+Seller settlement MUST close seller vault records and transfer proceeds directly to the seller addresses stored in those records.
 
-For calls, a seller receives:
-- unexercised portion in `BaseCoin`,
-- exercised portion proceeds in `QuoteCoin`.
+When all seller vault records for the series are closed, the series MUST move to `Closed`.
 
-For puts, a seller receives:
-- unexercised portion in `QuoteCoin`,
-- exercised portion proceeds in `BaseCoin`.
+Because `Long` tokens are fungible by series and are not matched to seller vaults, manual exercises and exercise-by-exception quantities MUST be allocated across seller vaults pro-rata by each vault's short quantity.
 
-Seller settlement MUST NOT require all long token holders to exercise. Unexercised long tokens are worthless after the exercise window.
+For ATM or OTM series, sellers receive original collateral back.
+
+For ITM calls where all short quantity was manually exercised or exercise-by-exception completed, sellers receive `QuoteCoin` proceeds for the seller's full short quantity.
+
+For ITM puts where all short quantity was manually exercised or exercise-by-exception completed, sellers receive `BaseCoin` proceeds for the seller's full short quantity.
+
+For ITM series where remaining unexercised quantity exists and exercise-by-exception did not complete before `exception_window_end_ms`, sellers receive mixed settlement:
+- exercised portion as exercise proceeds,
+- unexercised portion as original collateral.
 
 Seller settlement MUST abort if:
-- exercise window has not ended,
-- vault already settled,
+- series is not settle-ready,
+- seller vault record in the requested batch is already closed,
 - series does not exist,
-- settlement arithmetic would overdraw the margin pool.
+- settlement arithmetic would overdraw the series `CollateralPool`.
 
-Rounding dust MUST remain in the margin pool and MAY be recoverable only through admin recovery after the recovery delay.
+Rounding dust MUST remain in the series `CollateralPool` and MUST be recoverable only through admin recovery after the recovery delay.
 
 ## Accounting Invariant
 
-At all times, the margin pool's accounted balances MUST be greater than or equal to the sum of active obligations required by all open and unsettled series.
+Rules that must always stay true so the contract cannot lose track of who is owed what.
+
+At all times, each series `CollateralPool` accounted balances MUST be greater than or equal to the active obligations required by that option series.
 
 For each series:
-- `total_exercised_quantity <= total_short_quantity`,
-- exercised long token quantity MUST be burned or removed,
-- seller vault short quantities MUST sum to series total short quantity, excluding settled vaults only after their obligations are paid,
+- `total_manual_exercised_quantity + total_exercise_by_exception_quantity <= total_short_quantity`,
+- manually exercised MUST burn `Long` token.
+- exercise-by-exception MUST NOT require burning wallet-held `Long` tokens, instead must move holders payout assets to `ClaimPool` for future claims with `Long` tokens.
+- `ClaimPool` claims MUST burn the provided matching `Long` token.
+- `SellerVault` short quantities MUST sum to series total short quantity, excluding settled vaults only after their obligations are paid,
+- pool transfers MUST use only the `CollateralPool` referenced by that series,
 - pool transfers MUST never exceed accounted balances.
 
 The contract MUST use checked arithmetic.
@@ -341,20 +439,18 @@ Quantity and payment calculations SHOULD use `u128` or wider intermediate arithm
 
 ## Transferability and Composability
 
-Long tokens MUST be transferable outside the protocol.
-
-The protocol MUST NOT assume it can discover all holders.
-
-There is no automatic exercise of wallet-held long tokens. Holders must exercise within the exercise window or lose the option value.
+`Long` tokens MUST be transferable outside the protocol.
 
 The contract MUST emit enough events for wallets, indexers, and keepers to discover:
 - created series,
 - underwritten positions,
-- long token mint/split/merge/exercise,
+- long token mint/exercise,
 - price finalization,
-- seller vault settlement.
+- exercise by exception and claim pool creation,
+- claim pool claims,
+- series-level or batched seller settlement.
 
-## Events
+## On-Chain Events
 
 The contract MUST emit events for:
 
@@ -363,11 +459,13 @@ The contract MUST emit events for:
 - oracle base symbol or id,
 - quote coin type,
 - base coin type,
-- Pyth feed id.
+- oracle name
+- oracle feed id.
 
 `SeriesCreated`
 - series id,
 - market id,
+- collateral pool id,
 - option type,
 - strike,
 - expiry.
@@ -382,23 +480,18 @@ The contract MUST emit events for:
 - protocol fee,
 - long token id.
 
-`PriceFinalized`
+`ExpiryPriceFinalized`
 - series id,
-- Pyth feed id,
+- oracle name
+- oracle feed id,
 - settlement price,
 - publish time.
 
-`LongTokenSplit`
+`SeriesNoExerciseResolved`
 - series id,
-- source token id,
-- new token id,
-- split quantity.
-
-`LongTokenMerged`
-- series id,
-- target token id,
-- source token id,
-- merged quantity.
+- option type,
+- settlement price,
+- strike.
 
 `Exercised`
 - series id,
@@ -408,12 +501,40 @@ The contract MUST emit events for:
 - input asset amount,
 - output asset amount.
 
-`SellerVaultSettled`
+`ExerciseByException`
+- series id,
+- option type,
+- quantity,
+- seller payment asset amount,
+- released collateral asset amount,
+- net claim asset amount,
+- claim pool id, if created.
+
+`ExceptionWindowExpired`
+- series id,
+- option type,
+- remaining unexercised quantity.
+
+`ClaimPoolClaimed`
+- claim pool id,
+- series id,
+- holder,
+- long token id,
+- quantity,
+- claim asset amount.
+
+`SellerPayoutSettled`
 - series id,
 - seller,
 - short quantity,
 - base paid,
 - quote paid.
+
+`SeriesSettlementBatchCompleted`
+- series id,
+- settled seller count,
+- base paid total,
+- quote paid total.
 
 `Paused`
 - admin.
@@ -436,7 +557,7 @@ When paused:
 - series creation MUST be disabled,
 - underwriting MUST be disabled,
 - admin recovery MAY be enabled,
-- long token split and merge SHOULD remain enabled,
+- long token split and join SHOULD remain enabled,
 - price finalization SHOULD remain enabled,
 - exercise and seller settlement SHOULD remain enabled unless the implementation has a known critical bug in those paths.
 
@@ -451,6 +572,8 @@ Admin recovery MUST be limited to:
 
 Admin recovery MUST NOT withdraw collateral required for open, exercisable, or unsettled series.
 
+Admin recovery MUST NOT withdraw claim-pool balances owed to unclaimed `Long` tokens.
+
 Admin recovery MUST emit `AdminRecovered`.
 
 ## Public Function Surface
@@ -461,12 +584,13 @@ The contract SHOULD expose at least:
 - `create_series`
 - `underwrite_call`
 - `underwrite_put`
-- `split_long`
-- `merge_long`
-- `finalize_series_price`
-- `exercise_call`
-- `exercise_put`
-- `settle_seller_vault`
+- `Long::split`
+- `Long::merge`
+- `set_series_expiry_price`
+- `exercise`
+- `exercise_by_exception`
+- `ClaimPool::redeem`
+- `SellerVault::batch_settle`
 - `pause`
 - `unpause`
 - `admin_recover_excess`
@@ -477,17 +601,20 @@ Exercise functions SHOULD be PTB-friendly and SHOULD return output coins where S
 
 V1 MUST NOT implement:
 - American exercise,
-- cash settlement,
+- pure cash-settlement
 - automatic clawback exercise,
 - PAS assets,
-- naked margin,
-- cross margin,
+- naked options,
+- cross collateral,
 - seller writer tokens,
 - seller collateral withdrawal before expiry,
 - seller close by burning longs before expiry,
 - automatic holder discovery,
 - built-in DEX routing,
 - built-in lending protocol dependency.
+- seller collateral top-up after underwriting,
+- seller short reduction before expiry,
+- seller excess collateral withdrawal before expiry.
 
 ## Main Design Tradeoffs
 
@@ -495,7 +622,6 @@ The design chooses seller vault records over transferable writer tokens to keep 
 
 The design chooses transferable long SFT objects so options remain composable and mergeable by series.
 
-The design chooses a shared margin pool so fungible long tokens do not need buyer-seller matching.
+The design chooses one `CollateralPool` per option series to isolate collateral, reduce cross-series accounting risk, reduce shared-object contention across series, and make old series storage easier to close for rebates.
 
-The cost of this design is that physically exercised quantity must be allocated to seller vaults pro-rata by short quantity. This is unavoidable unless the protocol uses non-fungible long positions, assignment queues, or per-series writer-share vaults.
-
+The cost of this design is more pool objects and per-series dust. Physically exercised quantity still must be allocated to seller vaults pro-rata by short quantity because long tokens are fungible by series and are not matched to seller vaults.
