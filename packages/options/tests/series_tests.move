@@ -14,7 +14,8 @@ public struct OTHER has drop {}
 const ADMIN: address = @0xA;
 const USER: address = @0xB;
 const NOW_MS: u64 = 10_000;
-const EXPIRY_MS: u64 = 20_000;
+const MIN_UNDERWRITING_TIME_TO_EXPIRY_MS: u64 = 8 * 60 * 60 * 1000;
+const EXPIRY_MS: u64 = NOW_MS + MIN_UNDERWRITING_TIME_TO_EXPIRY_MS + 1;
 const STRIKE_PRICE: u64 = 350_000_000;
 const OPTION_TYPE_CALL: u8 = 0;
 const OPTION_TYPE_PUT: u8 = 1;
@@ -133,17 +134,17 @@ fun zero_strike_aborts() {
 }
 
 #[test, expected_failure(abort_code = series::EExpiredSeries, location = series)]
-fun past_expiry_aborts() {
+fun expiry_at_underwriting_cutoff_aborts() {
     let (mut scenario, _) = create_market_fixture();
 
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
-    let now = clock_at(EXPIRY_MS, scenario.ctx());
+    let now = clock_at(NOW_MS, scenario.ctx());
     let (_, _) = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
-        EXPIRY_MS,
+        NOW_MS + MIN_UNDERWRITING_TIME_TO_EXPIRY_MS,
         &now,
         scenario.ctx(),
     );

@@ -54,6 +54,8 @@ The contract MUST reject operations for unsupported coin types.
 
 `Series` MUST be stored as a separate shared object.
 
+The minimum underwriting time to expiry is 8 hours.
+
 A series object MUST contain:
 - unique `series_id`,
 - `market_id`
@@ -116,7 +118,7 @@ Unexercised ITM long tokens MAY be used only to claim from the claim pool after 
 Series creation MUST be permissionless.
 
 The contract MUST enforce:
-- expiry is in the future,
+- expiry is more than the minimum underwriting time to expiry after the current time,
 - strike is greater than zero,
 - option type is valid,
 - market coin types are supported,
@@ -182,6 +184,8 @@ After the `Series` is `Closed`, its `CollateralPool` SHOULD be deletable after a
 ## Underwriting
 
 Underwriting creates `Long` tokens for a buyer and records a seller short obligation.
+
+Underwriting MUST be rejected when the series expiry is less than or equal to the minimum underwriting time to expiry after the current time.
 
 For a covered call:
 - seller deposits `BaseCoin` collateral equal to the option quantity into the series `CollateralPool`,

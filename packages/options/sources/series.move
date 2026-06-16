@@ -22,6 +22,7 @@ const PHASE_FULL_SETTLEMENT: u8 = 6;
 
 const EXERCISE_WINDOW_MS: u64 = 60 * 60 * 1000;
 const EXCEPTION_WINDOW_MS: u64 = 60 * 60 * 1000;
+const MIN_UNDERWRITING_TIME_TO_EXPIRY_MS: u64 = 8 * 60 * 60 * 1000;
 
 const EInvalidOptionType: u64 = 0;
 const EInvalidStrike: u64 = 1;
@@ -77,7 +78,9 @@ public fun create_series<QuoteCoin, BaseCoin>(
     market::assert_supported_coin_types<QuoteCoin, BaseCoin>(market);
     assert!(option_type == OPTION_TYPE_CALL || option_type == OPTION_TYPE_PUT, EInvalidOptionType);
     assert!(strike_price > 0, EInvalidStrike);
-    assert!(expiry_ms > clock.timestamp_ms(), EExpiredSeries);
+    let now_ms = clock.timestamp_ms();
+    assert!(expiry_ms > now_ms, EExpiredSeries);
+    assert!(expiry_ms - now_ms > MIN_UNDERWRITING_TIME_TO_EXPIRY_MS, EExpiredSeries);
     assert!(!market::has_series(market, option_type, strike_price, expiry_ms), EDuplicateSeries);
 
     let exercise_window_end_ms = expiry_ms + EXERCISE_WINDOW_MS;
@@ -197,6 +200,10 @@ public fun exercise_window_ms(): u64 {
 
 public fun exception_window_ms(): u64 {
     EXCEPTION_WINDOW_MS
+}
+
+public fun min_underwriting_time_to_expiry_ms(): u64 {
+    MIN_UNDERWRITING_TIME_TO_EXPIRY_MS
 }
 
 public fun market_id<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): ID {
