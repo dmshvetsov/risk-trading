@@ -17,7 +17,7 @@ This document does not specify RFQ servers, market-maker APIs, web UI, indexing,
 
 ## Normative Language
 
-`MUST`, `MUST NOT`, `REQUIRED`, `SHOULD`, `SHOULD NOT`, `MAY`, and `OPTIONAL` are normative terms.
+The key words `MUST`, `MUST NOT`, `REQUIRED`, `SHOULD`, `SHOULD NOT`, `RECOMMENDED`, `MAY`, and `OPTIONAL` in this document are to be interpreted as described in RFC 2119.
 
 ## Core Terms and Product Language
 
@@ -236,16 +236,46 @@ Rounding MUST favor solvency:
 - put collateral requirement MUST round up,
 - holder payout for puts MUST NOT exceed locked quote collateral.
 
-## Expiry Price Finalization
+## Pyth Unverified Expiry Price Finalization
 
 The oracle is used only once per `Series` to finalize and store the expiry price; after that, all ITM/OTM checks read the stored `Series` expiry price.
 
-The contract MUST receive `expiry_price` finalization from off-chain with a transaction that sets expiry price for `Series` in batch. Every `Series` in one batch MUST have same `market_id`. Expiry price finalization is permissionless, anyone MAY finalize a series price after expiry.
+The contract MUST receive `expiry_price` finalization from off-chain with a transaction that sets expiry price for one or more `Series`.
+
+Expiry price finalization MUST be permissioned. Only the market admin or configured market operator SHOULD be able to finalize expiry prices.
+
+Only Pyth oracle finalization is supported. Pyth Oracle adapter MUST be named as an unverifiable Pyth oracle adapter, for example `pyth_oracle_unverifiable`, because Pyth Sui does not expose a public contract API that verifies historical benchmark `binary.data[]` payloads for arbitrary timestamps.
+
+The Pyth unverifiable adapter MUST NOT treat `binary.data[]` as on-chain proof. It MUST accept and emit the Pyth benchmark payload or payload hash as audit metadata in the event for so this proof binary data MAY be verified in the future. The adapter SHOULD NOT implement any verification utilities and methods.
+
+Finalization legitimacy comes from admin/operator authority.
+
+The adapter MUST create an `ExpiryPrice` "hot-potato" value. `ExpiryPrice` MUST be defined by the series/finalization module, MUST have no abilities, and MUST be consumed in the same PTB by the series finalization function. The adapter MUST be the only non-test module allowed to construct `ExpiryPrice`.
+
+`ExpiryPrice` MUST contain at least:
+- `market_id`,
+- oracle name,
+- `oracle_feed_id`,
+- `expiry_ms`,
+- settlement `expiry_price`,
+- publish time,
+- benchmark `binary.data[]` hash as `price_payload_hash`.
+
+One `ExpiryPrice` MAY finalize multiple `Series` in the same transaction when all finalized series have the same `market_id` and `expiry_ms`.
+
+The series finalization module MUST expose fixed-arity helpers for batching:
+- `finalize`
+- `finalize_two`
+- `finalize_four`
+- `finalize_eight`
+
+Each fixed-arity helper MUST consume exactly one `ExpiryPrice` and finalize the provided series arguments atomically.
 
 The accepted price MUST satisfy:
 - publish time is after or equal to `expiry_ms`,
 - price is positive,
-- `oracle` name and `oracle_feed_id` matches the `Market` `oracle_feed_id`.
+- `oracle` name and `oracle_feed_id` matches the `Market` `oracle_feed_id`,
+- every finalized `Series` has the same `market_id` and `expiry_ms` as `ExpiryPrice`.
 
 Once stored, the expiry price MUST be immutable.
 
@@ -489,7 +519,8 @@ The contract MUST emit events for:
 - oracle name
 - oracle feed id,
 - settlement price,
-- publish time.
+- publish time,
+- price payload hash.
 
 `SeriesNoExerciseResolved`
 - series id,
@@ -588,13 +619,17 @@ The contract SHOULD expose at least:
 - `create_series`
 - `underwrite_call`
 - `underwrite_put`
-- `Long::split`
-- `Long::merge`
-- `set_series_expiry_price`
+- `long::split`
+- `long::merge`
+- `pyth_oracle_unverifiable::create_expiry_price`
+- `series::finalize`
+- `series::finalize_two`
+- `series::finalize_four`
+- `series::finalize_eight`
 - `exercise`
 - `exercise_by_exception`
-- `ClaimPool::redeem`
-- `SellerVault::batch_settle`
+- `claim_pool::redeem`
+- `seller_vault::batch_settle`
 - `pause`
 - `unpause`
 - `admin_recover_excess`
