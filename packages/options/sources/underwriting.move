@@ -1,5 +1,6 @@
 module options_trading_protocol::underwriting;
 
+use options_trading_protocol::long::{Self, Long};
 use options_trading_protocol::series::{Self, CollateralPool, Series};
 use sui::clock::Clock;
 use sui::coin::Coin;
@@ -9,18 +10,6 @@ const EInvalidSeriesType: u64 = 0;
 const EInsufficientCollateral: u64 = 1;
 const EFeeExceedsPremium: u64 = 2;
 const EFeeExceedsMaximum: u64 = 3;
-const ELongMismatch: u64 = 4;
-const EInsufficientQuantity: u64 = 5;
-
-public struct Long<phantom QuoteCoin, phantom BaseCoin> has key, store {
-    id: UID,
-    market_id: ID,
-    series_id: ID,
-    option_type: u8,
-    strike_price: u64,
-    expiry_ms: u64,
-    quantity: u64,
-}
 
 public struct Underwritten has copy, drop {
     market_id: ID,
@@ -60,7 +49,7 @@ public fun underwrite_call<QuoteCoin, BaseCoin>(
         quantity,
         collateral.into_balance(),
     );
-    let long = mint_long(series, quantity, ctx);
+    let long = long::mint(series, quantity, ctx);
     emit_underwritten(
         series,
         ctx.sender(),
@@ -134,7 +123,7 @@ public fun underwrite_put<QuoteCoin, BaseCoin>(
         collateral_required,
         collateral.into_balance(),
     );
-    let long = mint_long(series, quantity, ctx);
+    let long = long::mint(series, quantity, ctx);
     emit_underwritten(
         series,
         ctx.sender(),
@@ -181,38 +170,6 @@ public fun underwrite_put_and_transfer<QuoteCoin, BaseCoin>(
     transfer::public_transfer(fee, fee_recipient);
 }
 
-public fun split<QuoteCoin, BaseCoin>(
-    long: &mut Long<QuoteCoin, BaseCoin>,
-    quantity: u64,
-    ctx: &mut TxContext,
-): Long<QuoteCoin, BaseCoin> {
-    assert!(quantity <= long.quantity, EInsufficientQuantity);
-    long.quantity = long.quantity - quantity;
-    Long {
-        id: object::new(ctx),
-        market_id: long.market_id,
-        series_id: long.series_id,
-        option_type: long.option_type,
-        strike_price: long.strike_price,
-        expiry_ms: long.expiry_ms,
-        quantity,
-    }
-}
-
-public fun join<QuoteCoin, BaseCoin>(
-    target: &mut Long<QuoteCoin, BaseCoin>,
-    source: Long<QuoteCoin, BaseCoin>,
-) {
-    let Long { id, market_id, series_id, option_type, strike_price, expiry_ms, quantity } = source;
-    assert!(target.market_id == market_id, ELongMismatch);
-    assert!(target.series_id == series_id, ELongMismatch);
-    assert!(target.option_type == option_type, ELongMismatch);
-    assert!(target.strike_price == strike_price, ELongMismatch);
-    assert!(target.expiry_ms == expiry_ms, ELongMismatch);
-    id.delete();
-    target.quantity = target.quantity + quantity;
-}
-
 public fun strike_payment<QuoteCoin, BaseCoin>(
     series: &Series<QuoteCoin, BaseCoin>,
     quantity: u64,
@@ -223,46 +180,6 @@ public fun strike_payment<QuoteCoin, BaseCoin>(
         * (quote_scale(series) as u256);
     let denominator = (base_scale(series) as u256) * (series::strike_scale(series) as u256);
     (((numerator + denominator - 1) / denominator) as u64)
-}
-
-public fun long_market_id<QuoteCoin, BaseCoin>(long: &Long<QuoteCoin, BaseCoin>): ID {
-    long.market_id
-}
-
-public fun long_series_id<QuoteCoin, BaseCoin>(long: &Long<QuoteCoin, BaseCoin>): ID {
-    long.series_id
-}
-
-public fun long_option_type<QuoteCoin, BaseCoin>(long: &Long<QuoteCoin, BaseCoin>): u8 {
-    long.option_type
-}
-
-public fun long_strike_price<QuoteCoin, BaseCoin>(long: &Long<QuoteCoin, BaseCoin>): u64 {
-    long.strike_price
-}
-
-public fun long_expiry_ms<QuoteCoin, BaseCoin>(long: &Long<QuoteCoin, BaseCoin>): u64 {
-    long.expiry_ms
-}
-
-public fun long_quantity<QuoteCoin, BaseCoin>(long: &Long<QuoteCoin, BaseCoin>): u64 {
-    long.quantity
-}
-
-fun mint_long<QuoteCoin, BaseCoin>(
-    series: &Series<QuoteCoin, BaseCoin>,
-    quantity: u64,
-    ctx: &mut TxContext,
-): Long<QuoteCoin, BaseCoin> {
-    Long {
-        id: object::new(ctx),
-        market_id: series::market_id(series),
-        series_id: object::id(series),
-        option_type: series::option_type(series),
-        strike_price: series::strike_price(series),
-        expiry_ms: series::expiry_ms(series),
-        quantity,
-    }
 }
 
 fun split_premium<QuoteCoin>(

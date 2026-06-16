@@ -3,9 +3,10 @@ module options_trading_protocol::underwriting_tests;
 
 use options_trading_protocol::market::{Self, AdminCap, Market};
 use options_trading_protocol::base::{Self, BASE};
+use options_trading_protocol::long::{Self, Long};
 use options_trading_protocol::quote::{Self, QUOTE};
 use options_trading_protocol::series::{Self, CollateralPool, Series};
-use options_trading_protocol::underwriting::{Self, Long};
+use options_trading_protocol::underwriting;
 use std::unit_test::assert_eq;
 use sui::clock;
 use sui::coin::{Self, Coin, TreasuryCap};
@@ -115,9 +116,9 @@ fun seller_underwrites_call_and_buyer_receives_transferable_long() {
 
     assert_eq!(seller_premium.value(), 10_000);
     assert_eq!(fee.value(), 1_000);
-    assert_eq!(underwriting::long_market_id(&long), market_id);
-    assert_eq!(underwriting::long_series_id(&long), series_id);
-    assert_eq!(underwriting::long_quantity(&long), 1_000_000_000);
+    assert_eq!(long::market_id(&long), market_id);
+    assert_eq!(long::series_id(&long), series_id);
+    assert_eq!(long::quantity(&long), 1_000_000_000);
     assert_eq!(series::total_short_quantity(&series), 1_000_000_000);
     assert_eq!(series::seller_short_quantity(&series, SELLER), 1_000_000_000);
     assert_eq!(series::seller_collateral_quantity(&series, SELLER), 1_000_000_000);
@@ -132,7 +133,7 @@ fun seller_underwrites_call_and_buyer_receives_transferable_long() {
 
     scenario.next_tx(BUYER);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
-    assert_eq!(underwriting::long_quantity(&long), 1_000_000_000);
+    assert_eq!(long::quantity(&long), 1_000_000_000);
     scenario.return_to_sender(long);
     scenario.end();
 }
@@ -167,7 +168,7 @@ fun put_underwriting_rounds_quote_collateral_up_for_solvency() {
     assert_eq!(series::seller_short_quantity(&series, SELLER), 1_000);
     assert_eq!(series::seller_collateral_quantity(&series, SELLER), 4);
     assert_eq!(series::accounted_quote_balance(&pool), 4);
-    assert_eq!(underwriting::long_quantity(&long), 1_000);
+    assert_eq!(long::quantity(&long), 1_000);
     assert_eq!(seller_premium.value(), 20);
     assert_eq!(fee.value(), 5);
 
@@ -262,10 +263,10 @@ fun long_tokens_split_and_join_when_class_is_identical() {
         scenario.ctx(),
     );
     now.destroy_for_testing();
-    let child = underwriting::split(&mut long, 40, scenario.ctx());
-    underwriting::join(&mut long, child);
+    let child = long::split(&mut long, 40, scenario.ctx());
+    long::join(&mut long, child);
 
-    assert_eq!(underwriting::long_quantity(&long), 100);
+    assert_eq!(long::quantity(&long), 100);
 
     transfer::public_transfer(long, BUYER);
     transfer::public_transfer(seller_premium, SELLER);
