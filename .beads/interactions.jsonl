@@ -22,3 +22,4 @@
 {"id":"int-bed1b13d4eb7b30485864ac45bcfa0af","kind":"field_change","created_at":"2026-06-16T18:36:00.034896Z","actor":"dmshvetsov","issue_id":"risk-trading-ur8","extra":{"field":"priority","new_value":"3","old_value":"2"}}
 {"id":"int-ba981c612e7b409157db0bdb4dcbae37","kind":"field_change","created_at":"2026-06-16T18:39:35.118973Z","actor":"dmshvetsov","issue_id":"risk-trading-c1f","extra":{"field":"priority","new_value":"3","old_value":"2"}}
 {"id":"int-c4fe5833509d9d544c1896fa1c740986","kind":"field_change","created_at":"2026-06-16T18:42:24.989763Z","actor":"dmshvetsov","issue_id":"risk-trading-r6d","extra":{"field":"status","new_value":"open","old_value":"in_progress"}}
+{"id":"int-c194b7e071bd36aeb630906102afb5f8","kind":"field_change","created_at":"2026-06-16T18:47:55.39026Z","actor":"dmshvetsov","issue_id":"risk-trading-boa","extra":{"field":"priority","new_value":"3","old_value":"2"}}
