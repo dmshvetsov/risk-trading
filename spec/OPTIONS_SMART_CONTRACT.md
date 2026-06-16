@@ -133,7 +133,9 @@ Each `Long` token MUST contain:
 - option marker type,
 - strike,
 - expiry,
-- quantity `balance` using `Sui::Balance`.
+- quantity as `u64`.
+
+`Long` quantity represents a claim amount only. Actual `BaseCoin` and `QuoteCoin` collateral MUST remain in the series `CollateralPool` balances.
 
 Long tokens MUST be freely transferable by their owner.
 
