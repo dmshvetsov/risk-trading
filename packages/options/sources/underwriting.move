@@ -11,6 +11,8 @@ const EInsufficientCollateral: u64 = 1;
 const EFeeExceedsPremium: u64 = 2;
 const EFeeExceedsMaximum: u64 = 3;
 
+const BPS_DENOMINATOR: u64 = 10_000;
+
 public struct Underwritten has copy, drop {
     market_id: ID,
     series_id: ID,
@@ -31,7 +33,6 @@ public fun underwrite_call<QuoteCoin, BaseCoin>(
     premium: Coin<QuoteCoin>,
     quantity: u64,
     operational_fee: u64,
-    max_operational_fee: Option<u64>,
     buyer: address,
     fee_recipient: address,
     clock: &Clock,
@@ -41,7 +42,7 @@ public fun underwrite_call<QuoteCoin, BaseCoin>(
     assert!(collateral.value() == quantity, EInsufficientCollateral);
     series::assert_open_for_underwriting(series, clock);
 
-    let (seller_premium, fee) = split_premium(premium, operational_fee, max_operational_fee, ctx);
+    let (seller_premium, fee) = split_premium(premium, operational_fee, series, ctx);
     series::record_call_underwriting(
         series,
         pool,
@@ -71,7 +72,6 @@ public fun underwrite_call_and_transfer<QuoteCoin, BaseCoin>(
     premium: Coin<QuoteCoin>,
     quantity: u64,
     operational_fee: u64,
-    max_operational_fee: Option<u64>,
     buyer: address,
     fee_recipient: address,
     clock: &Clock,
@@ -85,7 +85,6 @@ public fun underwrite_call_and_transfer<QuoteCoin, BaseCoin>(
         premium,
         quantity,
         operational_fee,
-        max_operational_fee,
         buyer,
         fee_recipient,
         clock,
@@ -103,7 +102,6 @@ public fun underwrite_put<QuoteCoin, BaseCoin>(
     premium: Coin<QuoteCoin>,
     quantity: u64,
     operational_fee: u64,
-    max_operational_fee: Option<u64>,
     buyer: address,
     fee_recipient: address,
     clock: &Clock,
@@ -114,7 +112,7 @@ public fun underwrite_put<QuoteCoin, BaseCoin>(
     assert!(collateral.value() == collateral_required, EInsufficientCollateral);
     series::assert_open_for_underwriting(series, clock);
 
-    let (seller_premium, fee) = split_premium(premium, operational_fee, max_operational_fee, ctx);
+    let (seller_premium, fee) = split_premium(premium, operational_fee, series, ctx);
     series::record_put_underwriting(
         series,
         pool,
@@ -145,7 +143,6 @@ public fun underwrite_put_and_transfer<QuoteCoin, BaseCoin>(
     premium: Coin<QuoteCoin>,
     quantity: u64,
     operational_fee: u64,
-    max_operational_fee: Option<u64>,
     buyer: address,
     fee_recipient: address,
     clock: &Clock,
@@ -159,7 +156,6 @@ public fun underwrite_put_and_transfer<QuoteCoin, BaseCoin>(
         premium,
         quantity,
         operational_fee,
-        max_operational_fee,
         buyer,
         fee_recipient,
         clock,
@@ -182,19 +178,22 @@ public fun strike_payment<QuoteCoin, BaseCoin>(
     (((numerator + denominator - 1) / denominator) as u64)
 }
 
-fun split_premium<QuoteCoin>(
+fun split_premium<QuoteCoin, BaseCoin>(
     mut premium: Coin<QuoteCoin>,
     operational_fee: u64,
-    max_operational_fee: Option<u64>,
+    series: &Series<QuoteCoin, BaseCoin>,
     ctx: &mut TxContext,
 ): (Coin<QuoteCoin>, Coin<QuoteCoin>) {
     let premium_total = premium.value();
     assert!(operational_fee <= premium_total, EFeeExceedsPremium);
-    max_operational_fee.do!(|max_fee| {
-        assert!(operational_fee <= max_fee, EFeeExceedsMaximum);
-    });
+    let max_fee = max_operational_fee(premium_total, series::max_operational_fee_bps(series));
+    assert!(operational_fee <= max_fee, EFeeExceedsMaximum);
     let fee = premium.split(operational_fee, ctx);
     (premium, fee)
+}
+
+fun max_operational_fee(premium_total: u64, max_operational_fee_bps: u64): u64 {
+    (((premium_total as u256) * (max_operational_fee_bps as u256) / (BPS_DENOMINATOR as u256)) as u64)
 }
 
 fun emit_underwritten<QuoteCoin, BaseCoin>(

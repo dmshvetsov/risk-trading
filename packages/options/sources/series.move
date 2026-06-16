@@ -50,6 +50,7 @@ public struct Series<phantom QuoteCoin, phantom BaseCoin> has key {
     quote_decimals: u8,
     base_decimals: u8,
     strike_scale: u64,
+    max_operational_fee_bps: u64,
     expiry_ms: u64,
     exercise_window_end_ms: u64,
     exception_window_end_ms: u64,
@@ -116,6 +117,7 @@ public fun create_series<QuoteCoin, BaseCoin>(
         quote_decimals: market::quote_decimals(market),
         base_decimals: market::base_decimals(market),
         strike_scale: market::strike_scale(market),
+        max_operational_fee_bps: market::max_operational_fee_bps(market),
         expiry_ms,
         exercise_window_end_ms,
         exception_window_end_ms,
@@ -319,6 +321,10 @@ public fun base_decimals<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoi
 
 public fun strike_scale<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
     series.strike_scale
+}
+
+public fun max_operational_fee_bps<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.max_operational_fee_bps
 }
 
 public fun expiry_ms<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {

@@ -8,6 +8,9 @@ use sui::event;
 const ENotAdmin: u64 = 0;
 const EUnsupportedCoinTypes: u64 = 1;
 const EPaused: u64 = 2;
+const EInvalidOperationalFeeBps: u64 = 3;
+
+const BPS_DENOMINATOR: u64 = 10_000;
 
 public struct SeriesKey(u8, u64, u64) has copy, drop, store;
 
@@ -23,6 +26,7 @@ public struct Market has key {
     quote_decimals: u8,
     base_decimals: u8,
     strike_scale: u64,
+    max_operational_fee_bps: u64,
     quote_coin_type: TypeName,
     base_coin_type: TypeName,
     admin_cap_id: ID,
@@ -36,6 +40,7 @@ public struct MarketCreated has copy, drop {
     base_coin_type: TypeName,
     oracle: String,
     oracle_feed_id: vector<u8>,
+    max_operational_fee_bps: u64,
 }
 
 public struct Paused has copy, drop {
@@ -63,8 +68,10 @@ public fun create_market<QuoteCoin, BaseCoin>(
     quote_decimals: u8,
     base_decimals: u8,
     strike_scale: u64,
+    max_operational_fee_bps: u64,
     ctx: &mut TxContext,
 ): ID {
+    assert!(max_operational_fee_bps <= BPS_DENOMINATOR, EInvalidOperationalFeeBps);
     let quote_coin_type = type_name::with_original_ids<QuoteCoin>();
     let base_coin_type = type_name::with_original_ids<BaseCoin>();
     let market = Market {
@@ -75,6 +82,7 @@ public fun create_market<QuoteCoin, BaseCoin>(
         quote_decimals,
         base_decimals,
         strike_scale,
+        max_operational_fee_bps,
         quote_coin_type,
         base_coin_type,
         admin_cap_id: object::id(cap),
@@ -88,6 +96,7 @@ public fun create_market<QuoteCoin, BaseCoin>(
         base_coin_type,
         oracle: market.oracle,
         oracle_feed_id: market.oracle_feed_id,
+        max_operational_fee_bps,
     });
     transfer::share_object(market);
     market_id
@@ -158,6 +167,10 @@ public fun base_decimals(market: &Market): u8 {
 
 public fun strike_scale(market: &Market): u64 {
     market.strike_scale
+}
+
+public fun max_operational_fee_bps(market: &Market): u64 {
+    market.max_operational_fee_bps
 }
 
 public fun is_paused(market: &Market): bool {

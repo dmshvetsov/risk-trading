@@ -24,6 +24,10 @@ const OPTION_TYPE_CALL: u8 = 0;
 const OPTION_TYPE_PUT: u8 = 1;
 
 fun create_fixture(option_type: u8): (test_scenario::Scenario, ID, ID, ID) {
+    create_fixture_with_fee_bps(option_type, 10_000)
+}
+
+fun create_fixture_with_fee_bps(option_type: u8, max_operational_fee_bps: u64): (test_scenario::Scenario, ID, ID, ID) {
     let mut scenario = test_scenario::begin(ADMIN);
     market::init_for_testing(scenario.ctx());
     create_currency_caps(&mut scenario);
@@ -38,6 +42,7 @@ fun create_fixture(option_type: u8): (test_scenario::Scenario, ID, ID, ID) {
         6,
         9,
         100_000_000,
+        max_operational_fee_bps,
         scenario.ctx(),
     );
     scenario.return_to_sender(cap);
@@ -106,7 +111,6 @@ fun seller_underwrites_call_and_buyer_receives_transferable_long() {
         premium,
         1_000_000_000,
         1_000,
-        option::some(1_000),
         BUYER,
         FEE_RECIPIENT,
         &now,
@@ -156,7 +160,6 @@ fun put_underwriting_rounds_quote_collateral_up_for_solvency() {
         premium,
         1_000,
         5,
-        option::some(5),
         BUYER,
         FEE_RECIPIENT,
         &now,
@@ -201,7 +204,6 @@ fun seller_vault_aggregates_multiple_writes_for_same_series() {
         premium_a,
         10,
         0,
-        option::none(),
         BUYER,
         FEE_RECIPIENT,
         &now,
@@ -214,7 +216,6 @@ fun seller_vault_aggregates_multiple_writes_for_same_series() {
         premium_b,
         15,
         0,
-        option::none(),
         BUYER,
         FEE_RECIPIENT,
         &now,
@@ -256,7 +257,6 @@ fun long_tokens_split_and_join_when_class_is_identical() {
         premium,
         100,
         0,
-        option::none(),
         BUYER,
         FEE_RECIPIENT,
         &now,
@@ -293,7 +293,37 @@ fun fee_cannot_exceed_premium() {
         premium,
         10,
         2,
-        option::none(),
+        BUYER,
+        FEE_RECIPIENT,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    transfer::public_transfer(long, BUYER);
+    transfer::public_transfer(seller_premium, SELLER);
+    transfer::public_transfer(fee, FEE_RECIPIENT);
+    test_scenario::return_shared(series);
+    test_scenario::return_shared(pool);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = underwriting::EFeeExceedsMaximum, location = underwriting)]
+fun fee_cannot_exceed_market_basis_points_cap() {
+    let (mut scenario, _, series_id, pool_id) = create_fixture_with_fee_bps(OPTION_TYPE_CALL, 500);
+
+    scenario.next_tx(SELLER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let collateral = mint_base(&mut scenario, 10);
+    let premium = mint_quote(&mut scenario, 10_000);
+    let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
+        &mut series,
+        &mut pool,
+        collateral,
+        premium,
+        10,
+        501,
         BUYER,
         FEE_RECIPIENT,
         &now,
@@ -325,7 +355,6 @@ fun call_collateral_must_equal_quantity() {
         premium,
         10,
         0,
-        option::none(),
         BUYER,
         FEE_RECIPIENT,
         &now,

@@ -37,6 +37,7 @@ fun create_market_fixture<QuoteCoin, BaseCoin>(
         quote_decimals,
         base_decimals,
         strike_scale,
+        500,
         scenario.ctx(),
     );
     scenario.return_to_sender(cap);
@@ -68,6 +69,7 @@ fun created_market_stores_identity_and_admin() {
     assert_eq!(market::quote_decimals(&market), 6);
     assert_eq!(market::base_decimals(&market), 9);
     assert_eq!(market::strike_scale(&market), 100_000_000);
+    assert_eq!(market::max_operational_fee_bps(&market), 500);
     assert_eq!(market::is_paused(&market), false);
     assert_eq!(market::supports_coin_types<QUOTE, BASE>(&market), true);
     assert_eq!(market::supports_coin_types<OTHER, BASE>(&market), false);
@@ -161,6 +163,7 @@ fun multiple_markets_can_be_created_for_same_pair_with_different_collateral() {
         6,
         8,
         100_000_000,
+        500,
         scenario.ctx(),
     );
     scenario.return_to_sender(cap);

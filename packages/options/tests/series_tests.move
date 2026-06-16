@@ -39,6 +39,7 @@ fun create_market_fixture(): (test_scenario::Scenario, ID) {
         6,
         9,
         100_000_000,
+        500,
         scenario.ctx(),
     );
     scenario.return_to_sender(cap);
@@ -76,6 +77,7 @@ fun anyone_can_create_call_series_with_isolated_collateral_pool() {
     assert_eq!(series::market_id(&series), market_id);
     assert_eq!(series::option_type(&series), OPTION_TYPE_CALL);
     assert_eq!(series::strike_price(&series), STRIKE_PRICE);
+    assert_eq!(series::max_operational_fee_bps(&series), 500);
     assert_eq!(series::expiry_ms(&series), EXPIRY_MS);
     assert_eq!(series::exercise_window_end_ms(&series), EXPIRY_MS + EXERCISE_WINDOW_MS);
     assert_eq!(series::exception_window_end_ms(&series), EXPIRY_MS + EXERCISE_WINDOW_MS + EXCEPTION_WINDOW_MS);
