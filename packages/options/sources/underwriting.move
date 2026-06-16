@@ -50,7 +50,15 @@ public fun underwrite_call<QuoteCoin, BaseCoin>(
         quantity,
         collateral.into_balance(),
     );
-    let long = long::mint(series, quantity, ctx);
+    let long = long::mint(
+        series::market_id(series),
+        object::id(series),
+        series::option_type(series),
+        series::strike_price(series),
+        series::expiry_ms(series),
+        quantity,
+        ctx,
+    );
     emit_underwritten(
         series,
         ctx.sender(),
@@ -121,7 +129,15 @@ public fun underwrite_put<QuoteCoin, BaseCoin>(
         collateral_required,
         collateral.into_balance(),
     );
-    let long = long::mint(series, quantity, ctx);
+    let long = long::mint(
+        series::market_id(series),
+        object::id(series),
+        series::option_type(series),
+        series::strike_price(series),
+        series::expiry_ms(series),
+        quantity,
+        ctx,
+    );
     emit_underwritten(
         series,
         ctx.sender(),

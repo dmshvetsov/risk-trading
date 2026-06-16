@@ -1,9 +1,11 @@
 module options_trading_protocol::series;
 
 use options_trading_protocol::market::{Self, Market};
+use options_trading_protocol::long::{Self, Long};
 use std::string::String;
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
+use sui::coin::{Self, Coin};
 use sui::dynamic_field;
 use sui::event;
 
@@ -37,6 +39,13 @@ const EStaleExpiryPrice: u64 = 7;
 const EExpiryPriceMismatch: u64 = 8;
 const EExpiryPriceAlreadyFinalized: u64 = 9;
 const EExpiryNotReached: u64 = 10;
+const EInvalidExercisePhase: u64 = 11;
+const ELongMismatch: u64 = 12;
+const EInvalidExerciseQuantity: u64 = 13;
+const EInvalidExercisePayment: u64 = 14;
+const EInsufficientCollateral: u64 = 15;
+const EInvalidSettlementPhase: u64 = 16;
+const ESellerVaultAlreadySettled: u64 = 17;
 
 public struct SellerVaultKey(address) has copy, drop, store;
 
@@ -63,6 +72,8 @@ public struct Series<phantom QuoteCoin, phantom BaseCoin> has key {
     total_short_quantity: u64,
     total_manual_exercised_quantity: u64,
     total_exercise_by_exception_quantity: u64,
+    total_manual_exercise_base_proceeds: u64,
+    total_manual_exercise_quote_proceeds: u64,
     expiry_price: Option<u64>,
     expiry_price_publish_time_ms: Option<u64>,
     collateral_pool_id: ID,
@@ -109,6 +120,30 @@ public struct ExpiryPriceFinalized has copy, drop {
     price_payload_hash: vector<u8>,
 }
 
+public struct Exercised has copy, drop {
+    series_id: ID,
+    holder: address,
+    option_type: u8,
+    quantity: u64,
+    input_asset_amount: u64,
+    output_asset_amount: u64,
+}
+
+public struct SellerPayoutSettled has copy, drop {
+    series_id: ID,
+    seller: address,
+    short_quantity: u64,
+    base_paid: u64,
+    quote_paid: u64,
+}
+
+public struct SeriesSettlementBatchCompleted has copy, drop {
+    series_id: ID,
+    settled_seller_count: u64,
+    base_paid_total: u64,
+    quote_paid_total: u64,
+}
+
 public fun create_series<QuoteCoin, BaseCoin>(
     market: &mut Market,
     option_type: u8,
@@ -149,6 +184,8 @@ public fun create_series<QuoteCoin, BaseCoin>(
         total_short_quantity: 0,
         total_manual_exercised_quantity: 0,
         total_exercise_by_exception_quantity: 0,
+        total_manual_exercise_base_proceeds: 0,
+        total_manual_exercise_quote_proceeds: 0,
         expiry_price: option::none(),
         expiry_price_publish_time_ms: option::none(),
         collateral_pool_id: pool_object_id,
@@ -397,6 +434,261 @@ public fun phase<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>, cloc
     }
 }
 
+public fun exercise_call<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    long: Long<QuoteCoin, BaseCoin>,
+    payment: Coin<QuoteCoin>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<BaseCoin> {
+    assert!(series.option_type == OPTION_TYPE_CALL, EInvalidOptionType);
+    assert_manual_exercise_ready(series, pool, &long, clock);
+    let quantity = burn_matching_long(series, long);
+    assert!(quantity > 0, EInvalidExerciseQuantity);
+
+    let payment_required = strike_payment(series, quantity);
+    assert!(payment.value() == payment_required, EInvalidExercisePayment);
+    assert!(pool.accounted_base_balance >= quantity, EInsufficientCollateral);
+    assert!(pool.base_balance.value() >= quantity, EInsufficientCollateral);
+
+    pool.quote_balance.join(payment.into_balance());
+    pool.accounted_quote_balance = pool.accounted_quote_balance + payment_required;
+    pool.accounted_base_balance = pool.accounted_base_balance - quantity;
+    series.total_manual_exercised_quantity = series.total_manual_exercised_quantity + quantity;
+    series.total_manual_exercise_quote_proceeds = series.total_manual_exercise_quote_proceeds + payment_required;
+    event::emit(Exercised {
+        series_id: object::id(series),
+        holder: ctx.sender(),
+        option_type: OPTION_TYPE_CALL,
+        quantity,
+        input_asset_amount: payment_required,
+        output_asset_amount: quantity,
+    });
+    coin::from_balance(pool.base_balance.split(quantity), ctx)
+}
+
+public fun exercise_put<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    long: Long<QuoteCoin, BaseCoin>,
+    payment: Coin<BaseCoin>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<QuoteCoin> {
+    assert!(series.option_type == OPTION_TYPE_PUT, EInvalidOptionType);
+    assert_manual_exercise_ready(series, pool, &long, clock);
+    let quantity = burn_matching_long(series, long);
+    assert!(quantity > 0, EInvalidExerciseQuantity);
+
+    let quote_payout = strike_payment(series, quantity);
+    assert!(payment.value() == quantity, EInvalidExercisePayment);
+    assert!(pool.accounted_quote_balance >= quote_payout, EInsufficientCollateral);
+    assert!(pool.quote_balance.value() >= quote_payout, EInsufficientCollateral);
+
+    pool.base_balance.join(payment.into_balance());
+    pool.accounted_base_balance = pool.accounted_base_balance + quantity;
+    pool.accounted_quote_balance = pool.accounted_quote_balance - quote_payout;
+    series.total_manual_exercised_quantity = series.total_manual_exercised_quantity + quantity;
+    series.total_manual_exercise_base_proceeds = series.total_manual_exercise_base_proceeds + quantity;
+    event::emit(Exercised {
+        series_id: object::id(series),
+        holder: ctx.sender(),
+        option_type: OPTION_TYPE_PUT,
+        quantity,
+        input_asset_amount: quantity,
+        output_asset_amount: quote_payout,
+    });
+    coin::from_balance(pool.quote_balance.split(quote_payout), ctx)
+}
+
+public fun settle_sellers<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    sellers: vector<address>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert_pool_for_series(series, pool);
+    assert_seller_settlement_ready(series, clock);
+    let mut settled_seller_count = 0;
+    let mut base_paid_total = 0;
+    let mut quote_paid_total = 0;
+    sellers.do!(|seller| {
+        let (base_paid, quote_paid) = settle_seller(series, pool, seller, ctx);
+        settled_seller_count = settled_seller_count + 1;
+        base_paid_total = base_paid_total + base_paid;
+        quote_paid_total = quote_paid_total + quote_paid;
+    });
+    if (series.seller_vault_index.is_empty()) {
+        series.state = STATE_CLOSED;
+    };
+    event::emit(SeriesSettlementBatchCompleted {
+        series_id: object::id(series),
+        settled_seller_count,
+        base_paid_total,
+        quote_paid_total,
+    });
+}
+
+fun assert_manual_exercise_ready<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    pool: &CollateralPool<QuoteCoin, BaseCoin>,
+    long: &Long<QuoteCoin, BaseCoin>,
+    clock: &Clock,
+) {
+    assert_pool_for_series(series, pool);
+    assert!(phase(series, clock) == PHASE_MANUAL_EXERCISE, EInvalidExercisePhase);
+    assert!(long::market_id(long) == series.market_id, ELongMismatch);
+    assert!(long::series_id(long) == object::id(series), ELongMismatch);
+    assert!(long::option_type(long) == series.option_type, ELongMismatch);
+    assert!(long::strike_price(long) == series.strike_price, ELongMismatch);
+    assert!(long::expiry_ms(long) == series.expiry_ms, ELongMismatch);
+    assert!(long::quantity(long) > 0, EInvalidExerciseQuantity);
+    assert!(total_exercised_quantity(series) + long::quantity(long) <= series.total_short_quantity, EInvalidExerciseQuantity);
+}
+
+fun burn_matching_long<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    long: Long<QuoteCoin, BaseCoin>,
+): u64 {
+    let (market_id, series_id, option_type, strike_price, expiry_ms, quantity) = long::burn(long);
+    assert!(market_id == series.market_id, ELongMismatch);
+    assert!(series_id == object::id(series), ELongMismatch);
+    assert!(option_type == series.option_type, ELongMismatch);
+    assert!(strike_price == series.strike_price, ELongMismatch);
+    assert!(expiry_ms == series.expiry_ms, ELongMismatch);
+    quantity
+}
+
+fun assert_seller_settlement_ready<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    clock: &Clock,
+) {
+    let current_phase = phase(series, clock);
+    assert!(
+        current_phase == PHASE_NO_EXERCISE_EXPIRY
+            || (current_phase == PHASE_FULL_SETTLEMENT && clock.timestamp_ms() > series.exercise_window_end_ms),
+        EInvalidSettlementPhase,
+    );
+}
+
+fun settle_seller<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    seller: address,
+    ctx: &mut TxContext,
+): (u64, u64) {
+    let key = SellerVaultKey(seller);
+    assert!(dynamic_field::exists(&series.id, key), ESellerVaultMissing);
+    let SellerVault { seller, series_id, short_quantity, collateral_quantity, settlement_state } =
+        dynamic_field::remove<SellerVaultKey, SellerVault>(&mut series.id, key);
+    assert!(series_id == object::id(series), ESellerVaultMissing);
+    assert!(settlement_state == STATE_OPEN, ESellerVaultAlreadySettled);
+
+    remove_seller_from_index(series, seller);
+    let (base_paid, quote_paid) = if (!is_in_the_money(series)) {
+        settle_original_collateral(series, pool, seller, collateral_quantity, ctx)
+    } else {
+        settle_exercise_proceeds(series, pool, seller, short_quantity, ctx)
+    };
+    event::emit(SellerPayoutSettled {
+        series_id: object::id(series),
+        seller,
+        short_quantity,
+        base_paid,
+        quote_paid,
+    });
+    (base_paid, quote_paid)
+}
+
+fun settle_original_collateral<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    seller: address,
+    collateral_quantity: u64,
+    ctx: &mut TxContext,
+): (u64, u64) {
+    if (series.option_type == OPTION_TYPE_CALL) {
+        assert!(pool.accounted_base_balance >= collateral_quantity, EInsufficientCollateral);
+        assert!(pool.base_balance.value() >= collateral_quantity, EInsufficientCollateral);
+        pool.accounted_base_balance = pool.accounted_base_balance - collateral_quantity;
+        transfer::public_transfer(coin::from_balance(pool.base_balance.split(collateral_quantity), ctx), seller);
+        (collateral_quantity, 0)
+    } else {
+        assert!(pool.accounted_quote_balance >= collateral_quantity, EInsufficientCollateral);
+        assert!(pool.quote_balance.value() >= collateral_quantity, EInsufficientCollateral);
+        pool.accounted_quote_balance = pool.accounted_quote_balance - collateral_quantity;
+        transfer::public_transfer(coin::from_balance(pool.quote_balance.split(collateral_quantity), ctx), seller);
+        (0, collateral_quantity)
+    }
+}
+
+fun settle_exercise_proceeds<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    seller: address,
+    short_quantity: u64,
+    ctx: &mut TxContext,
+): (u64, u64) {
+    if (series.option_type == OPTION_TYPE_CALL) {
+        let payout = pro_rata(series.total_manual_exercise_quote_proceeds, short_quantity, series.total_short_quantity);
+        assert!(pool.accounted_quote_balance >= payout, EInsufficientCollateral);
+        assert!(pool.quote_balance.value() >= payout, EInsufficientCollateral);
+        pool.accounted_quote_balance = pool.accounted_quote_balance - payout;
+        transfer::public_transfer(coin::from_balance(pool.quote_balance.split(payout), ctx), seller);
+        (0, payout)
+    } else {
+        let payout = pro_rata(series.total_manual_exercise_base_proceeds, short_quantity, series.total_short_quantity);
+        assert!(pool.accounted_base_balance >= payout, EInsufficientCollateral);
+        assert!(pool.base_balance.value() >= payout, EInsufficientCollateral);
+        pool.accounted_base_balance = pool.accounted_base_balance - payout;
+        transfer::public_transfer(coin::from_balance(pool.base_balance.split(payout), ctx), seller);
+        (payout, 0)
+    }
+}
+
+fun remove_seller_from_index<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    seller: address,
+) {
+    let mut index = 0;
+    let mut found = false;
+    while (index < series.seller_vault_index.length()) {
+        if (series.seller_vault_index[index] == seller) {
+            series.seller_vault_index.remove(index);
+            found = true;
+            break
+        };
+        index = index + 1;
+    };
+    assert!(found, ESellerVaultMissing);
+}
+
+fun strike_payment<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    quantity: u64,
+): u64 {
+    let numerator =
+        (quantity as u256)
+        * (series.strike_price as u256)
+        * (pow10(series.quote_decimals) as u256);
+    let denominator = (pow10(series.base_decimals) as u256) * (series.strike_scale as u256);
+    (((numerator + denominator - 1) / denominator) as u64)
+}
+
+fun pro_rata(total: u64, quantity: u64, denominator: u64): u64 {
+    (((total as u256) * (quantity as u256) / (denominator as u256)) as u64)
+}
+
+fun pow10(decimals: u8): u64 {
+    let mut result = 1;
+    decimals.do!(|_| {
+        result = result * 10;
+    });
+    result
+}
+
 fun assert_expiry_price_for_market(
     market: &Market,
     market_id: ID,
@@ -607,6 +899,14 @@ public fun total_manual_exercised_quantity<QuoteCoin, BaseCoin>(series: &Series<
 
 public fun total_exercise_by_exception_quantity<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
     series.total_exercise_by_exception_quantity
+}
+
+public fun total_manual_exercise_base_proceeds<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.total_manual_exercise_base_proceeds
+}
+
+public fun total_manual_exercise_quote_proceeds<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.total_manual_exercise_quote_proceeds
 }
 
 public fun seller_vault_count<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {

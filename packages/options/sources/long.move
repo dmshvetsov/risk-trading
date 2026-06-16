@@ -1,7 +1,5 @@
 module options_trading_protocol::long;
 
-use options_trading_protocol::series::{Self, Series};
-
 const ELongMismatch: u64 = 0;
 const EInsufficientQuantity: u64 = 1;
 
@@ -16,17 +14,21 @@ public struct Long<phantom QuoteCoin, phantom BaseCoin> has key, store {
 }
 
 public(package) fun mint<QuoteCoin, BaseCoin>(
-    series: &Series<QuoteCoin, BaseCoin>,
+    market_id: ID,
+    series_id: ID,
+    option_type: u8,
+    strike_price: u64,
+    expiry_ms: u64,
     quantity: u64,
     ctx: &mut TxContext,
 ): Long<QuoteCoin, BaseCoin> {
     Long {
         id: object::new(ctx),
-        market_id: series::market_id(series),
-        series_id: object::id(series),
-        option_type: series::option_type(series),
-        strike_price: series::strike_price(series),
-        expiry_ms: series::expiry_ms(series),
+        market_id,
+        series_id,
+        option_type,
+        strike_price,
+        expiry_ms,
         quantity,
     }
 }
@@ -61,6 +63,14 @@ public fun join<QuoteCoin, BaseCoin>(
     assert!(target.expiry_ms == expiry_ms, ELongMismatch);
     id.delete();
     target.quantity = target.quantity + quantity;
+}
+
+public(package) fun burn<QuoteCoin, BaseCoin>(
+    long: Long<QuoteCoin, BaseCoin>,
+): (ID, ID, u8, u64, u64, u64) {
+    let Long { id, market_id, series_id, option_type, strike_price, expiry_ms, quantity } = long;
+    id.delete();
+    (market_id, series_id, option_type, strike_price, expiry_ms, quantity)
 }
 
 public fun market_id<QuoteCoin, BaseCoin>(long: &Long<QuoteCoin, BaseCoin>): ID {
