@@ -61,7 +61,7 @@ public fun create_market<QuoteCoin, BaseCoin>(
     base_decimals: u8,
     strike_scale: u64,
     ctx: &mut TxContext,
-) {
+): ID {
     let quote_coin_type = type_name::with_original_ids<QuoteCoin>();
     let base_coin_type = type_name::with_original_ids<BaseCoin>();
     let market = Market {
@@ -77,8 +77,9 @@ public fun create_market<QuoteCoin, BaseCoin>(
         admin_cap_id: object::id(cap),
         paused: false,
     };
+    let market_id = object::id(&market);
     event::emit(MarketCreated {
-        market_id: object::id(&market),
+        market_id,
         oracle_base: market.oracle_base,
         quote_coin_type,
         base_coin_type,
@@ -86,6 +87,7 @@ public fun create_market<QuoteCoin, BaseCoin>(
         oracle_feed_id: market.oracle_feed_id,
     });
     transfer::share_object(market);
+    market_id
 }
 
 public fun pause(market: &mut Market, cap: &AdminCap, ctx: &mut TxContext) {
