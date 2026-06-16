@@ -122,6 +122,10 @@ public(package) fun assert_not_paused(market: &Market) {
     assert!(!market.paused, EPaused);
 }
 
+public(package) fun assert_admin(market: &Market, cap: &AdminCap) {
+    assert!(market.admin_cap_id == object::id(cap), ENotAdmin);
+}
+
 public(package) fun has_series(market: &Market, option_type: u8, strike_price: u64, expiry_ms: u64): bool {
     dynamic_field::exists(&market.id, SeriesKey(option_type, strike_price, expiry_ms))
 }
@@ -179,8 +183,4 @@ public fun is_paused(market: &Market): bool {
 
 public fun admin_cap_id(market: &Market): ID {
     market.admin_cap_id
-}
-
-fun assert_admin(market: &Market, cap: &AdminCap) {
-    assert!(market.admin_cap_id == object::id(cap), ENotAdmin);
 }

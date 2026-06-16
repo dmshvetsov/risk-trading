@@ -1,6 +1,7 @@
 module options_trading_protocol::series;
 
 use options_trading_protocol::market::{Self, Market};
+use std::string::String;
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::dynamic_field;
@@ -31,6 +32,10 @@ const EExpiredSeries: u64 = 2;
 const EDuplicateSeries: u64 = 3;
 const EPoolMismatch: u64 = 4;
 const ESellerVaultMissing: u64 = 5;
+const EInvalidExpiryPrice: u64 = 6;
+const EStaleExpiryPrice: u64 = 7;
+const EExpiryPriceMismatch: u64 = 8;
+const EExpiryPriceAlreadyFinalized: u64 = 9;
 
 public struct SellerVaultKey(address) has copy, drop, store;
 
@@ -59,6 +64,7 @@ public struct Series<phantom QuoteCoin, phantom BaseCoin> has key {
     total_exercise_by_exception_quantity: u64,
     expiry_price: Option<u64>,
     expiry_price_publish_time_ms: Option<u64>,
+    expiry_price_payload_hash: Option<vector<u8>>,
     collateral_pool_id: ID,
     seller_vault_index: vector<address>,
     state: u8,
@@ -82,6 +88,25 @@ public struct SeriesCreated has copy, drop {
     expiry_ms: u64,
     exercise_window_end_ms: u64,
     exception_window_end_ms: u64,
+}
+
+public struct ExpiryPrice {
+    market_id: ID,
+    oracle: String,
+    oracle_feed_id: vector<u8>,
+    expiry_ms: u64,
+    expiry_price: u64,
+    publish_time_ms: u64,
+    price_payload_hash: vector<u8>,
+}
+
+public struct ExpiryPriceFinalized has copy, drop {
+    series_id: ID,
+    oracle: String,
+    oracle_feed_id: vector<u8>,
+    expiry_price: u64,
+    publish_time_ms: u64,
+    price_payload_hash: vector<u8>,
 }
 
 public fun create_series<QuoteCoin, BaseCoin>(
@@ -126,6 +151,7 @@ public fun create_series<QuoteCoin, BaseCoin>(
         total_exercise_by_exception_quantity: 0,
         expiry_price: option::none(),
         expiry_price_publish_time_ms: option::none(),
+        expiry_price_payload_hash: option::none(),
         collateral_pool_id: pool_object_id,
         seller_vault_index: vector[],
         state: STATE_OPEN,
@@ -153,6 +179,156 @@ public fun create_series<QuoteCoin, BaseCoin>(
     transfer::share_object(series);
     transfer::share_object(pool);
     (series_object_id, pool_object_id)
+}
+
+public(package) fun new_expiry_price(
+    market_id: ID,
+    oracle: String,
+    oracle_feed_id: vector<u8>,
+    expiry_ms: u64,
+    expiry_price: u64,
+    publish_time_ms: u64,
+    price_payload_hash: vector<u8>,
+): ExpiryPrice {
+    ExpiryPrice {
+        market_id,
+        oracle,
+        oracle_feed_id,
+        expiry_ms,
+        expiry_price,
+        publish_time_ms,
+        price_payload_hash,
+    }
+}
+
+public fun finalize<QuoteCoin, BaseCoin>(
+    market: &Market,
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    expiry_price: ExpiryPrice,
+) {
+    let ExpiryPrice {
+        market_id,
+        oracle,
+        oracle_feed_id,
+        expiry_ms,
+        expiry_price,
+        publish_time_ms,
+        price_payload_hash,
+    } = expiry_price;
+
+    assert_expiry_price_for_market(
+        market,
+        market_id,
+        &oracle,
+        &oracle_feed_id,
+        expiry_ms,
+        expiry_price,
+        publish_time_ms,
+    );
+    finalize_one(series, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+}
+
+public fun finalize_two<QuoteCoin, BaseCoin>(
+    market: &Market,
+    first: &mut Series<QuoteCoin, BaseCoin>,
+    second: &mut Series<QuoteCoin, BaseCoin>,
+    expiry_price: ExpiryPrice,
+) {
+    let ExpiryPrice {
+        market_id,
+        oracle,
+        oracle_feed_id,
+        expiry_ms,
+        expiry_price,
+        publish_time_ms,
+        price_payload_hash,
+    } = expiry_price;
+
+    assert_expiry_price_for_market(
+        market,
+        market_id,
+        &oracle,
+        &oracle_feed_id,
+        expiry_ms,
+        expiry_price,
+        publish_time_ms,
+    );
+    finalize_one(first, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(second, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+}
+
+public fun finalize_four<QuoteCoin, BaseCoin>(
+    market: &Market,
+    first: &mut Series<QuoteCoin, BaseCoin>,
+    second: &mut Series<QuoteCoin, BaseCoin>,
+    third: &mut Series<QuoteCoin, BaseCoin>,
+    fourth: &mut Series<QuoteCoin, BaseCoin>,
+    expiry_price: ExpiryPrice,
+) {
+    let ExpiryPrice {
+        market_id,
+        oracle,
+        oracle_feed_id,
+        expiry_ms,
+        expiry_price,
+        publish_time_ms,
+        price_payload_hash,
+    } = expiry_price;
+
+    assert_expiry_price_for_market(
+        market,
+        market_id,
+        &oracle,
+        &oracle_feed_id,
+        expiry_ms,
+        expiry_price,
+        publish_time_ms,
+    );
+    finalize_one(first, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(second, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(third, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(fourth, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+}
+
+public fun finalize_eight<QuoteCoin, BaseCoin>(
+    market: &Market,
+    first: &mut Series<QuoteCoin, BaseCoin>,
+    second: &mut Series<QuoteCoin, BaseCoin>,
+    third: &mut Series<QuoteCoin, BaseCoin>,
+    fourth: &mut Series<QuoteCoin, BaseCoin>,
+    fifth: &mut Series<QuoteCoin, BaseCoin>,
+    sixth: &mut Series<QuoteCoin, BaseCoin>,
+    seventh: &mut Series<QuoteCoin, BaseCoin>,
+    eighth: &mut Series<QuoteCoin, BaseCoin>,
+    expiry_price: ExpiryPrice,
+) {
+    let ExpiryPrice {
+        market_id,
+        oracle,
+        oracle_feed_id,
+        expiry_ms,
+        expiry_price,
+        publish_time_ms,
+        price_payload_hash,
+    } = expiry_price;
+
+    assert_expiry_price_for_market(
+        market,
+        market_id,
+        &oracle,
+        &oracle_feed_id,
+        expiry_ms,
+        expiry_price,
+        publish_time_ms,
+    );
+    finalize_one(first, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(second, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(third, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(fourth, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(fifth, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(sixth, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(seventh, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
+    finalize_one(eighth, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
 }
 
 public(package) fun assert_open_for_underwriting<QuoteCoin, BaseCoin>(
@@ -201,9 +377,75 @@ public fun phase<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>, cloc
         }
     } else if (series.state == STATE_CLOSED) {
         PHASE_FULL_SETTLEMENT
+    } else if (!is_in_the_money(series)) {
+        PHASE_NO_EXERCISE_EXPIRY
+    } else if (total_exercised_quantity(series) == series.total_short_quantity) {
+        PHASE_FULL_SETTLEMENT
+    } else if (clock.timestamp_ms() <= series.exercise_window_end_ms) {
+        PHASE_MANUAL_EXERCISE
+    } else if (clock.timestamp_ms() <= series.exception_window_end_ms) {
+        PHASE_EXERCISE_BY_EXCEPTION
     } else {
-        PHASE_PRICE_PENDING
+        PHASE_PARTIAL_SETTLEMENT
     }
+}
+
+fun assert_expiry_price_for_market(
+    market: &Market,
+    market_id: ID,
+    oracle: &String,
+    oracle_feed_id: &vector<u8>,
+    expiry_ms: u64,
+    expiry_price: u64,
+    publish_time_ms: u64,
+) {
+    assert!(market_id == market::id(market), EExpiryPriceMismatch);
+    assert!(*oracle == market::oracle(market), EExpiryPriceMismatch);
+    assert!(*oracle_feed_id == *market::oracle_feed_id(market), EExpiryPriceMismatch);
+    assert!(expiry_price > 0, EInvalidExpiryPrice);
+    assert!(publish_time_ms >= expiry_ms, EStaleExpiryPrice);
+}
+
+fun finalize_one<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    market_id: ID,
+    oracle: &String,
+    oracle_feed_id: &vector<u8>,
+    expiry_ms: u64,
+    expiry_price: u64,
+    publish_time_ms: u64,
+    price_payload_hash: &vector<u8>,
+) {
+    assert!(series.state == STATE_OPEN, EExpiryPriceAlreadyFinalized);
+    assert!(series.market_id == market_id, EExpiryPriceMismatch);
+    assert!(series.expiry_ms == expiry_ms, EExpiryPriceMismatch);
+
+    series.expiry_price = option::some(expiry_price);
+    series.expiry_price_publish_time_ms = option::some(publish_time_ms);
+    series.expiry_price_payload_hash = option::some(*price_payload_hash);
+    series.state = STATE_EXPIRATION_PRICE_FINALIZED;
+
+    event::emit(ExpiryPriceFinalized {
+        series_id: object::id(series),
+        oracle: *oracle,
+        oracle_feed_id: *oracle_feed_id,
+        expiry_price,
+        publish_time_ms,
+        price_payload_hash: *price_payload_hash,
+    });
+}
+
+fun is_in_the_money<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): bool {
+    let expiry_price = *series.expiry_price.borrow();
+    if (series.option_type == OPTION_TYPE_CALL) {
+        expiry_price > series.strike_price
+    } else {
+        expiry_price < series.strike_price
+    }
+}
+
+fun total_exercised_quantity<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.total_manual_exercised_quantity + series.total_exercise_by_exception_quantity
 }
 
 fun add_seller_vault<QuoteCoin, BaseCoin>(
@@ -382,6 +624,18 @@ public fun collateral_pool_id<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, Ba
 
 public fun state<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u8 {
     series.state
+}
+
+public fun expiry_price<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    *series.expiry_price.borrow()
+}
+
+public fun expiry_price_publish_time_ms<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    *series.expiry_price_publish_time_ms.borrow()
+}
+
+public fun expiry_price_payload_hash<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): vector<u8> {
+    *series.expiry_price_payload_hash.borrow()
 }
 
 public fun series_id<QuoteCoin, BaseCoin>(pool: &CollateralPool<QuoteCoin, BaseCoin>): ID {
