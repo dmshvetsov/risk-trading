@@ -3,7 +3,6 @@ module options_trading_protocol::market_tests;
 
 use options_trading_protocol::market::{Self, AdminCap, Market};
 use std::unit_test::{assert_eq};
-use sui::object::ID;
 use sui::test_scenario;
 
 public struct QUOTE has drop {}

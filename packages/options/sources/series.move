@@ -3,6 +3,7 @@ module options_trading_protocol::series;
 use options_trading_protocol::market::{Self, Market};
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
+use sui::dynamic_field;
 use sui::event;
 
 const OPTION_TYPE_CALL: u8 = 0;
@@ -28,12 +29,27 @@ const EInvalidOptionType: u64 = 0;
 const EInvalidStrike: u64 = 1;
 const EExpiredSeries: u64 = 2;
 const EDuplicateSeries: u64 = 3;
+const EPoolMismatch: u64 = 4;
+const ESellerVaultMissing: u64 = 5;
+
+public struct SellerVaultKey(address) has copy, drop, store;
+
+public struct SellerVault has store {
+    seller: address,
+    series_id: ID,
+    short_quantity: u64,
+    collateral_quantity: u64,
+    settlement_state: u8,
+}
 
 public struct Series<phantom QuoteCoin, phantom BaseCoin> has key {
     id: UID,
     market_id: ID,
     option_type: u8,
     strike_price: u64,
+    quote_decimals: u8,
+    base_decimals: u8,
+    strike_scale: u64,
     expiry_ms: u64,
     exercise_window_end_ms: u64,
     exception_window_end_ms: u64,
@@ -43,6 +59,7 @@ public struct Series<phantom QuoteCoin, phantom BaseCoin> has key {
     expiry_price: Option<u64>,
     expiry_price_publish_time_ms: Option<u64>,
     collateral_pool_id: ID,
+    seller_vault_index: vector<address>,
     state: u8,
 }
 
@@ -96,6 +113,9 @@ public fun create_series<QuoteCoin, BaseCoin>(
         market_id,
         option_type,
         strike_price,
+        quote_decimals: market::quote_decimals(market),
+        base_decimals: market::base_decimals(market),
+        strike_scale: market::strike_scale(market),
         expiry_ms,
         exercise_window_end_ms,
         exception_window_end_ms,
@@ -105,6 +125,7 @@ public fun create_series<QuoteCoin, BaseCoin>(
         expiry_price: option::none(),
         expiry_price_publish_time_ms: option::none(),
         collateral_pool_id: pool_object_id,
+        seller_vault_index: vector[],
         state: STATE_OPEN,
     };
     let pool = CollateralPool<QuoteCoin, BaseCoin> {
@@ -132,6 +153,43 @@ public fun create_series<QuoteCoin, BaseCoin>(
     (series_object_id, pool_object_id)
 }
 
+public(package) fun assert_open_for_underwriting<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    clock: &Clock,
+) {
+    assert!(series.state == STATE_OPEN, EExpiredSeries);
+    let now_ms = clock.timestamp_ms();
+    assert!(series.expiry_ms > now_ms, EExpiredSeries);
+    assert!(series.expiry_ms - now_ms > MIN_UNDERWRITING_TIME_TO_EXPIRY_MS, EExpiredSeries);
+}
+
+public(package) fun record_call_underwriting<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    seller: address,
+    quantity: u64,
+    collateral: Balance<BaseCoin>,
+) {
+    assert_pool_for_series(series, pool);
+    pool.base_balance.join(collateral);
+    pool.accounted_base_balance = pool.accounted_base_balance + quantity;
+    add_seller_vault(series, seller, quantity, quantity);
+}
+
+public(package) fun record_put_underwriting<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    seller: address,
+    quantity: u64,
+    collateral_quantity: u64,
+    collateral: Balance<QuoteCoin>,
+) {
+    assert_pool_for_series(series, pool);
+    pool.quote_balance.join(collateral);
+    pool.accounted_quote_balance = pool.accounted_quote_balance + collateral_quantity;
+    add_seller_vault(series, seller, quantity, collateral_quantity);
+}
+
 public fun phase<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>, clock: &Clock): u8 {
     if (series.state == STATE_OPEN) {
         if (clock.timestamp_ms() >= series.expiry_ms) {
@@ -144,6 +202,39 @@ public fun phase<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>, cloc
     } else {
         PHASE_PRICE_PENDING
     }
+}
+
+fun add_seller_vault<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    seller: address,
+    quantity: u64,
+    collateral_quantity: u64,
+) {
+    let key = SellerVaultKey(seller);
+    if (dynamic_field::exists(&series.id, key)) {
+        let vault = dynamic_field::borrow_mut<SellerVaultKey, SellerVault>(&mut series.id, key);
+        vault.short_quantity = vault.short_quantity + quantity;
+        vault.collateral_quantity = vault.collateral_quantity + collateral_quantity;
+    } else {
+        let series_id = object::id(series);
+        dynamic_field::add(&mut series.id, key, SellerVault {
+            seller,
+            series_id,
+            short_quantity: quantity,
+            collateral_quantity,
+            settlement_state: STATE_OPEN,
+        });
+        series.seller_vault_index.push_back(seller);
+    };
+    series.total_short_quantity = series.total_short_quantity + quantity;
+}
+
+fun assert_pool_for_series<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    pool: &CollateralPool<QuoteCoin, BaseCoin>,
+) {
+    assert!(pool.series_id == object::id(series), EPoolMismatch);
+    assert!(series.collateral_pool_id == object::id(pool), EPoolMismatch);
 }
 
 public fun option_type_call(): u8 {
@@ -218,6 +309,18 @@ public fun strike_price<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin
     series.strike_price
 }
 
+public fun quote_decimals<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u8 {
+    series.quote_decimals
+}
+
+public fun base_decimals<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u8 {
+    series.base_decimals
+}
+
+public fun strike_scale<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.strike_scale
+}
+
 public fun expiry_ms<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
     series.expiry_ms
 }
@@ -242,6 +345,31 @@ public fun total_exercise_by_exception_quantity<QuoteCoin, BaseCoin>(series: &Se
     series.total_exercise_by_exception_quantity
 }
 
+public fun seller_vault_count<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.seller_vault_index.length()
+}
+
+public fun seller_short_quantity<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    seller: address,
+): u64 {
+    seller_vault(series, seller).short_quantity
+}
+
+public fun seller_collateral_quantity<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    seller: address,
+): u64 {
+    seller_vault(series, seller).collateral_quantity
+}
+
+public fun seller_settlement_state<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    seller: address,
+): u8 {
+    seller_vault(series, seller).settlement_state
+}
+
 public fun collateral_pool_id<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): ID {
     series.collateral_pool_id
 }
@@ -260,4 +388,13 @@ public fun accounted_base_balance<QuoteCoin, BaseCoin>(pool: &CollateralPool<Quo
 
 public fun accounted_quote_balance<QuoteCoin, BaseCoin>(pool: &CollateralPool<QuoteCoin, BaseCoin>): u64 {
     pool.accounted_quote_balance
+}
+
+fun seller_vault<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    seller: address,
+): &SellerVault {
+    let key = SellerVaultKey(seller);
+    assert!(dynamic_field::exists(&series.id, key), ESellerVaultMissing);
+    dynamic_field::borrow<SellerVaultKey, SellerVault>(&series.id, key)
 }
