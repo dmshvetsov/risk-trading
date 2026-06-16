@@ -2,11 +2,14 @@ module options_trading_protocol::market;
 
 use std::string::String;
 use std::type_name::{Self, TypeName};
+use sui::dynamic_field;
 use sui::event;
 
 const ENotAdmin: u64 = 0;
 const EUnsupportedCoinTypes: u64 = 1;
 const EPaused: u64 = 2;
+
+public struct SeriesKey(u8, u64, u64) has copy, drop, store;
 
 public struct AdminCap has key, store {
     id: UID,
@@ -110,9 +113,27 @@ public(package) fun assert_not_paused(market: &Market) {
     assert!(!market.paused, EPaused);
 }
 
+public(package) fun has_series(market: &Market, option_type: u8, strike_price: u64, expiry_ms: u64): bool {
+    dynamic_field::exists(&market.id, SeriesKey(option_type, strike_price, expiry_ms))
+}
+
+public(package) fun add_series(
+    market: &mut Market,
+    option_type: u8,
+    strike_price: u64,
+    expiry_ms: u64,
+    series_id: ID,
+) {
+    dynamic_field::add(&mut market.id, SeriesKey(option_type, strike_price, expiry_ms), series_id);
+}
+
 public fun supports_coin_types<QuoteCoin, BaseCoin>(market: &Market): bool {
     market.quote_coin_type == type_name::with_original_ids<QuoteCoin>()
         && market.base_coin_type == type_name::with_original_ids<BaseCoin>()
+}
+
+public fun id(market: &Market): ID {
+    object::id(market)
 }
 
 public fun oracle_base(market: &Market): String {
