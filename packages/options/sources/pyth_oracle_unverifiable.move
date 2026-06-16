@@ -3,6 +3,8 @@ module options_trading_protocol::pyth_oracle_unverifiable;
 use options_trading_protocol::market::{Self, AdminCap, Market};
 use options_trading_protocol::series::{Self, ExpiryPrice};
 
+const EUnsupportedOracle: u64 = 0;
+
 public fun create_expiry_price(
     market: &Market,
     cap: &AdminCap,
@@ -12,6 +14,7 @@ public fun create_expiry_price(
     price_payload_hash: vector<u8>,
 ): ExpiryPrice {
     market::assert_admin(market, cap);
+    assert!(market::oracle(market) == "pyth", EUnsupportedOracle);
     series::new_expiry_price(
         market::id(market),
         market::oracle(market),

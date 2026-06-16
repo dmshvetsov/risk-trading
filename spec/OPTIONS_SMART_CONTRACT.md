@@ -622,7 +622,7 @@ The contract SHOULD expose at least:
 - `long::split`
 - `long::merge`
 - `pyth_oracle_unverifiable::create_expiry_price`
-- `series::finalize`
+- `series::finalize_one`
 - `series::finalize_two`
 - `series::finalize_four`
 - `series::finalize_eight`
