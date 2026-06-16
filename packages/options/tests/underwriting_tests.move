@@ -127,6 +127,120 @@ fun finalize_series(
 }
 
 #[test]
+fun admin_creates_market_and_series_then_call_lifecycle_settles_itm() {
+    let mut scenario = test_scenario::begin(ADMIN);
+    market::init_for_testing(scenario.ctx());
+    create_currency_caps(&mut scenario);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let market_id = market::create_market<QUOTE, BASE>(
+        &cap,
+        "SUI",
+        "pyth",
+        b"feed-sui-usdc",
+        6,
+        9,
+        100_000_000,
+        10_000,
+        scenario.ctx(),
+    );
+    scenario.return_to_sender(cap);
+
+    scenario.next_tx(ADMIN);
+    let mut market = scenario.take_shared_by_id<Market>(market_id);
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let (series_id, pool_id) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(SELLER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let collateral = mint_base(&mut scenario, 1_000_000_000);
+    let mut quote_payment = mint_quote(&mut scenario, 3_500_100);
+    let premium = quote_payment.split(100, scenario.ctx());
+    let exercise_payment = quote_payment;
+    let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
+        &mut series,
+        &mut pool,
+        collateral,
+        premium,
+        1_000_000_000,
+        10,
+        BUYER,
+        FEE_RECIPIENT,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+
+    assert_eq!(seller_premium.value(), 90);
+    assert_eq!(fee.value(), 10);
+    assert_eq!(long::market_id(&long), market_id);
+    assert_eq!(long::series_id(&long), series_id);
+    assert_eq!(series::seller_short_quantity(&series, SELLER), 1_000_000_000);
+    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 1_000_000_000);
+    assert_eq!(series::accounted_base_balance(&pool), 1_000_000_000);
+
+    transfer::public_transfer(long, BUYER);
+    transfer::public_transfer(exercise_payment, BUYER);
+    transfer::public_transfer(seller_premium, SELLER);
+    transfer::public_transfer(fee, FEE_RECIPIENT);
+    test_scenario::return_shared(series);
+    test_scenario::return_shared(pool);
+
+    finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
+
+    scenario.next_tx(BUYER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
+    let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
+    let payment = scenario.take_from_sender<Coin<QUOTE>>();
+    let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    let base_payout = series::exercise_call(&mut series, &mut pool, long, payment, &exercise_clock, scenario.ctx());
+    exercise_clock.destroy_for_testing();
+
+    assert_eq!(base_payout.value(), 1_000_000_000);
+    assert_eq!(series::total_manual_exercised_quantity(&series), 1_000_000_000);
+    assert_eq!(series::total_manual_exercise_quote_proceeds(&series), 3_500_000);
+    assert_eq!(series::accounted_base_balance(&pool), 0);
+    assert_eq!(series::accounted_quote_balance(&pool), 3_500_000);
+
+    transfer::public_transfer(base_payout, BUYER);
+    test_scenario::return_shared(series);
+    test_scenario::return_shared(pool);
+
+    scenario.next_tx(ADMIN);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
+    let settlement_clock = clock_at(EXPIRY_MS + EXERCISE_WINDOW_MS + 1, scenario.ctx());
+    series::settle_sellers(&mut series, &mut pool, vector[SELLER], &settlement_clock, scenario.ctx());
+    settlement_clock.destroy_for_testing();
+
+    assert_eq!(series::state(&series), STATE_CLOSED);
+    assert_eq!(series::seller_vault_count(&series), 0);
+    assert_eq!(series::accounted_quote_balance(&pool), 0);
+
+    test_scenario::return_shared(series);
+    test_scenario::return_shared(pool);
+
+    scenario.next_tx(SELLER);
+    let quote_proceeds = scenario.take_from_sender<Coin<QUOTE>>();
+    assert_eq!(quote_proceeds.value(), 3_500_000);
+    transfer::public_transfer(quote_proceeds, SELLER);
+    scenario.end();
+}
+
+#[test]
 fun seller_underwrites_call_and_buyer_receives_transferable_long() {
     let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
 
