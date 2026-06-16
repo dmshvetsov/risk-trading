@@ -27,6 +27,9 @@ const PHASE_OPEN: u8 = 0;
 const PHASE_PRICE_PENDING: u8 = 1;
 const PHASE_NO_EXERCISE_EXPIRY: u8 = 2;
 const PHASE_MANUAL_EXERCISE: u8 = 3;
+const PHASE_EXERCISE_BY_EXCEPTION: u8 = 4;
+const PHASE_PARTIAL_SETTLEMENT: u8 = 5;
+const PHASE_FULL_SETTLEMENT: u8 = 6;
 const EXERCISE_WINDOW_MS: u64 = 60 * 60 * 1000;
 const EXCEPTION_WINDOW_MS: u64 = 60 * 60 * 1000;
 
@@ -267,12 +270,14 @@ fun admin_can_finalize_expiry_price_from_pyth_adapter() {
         EXPIRY_MS,
         b"benchmark-payload-hash",
     );
-    series::finalize_one(&market, &mut series, price);
+    let expiry_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    series::finalize_one(&market, &mut series, price, &expiry_clock);
 
     assert_eq!(series::state(&series), STATE_EXPIRATION_PRICE_FINALIZED);
     assert_eq!(series::expiry_price(&series), STRIKE_PRICE + 1);
     assert_eq!(series::expiry_price_publish_time_ms(&series), EXPIRY_MS);
 
+    expiry_clock.destroy_for_testing();
     scenario.return_to_sender(cap);
     test_scenario::return_shared(market);
     test_scenario::return_shared(series);
@@ -318,17 +323,124 @@ fun one_expiry_price_can_finalize_matching_series_batch() {
         EXPIRY_MS,
         b"batch-payload-hash",
     );
-    series::finalize_two(&market, &mut call_series, &mut put_series, price);
+    let expiry_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    series::finalize_two(&market, &mut call_series, &mut put_series, price, &expiry_clock);
 
     assert_eq!(series::state(&call_series), STATE_EXPIRATION_PRICE_FINALIZED);
     assert_eq!(series::state(&put_series), STATE_EXPIRATION_PRICE_FINALIZED);
     assert_eq!(series::expiry_price(&call_series), STRIKE_PRICE + 1);
     assert_eq!(series::expiry_price(&put_series), STRIKE_PRICE + 1);
 
+    expiry_clock.destroy_for_testing();
     scenario.return_to_sender(cap);
     test_scenario::return_shared(market);
     test_scenario::return_shared(call_series);
     test_scenario::return_shared(put_series);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = series::EExpiryNotReached, location = series)]
+fun finalization_before_expiry_aborts() {
+    let (mut scenario, _) = create_market_fixture();
+
+    scenario.next_tx(USER);
+    let mut market = scenario.take_shared<Market>();
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let (series_id, _) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let market = scenario.take_shared<Market>();
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE + 1,
+        EXPIRY_MS,
+        b"payload-hash",
+    );
+    let before_expiry = clock_at(EXPIRY_MS - 1, scenario.ctx());
+    series::finalize_one(&market, &mut series, price, &before_expiry);
+    before_expiry.destroy_for_testing();
+    scenario.return_to_sender(cap);
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(series);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = series::EExpiryPriceMismatch, location = series)]
+fun batch_finalization_rejects_series_from_different_market() {
+    let (mut scenario, first_market_id) = create_market_fixture();
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let second_market_id = market::create_market<QUOTE, BASE>(
+        &cap,
+        "BTC",
+        "pyth",
+        b"feed-btc-usdc",
+        6,
+        8,
+        100_000_000,
+        500,
+        scenario.ctx(),
+    );
+    scenario.return_to_sender(cap);
+
+    scenario.next_tx(USER);
+    let mut first_market = scenario.take_shared_by_id<Market>(first_market_id);
+    let mut second_market = scenario.take_shared_by_id<Market>(second_market_id);
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let (first_series_id, _) = series::create_series<QUOTE, BASE>(
+        &mut first_market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    let (second_series_id, _) = series::create_series<QUOTE, BASE>(
+        &mut second_market,
+        OPTION_TYPE_PUT,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    test_scenario::return_shared(first_market);
+    test_scenario::return_shared(second_market);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let market = scenario.take_shared_by_id<Market>(first_market_id);
+    let mut first_series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(first_series_id);
+    let mut second_series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(second_series_id);
+    let price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE + 1,
+        EXPIRY_MS,
+        b"batch-payload-hash",
+    );
+    let expiry_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    series::finalize_two(&market, &mut first_series, &mut second_series, price, &expiry_clock);
+    expiry_clock.destroy_for_testing();
+    scenario.return_to_sender(cap);
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(first_series);
+    test_scenario::return_shared(second_series);
     scenario.end();
 }
 
@@ -382,12 +494,11 @@ fun finalized_price_drives_post_expiry_phase() {
         EXPIRY_MS + 1,
         b"put-payload-hash",
     );
-    series::finalize_one(&market, &mut call_series, call_price);
-    series::finalize_one(&market, &mut put_series, put_price);
-
-    now.set_for_testing(EXPIRY_MS);
-    assert_eq!(series::phase(&call_series, &now), PHASE_MANUAL_EXERCISE);
     now.set_for_testing(EXPIRY_MS + 1);
+    series::finalize_one(&market, &mut call_series, call_price, &now);
+    series::finalize_one(&market, &mut put_series, put_price, &now);
+
+    assert_eq!(series::phase(&call_series, &now), PHASE_MANUAL_EXERCISE);
     assert_eq!(series::phase(&put_series, &now), PHASE_NO_EXERCISE_EXPIRY);
 
     now.destroy_for_testing();
@@ -397,6 +508,211 @@ fun finalized_price_drives_post_expiry_phase() {
     test_scenario::return_shared(call_pool);
     test_scenario::return_shared(put_series);
     test_scenario::return_shared(put_pool);
+    scenario.end();
+}
+
+#[test]
+fun itm_phase_progresses_through_exception_partial_and_full_settlement() {
+    let (mut scenario, _) = create_market_fixture();
+
+    scenario.next_tx(USER);
+    let mut market = scenario.take_shared<Market>();
+    let mut now = clock_at(NOW_MS, scenario.ctx());
+    let (series_id, pool_id) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let market = scenario.take_shared<Market>();
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
+    series::record_call_underwriting(&mut series, &mut pool, USER, 10, balance::zero());
+    let price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE + 1,
+        EXPIRY_MS,
+        b"payload-hash",
+    );
+    now.set_for_testing(EXPIRY_MS);
+    series::finalize_one(&market, &mut series, price, &now);
+    assert_eq!(series::phase(&series, &now), PHASE_MANUAL_EXERCISE);
+
+    now.set_for_testing(EXPIRY_MS + EXERCISE_WINDOW_MS + 1);
+    assert_eq!(series::phase(&series, &now), PHASE_EXERCISE_BY_EXCEPTION);
+
+    now.set_for_testing(EXPIRY_MS + EXERCISE_WINDOW_MS + EXCEPTION_WINDOW_MS + 1);
+    assert_eq!(series::phase(&series, &now), PHASE_PARTIAL_SETTLEMENT);
+
+    series::set_exercised_quantities_for_testing(&mut series, 4, 6);
+    assert_eq!(series::phase(&series, &now), PHASE_FULL_SETTLEMENT);
+
+    now.destroy_for_testing();
+    scenario.return_to_sender(cap);
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(series);
+    test_scenario::return_shared(pool);
+    scenario.end();
+}
+
+#[test]
+fun put_itm_phase_progresses_through_exception_partial_and_full_settlement() {
+    let (mut scenario, _) = create_market_fixture();
+
+    scenario.next_tx(USER);
+    let mut market = scenario.take_shared<Market>();
+    let mut now = clock_at(NOW_MS, scenario.ctx());
+    let (series_id, pool_id) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_PUT,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let market = scenario.take_shared<Market>();
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
+    series::record_put_underwriting(&mut series, &mut pool, USER, 10, 10, balance::zero());
+    let price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE - 1,
+        EXPIRY_MS,
+        b"payload-hash",
+    );
+    now.set_for_testing(EXPIRY_MS);
+    series::finalize_one(&market, &mut series, price, &now);
+    assert_eq!(series::phase(&series, &now), PHASE_MANUAL_EXERCISE);
+
+    now.set_for_testing(EXPIRY_MS + EXERCISE_WINDOW_MS + 1);
+    assert_eq!(series::phase(&series, &now), PHASE_EXERCISE_BY_EXCEPTION);
+
+    now.set_for_testing(EXPIRY_MS + EXERCISE_WINDOW_MS + EXCEPTION_WINDOW_MS + 1);
+    assert_eq!(series::phase(&series, &now), PHASE_PARTIAL_SETTLEMENT);
+
+    series::set_exercised_quantities_for_testing(&mut series, 3, 7);
+    assert_eq!(series::phase(&series, &now), PHASE_FULL_SETTLEMENT);
+
+    now.destroy_for_testing();
+    scenario.return_to_sender(cap);
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(series);
+    test_scenario::return_shared(pool);
+    scenario.end();
+}
+
+#[test]
+fun atm_and_otm_series_expire_without_exercise_for_calls_and_puts() {
+    let (mut scenario, _) = create_market_fixture();
+
+    scenario.next_tx(USER);
+    let mut market = scenario.take_shared<Market>();
+    let mut now = clock_at(NOW_MS, scenario.ctx());
+    let (call_atm_id, _) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    let (call_otm_id, _) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE + 1,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    let (put_atm_id, _) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_PUT,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    let (put_otm_id, _) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_PUT,
+        STRIKE_PRICE - 1,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let market = scenario.take_shared<Market>();
+    let mut call_atm = scenario.take_shared_by_id<Series<QUOTE, BASE>>(call_atm_id);
+    let mut call_otm = scenario.take_shared_by_id<Series<QUOTE, BASE>>(call_otm_id);
+    let mut put_atm = scenario.take_shared_by_id<Series<QUOTE, BASE>>(put_atm_id);
+    let mut put_otm = scenario.take_shared_by_id<Series<QUOTE, BASE>>(put_otm_id);
+    now.set_for_testing(EXPIRY_MS);
+    let call_atm_price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        b"call-atm-payload-hash",
+    );
+    let call_otm_price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        b"call-otm-payload-hash",
+    );
+    let put_atm_price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        b"put-atm-payload-hash",
+    );
+    let put_otm_price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        b"put-otm-payload-hash",
+    );
+    series::finalize_one(&market, &mut call_atm, call_atm_price, &now);
+    series::finalize_one(&market, &mut call_otm, call_otm_price, &now);
+    series::finalize_one(&market, &mut put_atm, put_atm_price, &now);
+    series::finalize_one(&market, &mut put_otm, put_otm_price, &now);
+
+    assert_eq!(series::phase(&call_atm, &now), PHASE_NO_EXERCISE_EXPIRY);
+    assert_eq!(series::phase(&call_otm, &now), PHASE_NO_EXERCISE_EXPIRY);
+    assert_eq!(series::phase(&put_atm, &now), PHASE_NO_EXERCISE_EXPIRY);
+    assert_eq!(series::phase(&put_otm, &now), PHASE_NO_EXERCISE_EXPIRY);
+
+    now.destroy_for_testing();
+    scenario.return_to_sender(cap);
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(call_atm);
+    test_scenario::return_shared(call_otm);
+    test_scenario::return_shared(put_atm);
+    test_scenario::return_shared(put_otm);
     scenario.end();
 }
 
@@ -430,7 +746,9 @@ fun zero_expiry_price_aborts() {
         EXPIRY_MS,
         b"payload-hash",
     );
-    series::finalize_one(&market, &mut series, price);
+    let expiry_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    series::finalize_one(&market, &mut series, price, &expiry_clock);
+    expiry_clock.destroy_for_testing();
     scenario.return_to_sender(cap);
     test_scenario::return_shared(market);
     test_scenario::return_shared(series);
@@ -467,7 +785,9 @@ fun publish_time_before_expiry_aborts() {
         EXPIRY_MS - 1,
         b"payload-hash",
     );
-    series::finalize_one(&market, &mut series, price);
+    let expiry_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    series::finalize_one(&market, &mut series, price, &expiry_clock);
+    expiry_clock.destroy_for_testing();
     scenario.return_to_sender(cap);
     test_scenario::return_shared(market);
     test_scenario::return_shared(series);
@@ -504,7 +824,95 @@ fun oracle_feed_mismatch_aborts() {
         EXPIRY_MS,
         b"payload-hash",
     );
-    series::finalize_one(&market, &mut series, price);
+    let expiry_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    series::finalize_one(&market, &mut series, price, &expiry_clock);
+    expiry_clock.destroy_for_testing();
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(series);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = series::EExpiryPriceMismatch, location = series)]
+fun oracle_name_mismatch_aborts() {
+    let (mut scenario, market_id) = create_market_fixture();
+
+    scenario.next_tx(USER);
+    let mut market = scenario.take_shared<Market>();
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let (series_id, _) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(ADMIN);
+    let market = scenario.take_shared<Market>();
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let price = series::new_expiry_price(
+        market_id,
+        "switchboard",
+        b"feed-sui-usdc",
+        EXPIRY_MS,
+        STRIKE_PRICE + 1,
+        EXPIRY_MS,
+        b"payload-hash",
+    );
+    let expiry_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    series::finalize_one(&market, &mut series, price, &expiry_clock);
+    expiry_clock.destroy_for_testing();
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(series);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = series::EExpiryPriceAlreadyFinalized, location = series)]
+fun finalized_price_is_immutable() {
+    let (mut scenario, _) = create_market_fixture();
+
+    scenario.next_tx(USER);
+    let mut market = scenario.take_shared<Market>();
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let (series_id, _) = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let market = scenario.take_shared<Market>();
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let first_price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE + 1,
+        EXPIRY_MS,
+        b"first-payload-hash",
+    );
+    let second_price = pyth_oracle_unverifiable::create_expiry_price(
+        &market,
+        &cap,
+        EXPIRY_MS,
+        STRIKE_PRICE + 2,
+        EXPIRY_MS,
+        b"second-payload-hash",
+    );
+    let expiry_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    series::finalize_one(&market, &mut series, first_price, &expiry_clock);
+    series::finalize_one(&market, &mut series, second_price, &expiry_clock);
+    expiry_clock.destroy_for_testing();
+    scenario.return_to_sender(cap);
     test_scenario::return_shared(market);
     test_scenario::return_shared(series);
     scenario.end();
@@ -556,7 +964,9 @@ fun non_pyth_market_oracle_aborts_in_pyth_adapter() {
         EXPIRY_MS,
         b"payload-hash",
     );
-    series::finalize_one(&market, &mut series, price);
+    let expiry_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    series::finalize_one(&market, &mut series, price, &expiry_clock);
+    expiry_clock.destroy_for_testing();
     scenario.return_to_sender(cap);
     test_scenario::return_shared(market);
     test_scenario::return_shared(series);

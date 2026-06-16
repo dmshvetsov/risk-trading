@@ -36,6 +36,7 @@ const EInvalidExpiryPrice: u64 = 6;
 const EStaleExpiryPrice: u64 = 7;
 const EExpiryPriceMismatch: u64 = 8;
 const EExpiryPriceAlreadyFinalized: u64 = 9;
+const EExpiryNotReached: u64 = 10;
 
 public struct SellerVaultKey(address) has copy, drop, store;
 
@@ -203,6 +204,7 @@ public fun finalize_one<QuoteCoin, BaseCoin>(
     market: &Market,
     series: &mut Series<QuoteCoin, BaseCoin>,
     expiry_price: ExpiryPrice,
+    clock: &Clock,
 ) {
     let ExpiryPrice {
         market_id,
@@ -223,6 +225,7 @@ public fun finalize_one<QuoteCoin, BaseCoin>(
         expiry_price,
         publish_time_ms,
     );
+    assert!(clock.timestamp_ms() >= expiry_ms, EExpiryNotReached);
     finalize(series, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
 }
 
@@ -231,6 +234,7 @@ public fun finalize_two<QuoteCoin, BaseCoin>(
     first: &mut Series<QuoteCoin, BaseCoin>,
     second: &mut Series<QuoteCoin, BaseCoin>,
     expiry_price: ExpiryPrice,
+    clock: &Clock,
 ) {
     let ExpiryPrice {
         market_id,
@@ -251,6 +255,7 @@ public fun finalize_two<QuoteCoin, BaseCoin>(
         expiry_price,
         publish_time_ms,
     );
+    assert!(clock.timestamp_ms() >= expiry_ms, EExpiryNotReached);
     finalize(first, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
     finalize(second, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
 }
@@ -262,6 +267,7 @@ public fun finalize_four<QuoteCoin, BaseCoin>(
     third: &mut Series<QuoteCoin, BaseCoin>,
     fourth: &mut Series<QuoteCoin, BaseCoin>,
     expiry_price: ExpiryPrice,
+    clock: &Clock,
 ) {
     let ExpiryPrice {
         market_id,
@@ -282,6 +288,7 @@ public fun finalize_four<QuoteCoin, BaseCoin>(
         expiry_price,
         publish_time_ms,
     );
+    assert!(clock.timestamp_ms() >= expiry_ms, EExpiryNotReached);
     finalize(first, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
     finalize(second, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
     finalize(third, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
@@ -299,6 +306,7 @@ public fun finalize_eight<QuoteCoin, BaseCoin>(
     seventh: &mut Series<QuoteCoin, BaseCoin>,
     eighth: &mut Series<QuoteCoin, BaseCoin>,
     expiry_price: ExpiryPrice,
+    clock: &Clock,
 ) {
     let ExpiryPrice {
         market_id,
@@ -319,6 +327,7 @@ public fun finalize_eight<QuoteCoin, BaseCoin>(
         expiry_price,
         publish_time_ms,
     );
+    assert!(clock.timestamp_ms() >= expiry_ms, EExpiryNotReached);
     finalize(first, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
     finalize(second, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
     finalize(third, market_id, &oracle, &oracle_feed_id, expiry_ms, expiry_price, publish_time_ms, &price_payload_hash);
@@ -443,6 +452,16 @@ fun is_in_the_money<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): 
 
 fun total_exercised_quantity<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
     series.total_manual_exercised_quantity + series.total_exercise_by_exception_quantity
+}
+
+#[test_only]
+public fun set_exercised_quantities_for_testing<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    manual_quantity: u64,
+    exercise_by_exception_quantity: u64,
+) {
+    series.total_manual_exercised_quantity = manual_quantity;
+    series.total_exercise_by_exception_quantity = exercise_by_exception_quantity;
 }
 
 fun add_seller_vault<QuoteCoin, BaseCoin>(
