@@ -7,7 +7,7 @@ This document specifies MVP version of the on-chain smart contract design for Eu
 The contract design uses:
 - transferable semi-fungible long option objects with quantity,
 - non-transferable seller vault records,
-- one `CollateralPool` per option series,
+- one internal `CollateralPool` per option series,
 - oracle expiry price finalization,
 - manual holder exercise within a fixed exercise window,
 - PTB-composable flash-loan exercise,
@@ -69,12 +69,12 @@ A series object MUST contain:
 - total exercise-by-exception quantity,
 - stored oracle `expiry_price`,
 - expiry price publish time,
-- collateral pool id,
+- internal `CollateralPool` field,
 - state,
 - cumulative exercise proceeds accounting,
 - seller vault records
 
-Each option series MUST have exactly one `CollateralPool`. `Series` MUST own or reference its own `CollateralPool` through `collateral_pool_id`.
+Each option series MUST have exactly one internal `CollateralPool`. The `CollateralPool` MUST be stored as nested object inside `Series`.
 
 Series states:
 - `Open`: series exists and expiration price has not been finalized.
@@ -135,7 +135,7 @@ Each `Long` token MUST contain:
 - expiry,
 - quantity as `u64`.
 
-`Long` quantity represents a claim amount only. Actual `BaseCoin` and `QuoteCoin` collateral MUST remain in the series `CollateralPool` balances.
+`Long` quantity represents a claim amount only. Actual `BaseCoin` and `QuoteCoin` collateral MUST remain in the internal `CollateralPool` balances of the corresponding `Series`.
 
 Long tokens MUST be freely transferable by their owner.
 
@@ -173,15 +173,15 @@ Each `SellerVault` MUST store:
 
 ## Collateral Pool
 
-`CollateralPool` MUST be stored as a separate shared object, MUST belongs to `Series` by storing `series_id`.
+`CollateralPool` MUST be an internal wrapped/nested object inside `Series`.
 
 `CollateralPool` MUST hold `BaseCoin` and `QuoteCoin` balances for one option series only.
 
 Seller collateral coin balance in the pool MUST NOT be treated as per-seller separate balances. `Series` and `SellerVault` accounting determines seller payout shares.
 
-The `CollateralPool` MUST track accounted balances for its series so admin and operator can only recover excess or dust that is not reserved for active or unsettled positions.
+The `CollateralPool` MUST track accounted balances for its `Series` so admin and operator can only recover excess or dust that is not reserved for active or unsettled positions.
 
-After the `Series` is `Closed`, its `CollateralPool` SHOULD be deletable after all required payouts, claim-pool transfers, and allowed dust recovery are complete.
+After the `Series` is `Closed`, its internal `CollateralPool` SHOULD be destroyable with `Series` after all required payouts, transfers to `ClaimPool`, and allowed dust recovery are complete.
 
 ## Underwriting
 
@@ -190,13 +190,13 @@ Underwriting creates `Long` tokens for a buyer and records a seller short obliga
 Underwriting MUST be rejected when the series expiry is less than or equal to the minimum underwriting time to expiry after the current time.
 
 For a covered call:
-- seller deposits `BaseCoin` collateral equal to the option quantity into the series `CollateralPool`,
+- seller deposits `BaseCoin` collateral equal to the option quantity into the internal `CollateralPool` of the `Series`,
 - buyer pays premium in `QuoteCoin`,
 - contract mints and transfers `Long` token to buyer,
 - seller vault short quantity increases in `SellerVault`.
 
 For a cash-secured put:
-- seller deposits `QuoteCoin` collateral equal to `strike_payment(quantity)` into the series `CollateralPool`,
+- seller deposits `QuoteCoin` collateral equal to `strike_payment(quantity)` into the internal `CollateralPool` of the `Series`,
 - buyer pays premium in `QuoteCoin`,
 - contract mints/transfers `Long` token to buyer,
 - seller vault short quantity increases in `SellerVault`.
@@ -302,7 +302,7 @@ Exercise MUST consume the whole provided `Long` token. The exercised quantity MU
 For an ITM call:
 - holder burns the whole provided call `Long` token,
 - holder pays `QuoteCoin` strike cash,
-- `CollateralPool` of corresponding `Series` to `Long` token transfers `BaseCoin` to holder,
+- the internal `CollateralPool` of the corresponding `Series` transfers `BaseCoin` to holder,
 - `Series` records exercised quantity,
 - `Series` records quote proceeds received.
 
@@ -311,7 +311,7 @@ For an ITM call:
 For an ITM put:
 - holder burns the whole provided put `Long` token,
 - holder delivers `BaseCoin`,
-- `CollateralPool` of corresponding `Series` to `Long` token transfers `QuoteCoin` strike cash to holder,
+- the internal `CollateralPool` of the corresponding `Series` transfers `QuoteCoin` strike cash to holder,
 - `Series` records exercised quantity,
 - `Series` records base proceeds received.
 
@@ -322,7 +322,7 @@ Exercise MUST abort if:
 - payment asset is insufficient for the full provided `Long` token quantity,
 - `Long` token option does not match `Series`,
 - `Long` token quantity is zero,
-- `CollateralPool` of given `Series` does not have enough collateral for the full provided `Long` token quantity.
+- the internal `CollateralPool` of the given `Series` does not have enough collateral for the full provided `Long` token quantity.
 
 ## Flash-Loan Exercise
 
@@ -392,7 +392,7 @@ The operation SHOULD support caller-provided minimum net claim amounts so exerci
 
 ## Claim Pool Object Model
 
-The `ClaimPool` MUST be a separate object from the `Series`, `SellerVaults`, and `CollateralPool`. It SHOULD be created only when exercise by exception leaves non-zero net proceeds for late holders.
+The `ClaimPool` MUST be a separate object from the `Series` and `SellerVaults`. It SHOULD be created only after exercise-by-exception results in non-zero assets for remaining `Long` holders.
 
 The claim pool MUST store only the minimum data required for `Long` holder claims:
 - market id,
@@ -450,15 +450,15 @@ Seller settlement MUST abort if:
 - series is not settle-ready,
 - seller vault record in the requested batch is already closed,
 - series does not exist,
-- settlement arithmetic would overdraw the series `CollateralPool`.
+- settlement arithmetic would overdraw the internal `CollateralPool` of the `Series`.
 
-Rounding dust MUST remain in the series `CollateralPool` and MUST be recoverable only through admin recovery after the recovery delay.
+Rounding dust MUST remain in the internal `CollateralPool` of the `Series` and MUST be recoverable only through admin recovery after the recovery delay.
 
 ## Accounting Invariant
 
 Rules that must always stay true so the contract cannot lose track of who is owed what.
 
-At all times, each series `CollateralPool` accounted balances MUST be greater than or equal to the active obligations required by that option series.
+At all times, each `Series` internal `CollateralPool` accounted balances MUST be greater than or equal to the active obligations required by that option series.
 
 For each series:
 - `total_manual_exercised_quantity + total_exercise_by_exception_quantity <= total_short_quantity`,
@@ -466,7 +466,7 @@ For each series:
 - exercise-by-exception MUST NOT require burning wallet-held `Long` tokens, instead must move holders payout assets to `ClaimPool` for future claims with `Long` tokens.
 - `ClaimPool` claims MUST burn the provided matching `Long` token.
 - `SellerVault` short quantities MUST sum to series total short quantity, excluding settled vaults only after their obligations are paid,
-- pool transfers MUST use only the `CollateralPool` referenced by that series,
+- pool transfers MUST use only the internal `CollateralPool` of that `Series`,
 - pool transfers MUST never exceed accounted balances.
 
 The contract MUST use checked arithmetic.
@@ -501,7 +501,6 @@ The contract MUST emit events for:
 `SeriesCreated`
 - series id,
 - market id,
-- collateral pool id,
 - option type,
 - strike,
 - expiry.
@@ -663,6 +662,4 @@ The design chooses seller vault records over transferable writer tokens to keep 
 
 The design chooses transferable long SFT objects so options remain composable and mergeable by series.
 
-The design chooses one `CollateralPool` per option series to isolate collateral, reduce cross-series accounting risk, reduce shared-object contention across series, and make old series storage easier to close for rebates.
-
-The cost of this design is more pool objects and per-series dust. Physically exercised quantity still must be allocated to seller vaults pro-rata by short quantity because long tokens are fungible by series and are not matched to seller vaults.
+The cost of this design is per-series dust and a larger `Series` object. Physically exercised quantity still must be allocated to seller vaults pro-rata by short quantity because long tokens are fungible by series and are not matched to seller vaults.
