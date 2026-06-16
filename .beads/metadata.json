@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "risk_trading",
+  "project_id": "87a80274-8808-42a1-8215-8bbd40d2b346"
+}
