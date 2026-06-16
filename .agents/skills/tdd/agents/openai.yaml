@@ -1,0 +1,6 @@
+interface:
+  display_name: "implement with TDD"
+  short_description: "Use test driven development during implementation"
+
+policy:
+  allow_implicit_invocation: false
