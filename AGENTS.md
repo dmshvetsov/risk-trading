@@ -5,4 +5,4 @@ Aim to build a strong projects that is useful and grounded in real user needs. S
 ## Git rules
 
 - commits format `<name of the monorepo package>: <explain what changes are in the commit>`
-- each beads task must be committed to git separately, do not combine multiple task into single git commit
+- each issue/task must be committed to git separately, do not combine multiple task into single git commit, strive to break large changes in coherent logically related git commits
