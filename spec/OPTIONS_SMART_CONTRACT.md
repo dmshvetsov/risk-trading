@@ -212,6 +212,7 @@ Vault operations:
 - create_vault: records ctx.sender() as owner.
 - deposit: accepts Coin<QuoteCoin> and requires ctx.sender() == vault.owner.
 - withdraw: requires ctx.sender() == vault.owner.
+- close: withdraw and drop BuyerVault object
 
 The contract MUST emit `BuyerVaultCreated` with:
 - buyer vault id,
@@ -230,6 +231,11 @@ The contract MUST emit `BuyerVaultWithdrawn` with:
 - quote coin type,
 - amount.
 
+The contract MUST emit `BuyerVaultClosed` with:
+- buyer vault id,
+- owner,
+- quote coin type,
+- last withdrawal amount.
 
 ### BCS of OrderV1
 
@@ -746,6 +752,7 @@ The contract SHOULD expose at least:
 - `buyer::create_vault`
 - `buyer::depoit`
 - `buyer::withdraw`
+- `buyer::close_vault`
 
 ## Non-Goals For MVP
 
