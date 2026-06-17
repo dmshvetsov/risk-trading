@@ -5,6 +5,7 @@
 - https://mystenlabs.notion.site/deepbook-predict-problem-statement
 - DeepBook sandbox repo https://github.com/MystenLabs/deepbook-sandbox
 - DeepBook repo and docs https://github.com/MystenLabs/deepbookv3/tree/predict-testnet-4-16/packages/predict
+- OpenZeppelin Sui Smart Contracts https://github.com/OpenZeppelin/contracts-sui
 
 ## Inspiration
 
