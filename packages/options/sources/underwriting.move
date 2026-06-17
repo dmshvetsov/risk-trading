@@ -1,6 +1,7 @@
 module options_trading_protocol::underwriting;
 
 use options_trading_protocol::long::{Self, Long};
+use options_trading_protocol::market::{Self, Market};
 use options_trading_protocol::series::{Self, Series};
 use sui::clock::Clock;
 use sui::coin::Coin;
@@ -10,6 +11,7 @@ const EInvalidSeriesType: u64 = 0;
 const EInsufficientCollateral: u64 = 1;
 const EFeeExceedsPremium: u64 = 2;
 const EFeeExceedsMaximum: u64 = 3;
+const EMarketMismatch: u64 = 4;
 
 const BPS_DENOMINATOR: u64 = 10_000;
 
@@ -24,9 +26,12 @@ public struct Underwritten has copy, drop {
     collateral_quantity: u64,
     premium_total: u64,
     operational_fee: u64,
+    long_token_id: ID,
 }
 
+#[allow(lint(self_transfer))]
 public fun underwrite_call<QuoteCoin, BaseCoin>(
+    market: &Market,
     series: &mut Series<QuoteCoin, BaseCoin>,
     collateral: Coin<BaseCoin>,
     premium: Coin<QuoteCoin>,
@@ -36,19 +41,21 @@ public fun underwrite_call<QuoteCoin, BaseCoin>(
     fee_recipient: address,
     clock: &Clock,
     ctx: &mut TxContext,
-): (Long<QuoteCoin, BaseCoin>, Coin<QuoteCoin>, Coin<QuoteCoin>) {
+) {
+    assert_market_open(market, series);
     assert!(series::option_type(series) == series::option_type_call(), EInvalidSeriesType);
     assert!(collateral.value() == quantity, EInsufficientCollateral);
     series::assert_open_for_underwriting(series, clock);
 
+    let seller = ctx.sender();
     let (seller_premium, fee) = split_premium(premium, operational_fee, series, ctx);
     series::record_call_underwriting(
         series,
-        ctx.sender(),
+        seller,
         quantity,
         collateral.into_balance(),
     );
-    let long = long::mint(
+    let long: Long<QuoteCoin, BaseCoin> = long::mint(
         series::market_id(series),
         object::id(series),
         series::option_type(series),
@@ -66,40 +73,16 @@ public fun underwrite_call<QuoteCoin, BaseCoin>(
         quantity,
         seller_premium.value() + fee.value(),
         operational_fee,
-    );
-    (long, seller_premium, fee)
-}
-
-#[allow(lint(self_transfer))]
-public fun underwrite_call_and_transfer<QuoteCoin, BaseCoin>(
-    series: &mut Series<QuoteCoin, BaseCoin>,
-    collateral: Coin<BaseCoin>,
-    premium: Coin<QuoteCoin>,
-    quantity: u64,
-    operational_fee: u64,
-    buyer: address,
-    fee_recipient: address,
-    clock: &Clock,
-    ctx: &mut TxContext,
-) {
-    let seller = ctx.sender();
-    let (long, seller_premium, fee) = underwrite_call(
-        series,
-        collateral,
-        premium,
-        quantity,
-        operational_fee,
-        buyer,
-        fee_recipient,
-        clock,
-        ctx,
+        object::id(&long),
     );
     transfer::public_transfer(long, buyer);
     transfer::public_transfer(seller_premium, seller);
     transfer::public_transfer(fee, fee_recipient);
 }
 
+#[allow(lint(self_transfer))]
 public fun underwrite_put<QuoteCoin, BaseCoin>(
+    market: &Market,
     series: &mut Series<QuoteCoin, BaseCoin>,
     collateral: Coin<QuoteCoin>,
     premium: Coin<QuoteCoin>,
@@ -109,21 +92,23 @@ public fun underwrite_put<QuoteCoin, BaseCoin>(
     fee_recipient: address,
     clock: &Clock,
     ctx: &mut TxContext,
-): (Long<QuoteCoin, BaseCoin>, Coin<QuoteCoin>, Coin<QuoteCoin>) {
+) {
+    assert_market_open(market, series);
     assert!(series::option_type(series) == series::option_type_put(), EInvalidSeriesType);
     let collateral_required = strike_payment(series, quantity);
     assert!(collateral.value() == collateral_required, EInsufficientCollateral);
     series::assert_open_for_underwriting(series, clock);
 
+    let seller = ctx.sender();
     let (seller_premium, fee) = split_premium(premium, operational_fee, series, ctx);
     series::record_put_underwriting(
         series,
-        ctx.sender(),
+        seller,
         quantity,
         collateral_required,
         collateral.into_balance(),
     );
-    let long = long::mint(
+    let long: Long<QuoteCoin, BaseCoin> = long::mint(
         series::market_id(series),
         object::id(series),
         series::option_type(series),
@@ -141,37 +126,19 @@ public fun underwrite_put<QuoteCoin, BaseCoin>(
         collateral_required,
         seller_premium.value() + fee.value(),
         operational_fee,
-    );
-    (long, seller_premium, fee)
-}
-
-#[allow(lint(self_transfer))]
-public fun underwrite_put_and_transfer<QuoteCoin, BaseCoin>(
-    series: &mut Series<QuoteCoin, BaseCoin>,
-    collateral: Coin<QuoteCoin>,
-    premium: Coin<QuoteCoin>,
-    quantity: u64,
-    operational_fee: u64,
-    buyer: address,
-    fee_recipient: address,
-    clock: &Clock,
-    ctx: &mut TxContext,
-) {
-    let seller = ctx.sender();
-    let (long, seller_premium, fee) = underwrite_put(
-        series,
-        collateral,
-        premium,
-        quantity,
-        operational_fee,
-        buyer,
-        fee_recipient,
-        clock,
-        ctx,
+        object::id(&long),
     );
     transfer::public_transfer(long, buyer);
     transfer::public_transfer(seller_premium, seller);
     transfer::public_transfer(fee, fee_recipient);
+}
+
+fun assert_market_open<QuoteCoin, BaseCoin>(
+    market: &Market,
+    series: &Series<QuoteCoin, BaseCoin>,
+) {
+    assert!(market::id(market) == series::market_id(series), EMarketMismatch);
+    market::assert_not_paused(market);
 }
 
 public fun strike_payment<QuoteCoin, BaseCoin>(
@@ -213,6 +180,7 @@ fun emit_underwritten<QuoteCoin, BaseCoin>(
     collateral_quantity: u64,
     premium_total: u64,
     operational_fee: u64,
+    long_token_id: ID,
 ) {
     event::emit(Underwritten {
         market_id: series::market_id(series),
@@ -225,8 +193,19 @@ fun emit_underwritten<QuoteCoin, BaseCoin>(
         collateral_quantity,
         premium_total,
         operational_fee,
+        long_token_id,
     });
 }
+
+public fun market_id(event: &Underwritten): ID { event.market_id }
+public fun series_id(event: &Underwritten): ID { event.series_id }
+public fun seller(event: &Underwritten): address { event.seller }
+public fun buyer(event: &Underwritten): address { event.buyer }
+public fun fee_recipient(event: &Underwritten): address { event.fee_recipient }
+public fun quantity(event: &Underwritten): u64 { event.quantity }
+public fun premium_total(event: &Underwritten): u64 { event.premium_total }
+public fun operational_fee(event: &Underwritten): u64 { event.operational_fee }
+public fun long_token_id(event: &Underwritten): ID { event.long_token_id }
 
 fun quote_scale<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
     pow10(series::quote_decimals(series))
