@@ -9,8 +9,8 @@ use sui::coin::{Self, Coin};
 use sui::dynamic_field;
 use sui::event;
 
-const OPTION_TYPE_CALL: u8 = 0;
-const OPTION_TYPE_PUT: u8 = 1;
+const OPTION_TYPE_CALL: u8 = 1;
+const OPTION_TYPE_PUT: u8 = 2;
 
 const STATE_OPEN: u8 = 0;
 const STATE_EXPIRATION_PRICE_FINALIZED: u8 = 1;

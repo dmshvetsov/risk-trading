@@ -19,8 +19,8 @@ const NOW_MS: u64 = 10_000;
 const MIN_UNDERWRITING_TIME_TO_EXPIRY_MS: u64 = 8 * 60 * 60 * 1000;
 const EXPIRY_MS: u64 = NOW_MS + MIN_UNDERWRITING_TIME_TO_EXPIRY_MS + 1;
 const STRIKE_PRICE: u64 = 350_000_000;
-const OPTION_TYPE_CALL: u8 = 0;
-const OPTION_TYPE_PUT: u8 = 1;
+const OPTION_TYPE_CALL: u8 = 1;
+const OPTION_TYPE_PUT: u8 = 2;
 const STATE_OPEN: u8 = 0;
 const STATE_EXPIRATION_PRICE_FINALIZED: u8 = 1;
 const PHASE_OPEN: u8 = 0;
@@ -82,6 +82,8 @@ fun anyone_can_create_call_series_with_internal_collateral_pool() {
     let series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
 
     assert_eq!(series::market_id(&series), market_id);
+    assert_eq!(series::option_type_call(), OPTION_TYPE_CALL);
+    assert_eq!(series::option_type_put(), OPTION_TYPE_PUT);
     assert_eq!(series::option_type(&series), OPTION_TYPE_CALL);
     assert_eq!(series::strike_price(&series), STRIKE_PRICE);
     assert_eq!(series::max_operational_fee_bps(&series), 500);
@@ -139,7 +141,7 @@ fun invalid_option_type_aborts() {
     let now = clock_at(NOW_MS, scenario.ctx());
     let _ = series::create_series<QUOTE, BASE>(
         &mut market,
-        3,
+        0,
         STRIKE_PRICE,
         EXPIRY_MS,
         &now,
