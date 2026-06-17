@@ -86,6 +86,60 @@ fun owner_can_create_multiple_independent_vaults() {
     scenario.end();
 }
 
+#[test]
+fun owner_can_close_funded_vault() {
+    let mut scenario = begin_with_quote_cap();
+    let vault_id = buyer_vault::create_vault<QUOTE>(scenario.ctx());
+
+    scenario.next_tx(OWNER);
+    let mut vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
+    buyer_vault::deposit(&mut vault, mint_quote(&mut scenario, 75), scenario.ctx());
+    let withdrawn = buyer_vault::close_vault(vault, scenario.ctx());
+    assert_eq!(withdrawn.value(), 75);
+
+    let closed = event::events_by_type<buyer_vault::BuyerVaultClosed>();
+    assert_eq!(closed.length(), 1);
+    assert_eq!(buyer_vault::closed_vault_id(&closed[0]), vault_id);
+    assert_eq!(buyer_vault::closed_owner(&closed[0]), OWNER);
+    assert_eq!(buyer_vault::closed_quote_coin_type(&closed[0]), type_name::with_original_ids<QUOTE>());
+    assert_eq!(buyer_vault::closed_last_withdrawal_amount(&closed[0]), 75);
+
+    transfer::public_transfer(withdrawn, OWNER);
+    scenario.next_tx(OWNER);
+    assert!(!test_scenario::has_most_recent_shared<BuyerVault<QUOTE>>());
+    scenario.end();
+}
+
+#[test]
+fun owner_can_close_empty_vault() {
+    let mut scenario = begin_with_quote_cap();
+    let vault_id = buyer_vault::create_vault<QUOTE>(scenario.ctx());
+
+    scenario.next_tx(OWNER);
+    let vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
+    let withdrawn = buyer_vault::close_vault(vault, scenario.ctx());
+    assert_eq!(withdrawn.value(), 0);
+
+    let closed = event::events_by_type<buyer_vault::BuyerVaultClosed>();
+    assert_eq!(closed.length(), 1);
+    assert_eq!(buyer_vault::closed_last_withdrawal_amount(&closed[0]), 0);
+
+    transfer::public_transfer(withdrawn, OWNER);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = buyer_vault::ENotOwner, location = buyer_vault)]
+fun non_owner_cannot_close_vault() {
+    let mut scenario = begin_with_quote_cap();
+    let vault_id = buyer_vault::create_vault<QUOTE>(scenario.ctx());
+
+    scenario.next_tx(OTHER);
+    let vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
+    let withdrawn = buyer_vault::close_vault(vault, scenario.ctx());
+    transfer::public_transfer(withdrawn, OTHER);
+    scenario.end();
+}
+
 #[test, expected_failure(abort_code = buyer_vault::ENotOwner, location = buyer_vault)]
 fun non_owner_cannot_deposit() {
     let mut scenario = begin_with_quote_cap();

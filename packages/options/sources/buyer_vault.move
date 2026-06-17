@@ -34,6 +34,13 @@ public struct BuyerVaultWithdrawn has copy, drop {
     amount: u64,
 }
 
+public struct BuyerVaultClosed has copy, drop {
+    vault_id: ID,
+    owner: address,
+    quote_coin_type: TypeName,
+    last_withdrawal_amount: u64,
+}
+
 public fun create_vault<QuoteCoin>(ctx: &mut TxContext): ID {
     let owner = ctx.sender();
     let vault = BuyerVault<QuoteCoin> {
@@ -84,6 +91,25 @@ public fun withdraw<QuoteCoin>(
     withdrawn
 }
 
+public fun close_vault<QuoteCoin>(
+    vault: BuyerVault<QuoteCoin>,
+    ctx: &mut TxContext,
+): Coin<QuoteCoin> {
+    assert_owner(&vault, ctx);
+    let vault_id = object::id(&vault);
+    let BuyerVault { id, owner, balance } = vault;
+    let last_withdrawal_amount = balance.value();
+    let withdrawn = coin::from_balance(balance, ctx);
+    id.delete();
+    event::emit(BuyerVaultClosed {
+        vault_id,
+        owner,
+        quote_coin_type: type_name::with_original_ids<QuoteCoin>(),
+        last_withdrawal_amount,
+    });
+    withdrawn
+}
+
 fun assert_owner<QuoteCoin>(vault: &BuyerVault<QuoteCoin>, ctx: &TxContext) {
     assert!(ctx.sender() == vault.owner, ENotOwner);
 }
@@ -104,3 +130,8 @@ public fun withdrawn_vault_id(event: &BuyerVaultWithdrawn): ID { event.vault_id 
 public fun withdrawn_owner(event: &BuyerVaultWithdrawn): address { event.owner }
 public fun withdrawn_quote_coin_type(event: &BuyerVaultWithdrawn): TypeName { event.quote_coin_type }
 public fun withdrawn_amount(event: &BuyerVaultWithdrawn): u64 { event.amount }
+
+public fun closed_vault_id(event: &BuyerVaultClosed): ID { event.vault_id }
+public fun closed_owner(event: &BuyerVaultClosed): address { event.owner }
+public fun closed_quote_coin_type(event: &BuyerVaultClosed): TypeName { event.quote_coin_type }
+public fun closed_last_withdrawal_amount(event: &BuyerVaultClosed): u64 { event.last_withdrawal_amount }
