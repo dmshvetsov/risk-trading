@@ -105,6 +105,34 @@ fun anyone_can_create_call_series_with_internal_collateral_pool() {
     scenario.end();
 }
 
+#[test, expected_failure(abort_code = series::EOrderAlreadyConsumed, location = series)]
+fun signed_order_cannot_be_consumed_twice() {
+    let (mut scenario, _) = create_market_fixture();
+
+    scenario.next_tx(USER);
+    let mut market = scenario.take_shared<Market>();
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let series_id = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(USER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let order_hash = x"010203";
+    series::consume_order(&mut series, order_hash);
+    assert!(series::is_order_consumed(&series, order_hash));
+    series::consume_order(&mut series, order_hash);
+    test_scenario::return_shared(series);
+    scenario.end();
+}
+
 #[test, expected_failure(abort_code = market::EPaused, location = market)]
 fun paused_market_rejects_series_creation() {
     let (mut scenario, _) = create_market_fixture();

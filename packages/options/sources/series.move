@@ -8,6 +8,7 @@ use sui::clock::Clock;
 use sui::coin::{Self, Coin};
 use sui::dynamic_field;
 use sui::event;
+use sui::table::{Self, Table};
 
 const OPTION_TYPE_CALL: u8 = 1;
 const OPTION_TYPE_PUT: u8 = 2;
@@ -45,6 +46,7 @@ const EInvalidExercisePayment: u64 = 14;
 const EInsufficientCollateral: u64 = 15;
 const EInvalidSettlementPhase: u64 = 16;
 const ESellerVaultAlreadySettled: u64 = 17;
+const EOrderAlreadyConsumed: u64 = 18;
 
 public struct SellerVaultKey(address) has copy, drop, store;
 
@@ -77,6 +79,7 @@ public struct Series<phantom QuoteCoin, phantom BaseCoin> has key {
     expiry_price_publish_time_ms: Option<u64>,
     collateral_pool: CollateralPool<QuoteCoin, BaseCoin>,
     seller_vault_index: vector<address>,
+    consumed_orders: Table<vector<u8>, bool>,
     state: u8,
 }
 
@@ -191,6 +194,7 @@ public fun create_series<QuoteCoin, BaseCoin>(
             accounted_quote_balance: 0,
         },
         seller_vault_index: vector[],
+        consumed_orders: table::new(ctx),
         state: STATE_OPEN,
     };
 
@@ -399,6 +403,21 @@ public(package) fun record_put_underwriting<QuoteCoin, BaseCoin>(
     pool.quote_balance.join(collateral);
     pool.accounted_quote_balance = pool.accounted_quote_balance + collateral_quantity;
     add_seller_vault(series, seller, quantity, collateral_quantity);
+}
+
+public(package) fun consume_order<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    order_hash: vector<u8>,
+) {
+    assert!(!series.consumed_orders.contains(order_hash), EOrderAlreadyConsumed);
+    series.consumed_orders.add(order_hash, true);
+}
+
+public fun is_order_consumed<QuoteCoin, BaseCoin>(
+    series: &Series<QuoteCoin, BaseCoin>,
+    order_hash: vector<u8>,
+): bool {
+    series.consumed_orders.contains(order_hash)
 }
 
 public fun phase<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>, clock: &Clock): u8 {

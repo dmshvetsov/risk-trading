@@ -114,6 +114,15 @@ fun assert_owner<QuoteCoin>(vault: &BuyerVault<QuoteCoin>, ctx: &TxContext) {
     assert!(ctx.sender() == vault.owner, ENotOwner);
 }
 
+public(package) fun debit<QuoteCoin>(
+    vault: &mut BuyerVault<QuoteCoin>,
+    amount: u64,
+    ctx: &mut TxContext,
+): Coin<QuoteCoin> {
+    assert!(amount <= vault.balance.value(), EInsufficientBalance);
+    coin::from_balance(vault.balance.split(amount), ctx)
+}
+
 public fun owner<QuoteCoin>(vault: &BuyerVault<QuoteCoin>): address { vault.owner }
 public fun balance<QuoteCoin>(vault: &BuyerVault<QuoteCoin>): u64 { vault.balance.value() }
 
