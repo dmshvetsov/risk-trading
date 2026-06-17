@@ -190,7 +190,7 @@ Each `SellerVault` MUST store:
 
 ## Buyer Vault Object Model
 
-`BuyerVault` MUST be stored as a separate shared object. One `BuyerVault<QuoteCoin>` per buyer address and `QuoteCoin`. `BuyerVault` funds able to pay premiums across `Market`s that uses the same `QuoteCoin`.
+`BuyerVault` MUST be stored as a separate shared object. A buyer address MAY create and own one or more `BuyerVault<QuoteCoin>` objects for the same `QuoteCoin`. Each `BuyerVault` is independent, and its funds will be used to pay premiums across `Market`s that use the same `QuoteCoin`.
 
 ```move
 struct BuyerVault<phantom QuoteCoin> has key {
