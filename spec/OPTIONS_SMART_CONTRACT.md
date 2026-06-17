@@ -29,6 +29,8 @@ This document uses `./DOMAIN-LANGUAGE.md` as way to describe option trading spec
 
 Each market MUST support exactly one `OracleBase / QuoteCoin / BaseCoin` combination.
 
+Market creation MUST reject a duplicate market with the same `OracleBase / QuoteCoin / BaseCoin` combination.
+
 Examples:
 - `SUI / USDC / SUI`
 - `DEEP / USDC / DEEP`
@@ -213,6 +215,8 @@ Premium and fee handling:
 `operational_fee` MUST NOT exceed `premium_total`.
 
 The market MAY admin-configured maximum fee basis points. If present, the smart contract MUST reject underwriting if fees above that maximum fee.
+
+Underwrite public functions MUST NOT be PTB composable.
 
 ## Strike Payment Calculation
 
@@ -587,9 +591,11 @@ The contract MUST emit events for:
 
 ## Pause
 
-The contract MUST support one global pause.
+The admin pause MUST be applied per market.
 
-When paused:
+The protocol MAY provide a function that pauses all markets in a single transaction.
+
+When a market is paused:
 - series creation MUST be disabled,
 - underwriting MUST be disabled,
 - admin recovery MAY be enabled,
@@ -634,8 +640,6 @@ The contract SHOULD expose at least:
 - `pause`
 - `unpause`
 - `admin_recover_excess`
-
-Exercise functions SHOULD be PTB-friendly and SHOULD return output coins where Sui function rules allow. Entry wrappers MAY transfer outputs directly to the caller.
 
 ## Non-Goals For V1
 
