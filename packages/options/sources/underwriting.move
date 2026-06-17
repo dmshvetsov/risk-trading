@@ -1,7 +1,7 @@
 module options_trading_protocol::underwriting;
 
 use options_trading_protocol::long::{Self, Long};
-use options_trading_protocol::series::{Self, CollateralPool, Series};
+use options_trading_protocol::series::{Self, Series};
 use sui::clock::Clock;
 use sui::coin::Coin;
 use sui::event;
@@ -28,7 +28,6 @@ public struct Underwritten has copy, drop {
 
 public fun underwrite_call<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     collateral: Coin<BaseCoin>,
     premium: Coin<QuoteCoin>,
     quantity: u64,
@@ -45,7 +44,6 @@ public fun underwrite_call<QuoteCoin, BaseCoin>(
     let (seller_premium, fee) = split_premium(premium, operational_fee, series, ctx);
     series::record_call_underwriting(
         series,
-        pool,
         ctx.sender(),
         quantity,
         collateral.into_balance(),
@@ -75,7 +73,6 @@ public fun underwrite_call<QuoteCoin, BaseCoin>(
 #[allow(lint(self_transfer))]
 public fun underwrite_call_and_transfer<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     collateral: Coin<BaseCoin>,
     premium: Coin<QuoteCoin>,
     quantity: u64,
@@ -88,7 +85,6 @@ public fun underwrite_call_and_transfer<QuoteCoin, BaseCoin>(
     let seller = ctx.sender();
     let (long, seller_premium, fee) = underwrite_call(
         series,
-        pool,
         collateral,
         premium,
         quantity,
@@ -105,7 +101,6 @@ public fun underwrite_call_and_transfer<QuoteCoin, BaseCoin>(
 
 public fun underwrite_put<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     collateral: Coin<QuoteCoin>,
     premium: Coin<QuoteCoin>,
     quantity: u64,
@@ -123,7 +118,6 @@ public fun underwrite_put<QuoteCoin, BaseCoin>(
     let (seller_premium, fee) = split_premium(premium, operational_fee, series, ctx);
     series::record_put_underwriting(
         series,
-        pool,
         ctx.sender(),
         quantity,
         collateral_required,
@@ -154,7 +148,6 @@ public fun underwrite_put<QuoteCoin, BaseCoin>(
 #[allow(lint(self_transfer))]
 public fun underwrite_put_and_transfer<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     collateral: Coin<QuoteCoin>,
     premium: Coin<QuoteCoin>,
     quantity: u64,
@@ -167,7 +160,6 @@ public fun underwrite_put_and_transfer<QuoteCoin, BaseCoin>(
     let seller = ctx.sender();
     let (long, seller_premium, fee) = underwrite_put(
         series,
-        pool,
         collateral,
         premium,
         quantity,

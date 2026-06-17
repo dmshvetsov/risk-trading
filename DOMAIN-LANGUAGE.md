@@ -80,6 +80,6 @@ LongToken - transferable semi-fungible option object with a `series_id` and `qua
 
 SellerVault - non-transferable seller short-position accounting record for one seller and one series.
 
-CollateralPool - shared custody object that holds all `BaseCoin` and `QuoteCoin` collateral and exercise proceeds for a single market.
+CollateralPool - holds all `BaseCoin` and `QuoteCoin` collateral per series.
 
 Series object - is the protocol’s shared accounting/state object for one option contract definition.

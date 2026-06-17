@@ -6,7 +6,7 @@ use options_trading_protocol::base::{Self, BASE};
 use options_trading_protocol::long::{Self, Long};
 use options_trading_protocol::pyth_oracle_unverifiable;
 use options_trading_protocol::quote::{Self, QUOTE};
-use options_trading_protocol::series::{Self, CollateralPool, Series};
+use options_trading_protocol::series::{Self, Series};
 use options_trading_protocol::underwriting;
 use std::unit_test::assert_eq;
 use sui::balance;
@@ -29,11 +29,11 @@ const OPTION_TYPE_PUT: u8 = 1;
 const EXERCISE_WINDOW_MS: u64 = 60 * 60 * 1000;
 const STATE_CLOSED: u8 = 2;
 
-fun create_fixture(option_type: u8): (test_scenario::Scenario, ID, ID, ID) {
+fun create_fixture(option_type: u8): (test_scenario::Scenario, ID, ID) {
     create_fixture_with_fee_bps(option_type, 10_000)
 }
 
-fun create_fixture_with_fee_bps(option_type: u8, max_operational_fee_bps: u64): (test_scenario::Scenario, ID, ID, ID) {
+fun create_fixture_with_fee_bps(option_type: u8, max_operational_fee_bps: u64): (test_scenario::Scenario, ID, ID) {
     let mut scenario = test_scenario::begin(ADMIN);
     market::init_for_testing(scenario.ctx());
     create_currency_caps(&mut scenario);
@@ -56,7 +56,7 @@ fun create_fixture_with_fee_bps(option_type: u8, max_operational_fee_bps: u64): 
     scenario.next_tx(BUYER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, pool_id) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         option_type,
         STRIKE_PRICE,
@@ -67,7 +67,7 @@ fun create_fixture_with_fee_bps(option_type: u8, max_operational_fee_bps: u64): 
     now.destroy_for_testing();
     test_scenario::return_shared(market);
 
-    (scenario, market_id, series_id, pool_id)
+    (scenario, market_id, series_id)
 }
 
 fun create_currency_caps(scenario: &mut test_scenario::Scenario) {
@@ -150,7 +150,7 @@ fun admin_creates_market_and_series_then_call_lifecycle_settles_itm() {
     scenario.next_tx(ADMIN);
     let mut market = scenario.take_shared_by_id<Market>(market_id);
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, pool_id) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -163,7 +163,6 @@ fun admin_creates_market_and_series_then_call_lifecycle_settles_itm() {
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 1_000_000_000);
     let mut quote_payment = mint_quote(&mut scenario, 3_500_100);
@@ -171,7 +170,6 @@ fun admin_creates_market_and_series_then_call_lifecycle_settles_itm() {
     let exercise_payment = quote_payment;
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         1_000_000_000,
@@ -189,49 +187,52 @@ fun admin_creates_market_and_series_then_call_lifecycle_settles_itm() {
     assert_eq!(long::series_id(&long), series_id);
     assert_eq!(series::seller_short_quantity(&series, SELLER), 1_000_000_000);
     assert_eq!(series::seller_collateral_quantity(&series, SELLER), 1_000_000_000);
-    assert_eq!(series::accounted_base_balance(&pool), 1_000_000_000);
+    assert_eq!(series::collateral_base_balance(&series), 1_000_000_000);
+    assert_eq!(series::accounted_base_balance(&series), 1_000_000_000);
+    assert_eq!(series::excess_base_balance(&series), 0);
 
     transfer::public_transfer(long, BUYER);
     transfer::public_transfer(exercise_payment, BUYER);
     transfer::public_transfer(seller_premium, SELLER);
     transfer::public_transfer(fee, FEE_RECIPIENT);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let payment = scenario.take_from_sender<Coin<QUOTE>>();
     let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    let base_payout = series::exercise_call(&mut series, &mut pool, long, payment, &exercise_clock, scenario.ctx());
+    let base_payout = series::exercise_call(&mut series, long, payment, &exercise_clock, scenario.ctx());
     exercise_clock.destroy_for_testing();
 
     assert_eq!(base_payout.value(), 1_000_000_000);
     assert_eq!(series::total_manual_exercised_quantity(&series), 1_000_000_000);
     assert_eq!(series::total_manual_exercise_quote_proceeds(&series), 3_500_000);
-    assert_eq!(series::accounted_base_balance(&pool), 0);
-    assert_eq!(series::accounted_quote_balance(&pool), 3_500_000);
+    assert_eq!(series::collateral_base_balance(&series), 0);
+    assert_eq!(series::collateral_quote_balance(&series), 3_500_000);
+    assert_eq!(series::accounted_base_balance(&series), 0);
+    assert_eq!(series::accounted_quote_balance(&series), 3_500_000);
+    assert_eq!(series::excess_base_balance(&series), 0);
+    assert_eq!(series::excess_quote_balance(&series), 0);
 
     transfer::public_transfer(base_payout, BUYER);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(ADMIN);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let settlement_clock = clock_at(EXPIRY_MS + EXERCISE_WINDOW_MS + 1, scenario.ctx());
-    series::settle_sellers(&mut series, &mut pool, vector[SELLER], &settlement_clock, scenario.ctx());
+    series::settle_sellers(&mut series, vector[SELLER], &settlement_clock, scenario.ctx());
     settlement_clock.destroy_for_testing();
 
     assert_eq!(series::state(&series), STATE_CLOSED);
     assert_eq!(series::seller_vault_count(&series), 0);
-    assert_eq!(series::accounted_quote_balance(&pool), 0);
+    assert_eq!(series::collateral_quote_balance(&series), 0);
+    assert_eq!(series::accounted_quote_balance(&series), 0);
+    assert_eq!(series::excess_quote_balance(&series), 0);
 
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(SELLER);
     let quote_proceeds = scenario.take_from_sender<Coin<QUOTE>>();
@@ -242,17 +243,15 @@ fun admin_creates_market_and_series_then_call_lifecycle_settles_itm() {
 
 #[test]
 fun seller_underwrites_call_and_buyer_receives_transferable_long() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 1_000_000_000);
     let premium = mint_quote(&mut scenario, 11_000);
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         1_000_000_000,
@@ -272,14 +271,13 @@ fun seller_underwrites_call_and_buyer_receives_transferable_long() {
     assert_eq!(series::total_short_quantity(&series), 1_000_000_000);
     assert_eq!(series::seller_short_quantity(&series, SELLER), 1_000_000_000);
     assert_eq!(series::seller_collateral_quantity(&series, SELLER), 1_000_000_000);
-    assert_eq!(series::accounted_base_balance(&pool), 1_000_000_000);
-    assert_eq!(series::accounted_quote_balance(&pool), 0);
+    assert_eq!(series::accounted_base_balance(&series), 1_000_000_000);
+    assert_eq!(series::accounted_quote_balance(&series), 0);
 
     transfer::public_transfer(long, BUYER);
     transfer::public_transfer(seller_premium, SELLER);
     transfer::public_transfer(fee, FEE_RECIPIENT);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(BUYER);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
@@ -290,18 +288,16 @@ fun seller_underwrites_call_and_buyer_receives_transferable_long() {
 
 #[test]
 fun put_underwriting_rounds_quote_collateral_up_for_solvency() {
-    let (mut scenario, _, series_id, pool_id) = create_fixture(OPTION_TYPE_PUT);
+    let (mut scenario, _, series_id) = create_fixture(OPTION_TYPE_PUT);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let mut quote_payment = mint_quote(&mut scenario, 29);
     let premium = quote_payment.split(25, scenario.ctx());
     let collateral = quote_payment;
     let (long, seller_premium, fee) = underwriting::underwrite_put<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         1_000,
@@ -316,7 +312,7 @@ fun put_underwriting_rounds_quote_collateral_up_for_solvency() {
     assert_eq!(underwriting::strike_payment(&series, 1_000), 4);
     assert_eq!(series::seller_short_quantity(&series, SELLER), 1_000);
     assert_eq!(series::seller_collateral_quantity(&series, SELLER), 4);
-    assert_eq!(series::accounted_quote_balance(&pool), 4);
+    assert_eq!(series::accounted_quote_balance(&series), 4);
     assert_eq!(long::quantity(&long), 1_000);
     assert_eq!(seller_premium.value(), 20);
     assert_eq!(fee.value(), 5);
@@ -325,17 +321,15 @@ fun put_underwriting_rounds_quote_collateral_up_for_solvency() {
     transfer::public_transfer(seller_premium, SELLER);
     transfer::public_transfer(fee, FEE_RECIPIENT);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test]
 fun seller_vault_aggregates_multiple_writes_for_same_series() {
-    let (mut scenario, _, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, _, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let mut premiums = mint_quote(&mut scenario, 2);
     let premium_a = premiums.split(1, scenario.ctx());
@@ -345,7 +339,6 @@ fun seller_vault_aggregates_multiple_writes_for_same_series() {
     let collateral_b = collateral;
     let (long_a, seller_premium_a, fee_a) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral_a,
         premium_a,
         10,
@@ -357,7 +350,6 @@ fun seller_vault_aggregates_multiple_writes_for_same_series() {
     );
     let (long_b, seller_premium_b, fee_b) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral_b,
         premium_b,
         15,
@@ -373,7 +365,7 @@ fun seller_vault_aggregates_multiple_writes_for_same_series() {
     assert_eq!(series::seller_short_quantity(&series, SELLER), 25);
     assert_eq!(series::seller_collateral_quantity(&series, SELLER), 25);
     assert_eq!(series::total_short_quantity(&series), 25);
-    assert_eq!(series::accounted_base_balance(&pool), 25);
+    assert_eq!(series::accounted_base_balance(&series), 25);
 
     transfer::public_transfer(long_a, BUYER);
     transfer::public_transfer(long_b, BUYER);
@@ -382,23 +374,20 @@ fun seller_vault_aggregates_multiple_writes_for_same_series() {
     fee_a.destroy_zero();
     fee_b.destroy_zero();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test]
 fun long_tokens_split_and_join_when_class_is_identical() {
-    let (mut scenario, _, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, _, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 100);
     let premium = mint_quote(&mut scenario, 1);
     let (mut long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         100,
@@ -418,17 +407,15 @@ fun long_tokens_split_and_join_when_class_is_identical() {
     transfer::public_transfer(seller_premium, SELLER);
     fee.destroy_zero();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test]
 fun call_holder_exercises_and_seller_receives_quote_proceeds() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 1_000_000_000);
     let mut quote_payment = mint_quote(&mut scenario, 3_500_001);
@@ -436,7 +423,6 @@ fun call_holder_exercises_and_seller_receives_quote_proceeds() {
     let exercise_payment = quote_payment;
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         1_000_000_000,
@@ -452,42 +438,37 @@ fun call_holder_exercises_and_seller_receives_quote_proceeds() {
     transfer::public_transfer(seller_premium, SELLER);
     fee.destroy_zero();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let payment = scenario.take_from_sender<Coin<QUOTE>>();
     let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    let base_payout = series::exercise_call(&mut series, &mut pool, long, payment, &exercise_clock, scenario.ctx());
+    let base_payout = series::exercise_call(&mut series, long, payment, &exercise_clock, scenario.ctx());
     exercise_clock.destroy_for_testing();
 
     assert_eq!(base_payout.value(), 1_000_000_000);
     assert_eq!(series::total_manual_exercised_quantity(&series), 1_000_000_000);
     assert_eq!(series::total_manual_exercise_quote_proceeds(&series), 3_500_000);
-    assert_eq!(series::accounted_base_balance(&pool), 0);
-    assert_eq!(series::accounted_quote_balance(&pool), 3_500_000);
+    assert_eq!(series::accounted_base_balance(&series), 0);
+    assert_eq!(series::accounted_quote_balance(&series), 3_500_000);
 
     transfer::public_transfer(base_payout, BUYER);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(USER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let settlement_clock = clock_at(EXPIRY_MS + EXERCISE_WINDOW_MS + 1, scenario.ctx());
-    series::settle_sellers(&mut series, &mut pool, vector[SELLER], &settlement_clock, scenario.ctx());
+    series::settle_sellers(&mut series, vector[SELLER], &settlement_clock, scenario.ctx());
     settlement_clock.destroy_for_testing();
 
     assert_eq!(series::state(&series), STATE_CLOSED);
     assert_eq!(series::seller_vault_count(&series), 0);
-    assert_eq!(series::accounted_quote_balance(&pool), 0);
+    assert_eq!(series::accounted_quote_balance(&series), 0);
 
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(SELLER);
     let quote_proceeds = scenario.take_from_sender<Coin<QUOTE>>();
@@ -498,11 +479,10 @@ fun call_holder_exercises_and_seller_receives_quote_proceeds() {
 
 #[test]
 fun put_holder_exercises_and_seller_receives_base_proceeds() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_PUT);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_PUT);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let mut quote_payment = mint_quote(&mut scenario, 3_500_001);
     let premium = quote_payment.split(1, scenario.ctx());
@@ -510,7 +490,6 @@ fun put_holder_exercises_and_seller_receives_base_proceeds() {
     let exercise_payment = mint_base(&mut scenario, 1_000_000_000);
     let (long, seller_premium, fee) = underwriting::underwrite_put<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         1_000_000_000,
@@ -526,42 +505,37 @@ fun put_holder_exercises_and_seller_receives_base_proceeds() {
     transfer::public_transfer(seller_premium, SELLER);
     fee.destroy_zero();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE - 1);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let payment = scenario.take_from_sender<Coin<BASE>>();
     let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    let quote_payout = series::exercise_put(&mut series, &mut pool, long, payment, &exercise_clock, scenario.ctx());
+    let quote_payout = series::exercise_put(&mut series, long, payment, &exercise_clock, scenario.ctx());
     exercise_clock.destroy_for_testing();
 
     assert_eq!(quote_payout.value(), 3_500_000);
     assert_eq!(series::total_manual_exercised_quantity(&series), 1_000_000_000);
     assert_eq!(series::total_manual_exercise_base_proceeds(&series), 1_000_000_000);
-    assert_eq!(series::accounted_base_balance(&pool), 1_000_000_000);
-    assert_eq!(series::accounted_quote_balance(&pool), 0);
+    assert_eq!(series::accounted_base_balance(&series), 1_000_000_000);
+    assert_eq!(series::accounted_quote_balance(&series), 0);
 
     transfer::public_transfer(quote_payout, BUYER);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(USER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let settlement_clock = clock_at(EXPIRY_MS + EXERCISE_WINDOW_MS + 1, scenario.ctx());
-    series::settle_sellers(&mut series, &mut pool, vector[SELLER], &settlement_clock, scenario.ctx());
+    series::settle_sellers(&mut series, vector[SELLER], &settlement_clock, scenario.ctx());
     settlement_clock.destroy_for_testing();
 
     assert_eq!(series::state(&series), STATE_CLOSED);
     assert_eq!(series::seller_vault_count(&series), 0);
-    assert_eq!(series::accounted_base_balance(&pool), 0);
+    assert_eq!(series::accounted_base_balance(&series), 0);
 
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(SELLER);
     let base_proceeds = scenario.take_from_sender<Coin<BASE>>();
@@ -572,17 +546,15 @@ fun put_holder_exercises_and_seller_receives_base_proceeds() {
 
 #[test]
 fun no_exercise_call_settlement_returns_original_collateral() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 42);
     let premium = mint_quote(&mut scenario, 1);
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         42,
@@ -597,21 +569,18 @@ fun no_exercise_call_settlement_returns_original_collateral() {
     transfer::public_transfer(seller_premium, SELLER);
     fee.destroy_zero();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE);
 
     scenario.next_tx(USER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let settlement_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    series::settle_sellers(&mut series, &mut pool, vector[SELLER], &settlement_clock, scenario.ctx());
+    series::settle_sellers(&mut series, vector[SELLER], &settlement_clock, scenario.ctx());
     settlement_clock.destroy_for_testing();
 
     assert_eq!(series::state(&series), STATE_CLOSED);
-    assert_eq!(series::accounted_base_balance(&pool), 0);
+    assert_eq!(series::accounted_base_balance(&series), 0);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(SELLER);
     let returned_collateral = scenario.take_from_sender<Coin<BASE>>();
@@ -622,18 +591,16 @@ fun no_exercise_call_settlement_returns_original_collateral() {
 
 #[test]
 fun no_exercise_put_settlement_returns_original_quote_collateral() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_PUT);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_PUT);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let mut quote_payment = mint_quote(&mut scenario, 3_500_001);
     let premium = quote_payment.split(1, scenario.ctx());
     let collateral = quote_payment;
     let (long, seller_premium, fee) = underwriting::underwrite_put<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         1_000_000_000,
@@ -648,21 +615,18 @@ fun no_exercise_put_settlement_returns_original_quote_collateral() {
     transfer::public_transfer(seller_premium, SELLER);
     fee.destroy_zero();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE);
 
     scenario.next_tx(USER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let settlement_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    series::settle_sellers(&mut series, &mut pool, vector[SELLER], &settlement_clock, scenario.ctx());
+    series::settle_sellers(&mut series, vector[SELLER], &settlement_clock, scenario.ctx());
     settlement_clock.destroy_for_testing();
 
     assert_eq!(series::state(&series), STATE_CLOSED);
-    assert_eq!(series::accounted_quote_balance(&pool), 0);
+    assert_eq!(series::accounted_quote_balance(&series), 0);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(SELLER);
     let returned_collateral = scenario.take_from_sender<Coin<QUOTE>>();
@@ -673,11 +637,10 @@ fun no_exercise_put_settlement_returns_original_quote_collateral() {
 
 #[test]
 fun call_settlement_allocates_manual_exercise_proceeds_pro_rata() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let mut collateral = mint_base(&mut scenario, 1_000_000_000);
     let collateral_a = collateral.split(400_000_000, scenario.ctx());
@@ -687,7 +650,6 @@ fun call_settlement_allocates_manual_exercise_proceeds_pro_rata() {
     let exercise_payment = quote_payment;
     let (long_a, seller_premium_a, fee_a) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral_a,
         premium_a,
         400_000_000,
@@ -703,16 +665,13 @@ fun call_settlement_allocates_manual_exercise_proceeds_pro_rata() {
     transfer::public_transfer(seller_premium_a, SELLER);
     fee_a.destroy_zero();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(SECOND_SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let collateral_b = scenario.take_from_sender<Coin<BASE>>();
     let premium_b = coin::zero<QUOTE>(scenario.ctx());
     let (long_b, seller_premium_b, fee_b) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral_b,
         premium_b,
         600_000_000,
@@ -727,35 +686,30 @@ fun call_settlement_allocates_manual_exercise_proceeds_pro_rata() {
     seller_premium_b.destroy_zero();
     fee_b.destroy_zero();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let mut long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let long_b = scenario.take_from_sender<Long<QUOTE, BASE>>();
     long::join(&mut long, long_b);
     let payment = scenario.take_from_sender<Coin<QUOTE>>();
     let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    let base_payout = series::exercise_call(&mut series, &mut pool, long, payment, &exercise_clock, scenario.ctx());
+    let base_payout = series::exercise_call(&mut series, long, payment, &exercise_clock, scenario.ctx());
     exercise_clock.destroy_for_testing();
     transfer::public_transfer(base_payout, BUYER);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(USER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let settlement_clock = clock_at(EXPIRY_MS + EXERCISE_WINDOW_MS + 1, scenario.ctx());
-    series::settle_sellers(&mut series, &mut pool, vector[SELLER, SECOND_SELLER], &settlement_clock, scenario.ctx());
+    series::settle_sellers(&mut series, vector[SELLER, SECOND_SELLER], &settlement_clock, scenario.ctx());
     settlement_clock.destroy_for_testing();
 
     assert_eq!(series::state(&series), STATE_CLOSED);
-    assert_eq!(series::accounted_quote_balance(&pool), 0);
+    assert_eq!(series::accounted_quote_balance(&series), 0);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     scenario.next_tx(SELLER);
     let seller_quote = scenario.take_from_sender<Coin<QUOTE>>();
@@ -771,11 +725,10 @@ fun call_settlement_allocates_manual_exercise_proceeds_pro_rata() {
 
 #[test, expected_failure(abort_code = series::EInvalidExercisePhase, location = series)]
 fun exercise_before_price_finalization_aborts() {
-    let (mut scenario, _, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, _, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let mut quote_payment = mint_quote(&mut scenario, 2);
@@ -783,7 +736,6 @@ fun exercise_before_price_finalization_aborts() {
     let payment = quote_payment;
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         10,
@@ -793,23 +745,21 @@ fun exercise_before_price_finalization_aborts() {
         &now,
         scenario.ctx(),
     );
-    let payout = series::exercise_call(&mut series, &mut pool, long, payment, &now, scenario.ctx());
+    let payout = series::exercise_call(&mut series, long, payment, &now, scenario.ctx());
     transfer::public_transfer(payout, BUYER);
     now.destroy_for_testing();
     transfer::public_transfer(seller_premium, SELLER);
     fee.destroy_zero();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = series::EInvalidExercisePhase, location = series)]
 fun exercise_after_exercise_window_aborts() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let mut quote_payment = mint_quote(&mut scenario, 36);
@@ -817,7 +767,6 @@ fun exercise_after_exercise_window_aborts() {
     let payment = quote_payment;
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         10,
@@ -833,31 +782,27 @@ fun exercise_after_exercise_window_aborts() {
     fee.destroy_zero();
     now.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let payment = scenario.take_from_sender<Coin<QUOTE>>();
     let late_clock = clock_at(EXPIRY_MS + EXERCISE_WINDOW_MS + 1, scenario.ctx());
-    let payout = series::exercise_call(&mut series, &mut pool, long, payment, &late_clock, scenario.ctx());
+    let payout = series::exercise_call(&mut series, long, payment, &late_clock, scenario.ctx());
     transfer::public_transfer(payout, BUYER);
     late_clock.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = series::EInvalidExercisePayment, location = series)]
 fun exercise_with_wrong_payment_amount_aborts() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let mut quote_payment = mint_quote(&mut scenario, 35);
@@ -865,7 +810,6 @@ fun exercise_with_wrong_payment_amount_aborts() {
     let payment = quote_payment;
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         10,
@@ -881,31 +825,27 @@ fun exercise_with_wrong_payment_amount_aborts() {
     fee.destroy_zero();
     now.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let payment = scenario.take_from_sender<Coin<QUOTE>>();
     let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    let payout = series::exercise_call(&mut series, &mut pool, long, payment, &exercise_clock, scenario.ctx());
-    transfer::public_transfer(payout, BUYER);
+    let payout = series::exercise_call(&mut series, long, payment, &exercise_clock, scenario.ctx());
     exercise_clock.destroy_for_testing();
+    transfer::public_transfer(payout, BUYER);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = series::EInvalidExerciseQuantity, location = series)]
 fun zero_quantity_long_exercise_aborts() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let mut quote_payment = mint_quote(&mut scenario, 36);
@@ -913,7 +853,6 @@ fun zero_quantity_long_exercise_aborts() {
     let payment = quote_payment;
     let (mut long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         10,
@@ -931,31 +870,27 @@ fun zero_quantity_long_exercise_aborts() {
     fee.destroy_zero();
     now.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let zero_long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let payment = scenario.take_from_sender<Coin<QUOTE>>();
     let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    let payout = series::exercise_call(&mut series, &mut pool, zero_long, payment, &exercise_clock, scenario.ctx());
+    let payout = series::exercise_call(&mut series, zero_long, payment, &exercise_clock, scenario.ctx());
     transfer::public_transfer(payout, BUYER);
     exercise_clock.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = series::EInvalidExercisePhase, location = series)]
 fun atm_call_exercise_aborts() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let mut quote_payment = mint_quote(&mut scenario, 2);
@@ -963,7 +898,6 @@ fun atm_call_exercise_aborts() {
     let payment = quote_payment;
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         10,
@@ -979,31 +913,27 @@ fun atm_call_exercise_aborts() {
     fee.destroy_zero();
     now.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let payment = scenario.take_from_sender<Coin<QUOTE>>();
     let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    let payout = series::exercise_call(&mut series, &mut pool, long, payment, &exercise_clock, scenario.ctx());
+    let payout = series::exercise_call(&mut series, long, payment, &exercise_clock, scenario.ctx());
     transfer::public_transfer(payout, BUYER);
     exercise_clock.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = series::EInvalidExercisePhase, location = series)]
 fun otm_put_exercise_aborts() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_PUT);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_PUT);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let mut quote_payment = mint_quote(&mut scenario, 2);
     let premium = quote_payment.split(1, scenario.ctx());
@@ -1011,7 +941,6 @@ fun otm_put_exercise_aborts() {
     let payment = mint_base(&mut scenario, 10);
     let (long, seller_premium, fee) = underwriting::underwrite_put<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         10,
@@ -1027,32 +956,29 @@ fun otm_put_exercise_aborts() {
     fee.destroy_zero();
     now.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let payment = scenario.take_from_sender<Coin<BASE>>();
     let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    let payout = series::exercise_put(&mut series, &mut pool, long, payment, &exercise_clock, scenario.ctx());
+    let payout = series::exercise_put(&mut series, long, payment, &exercise_clock, scenario.ctx());
     transfer::public_transfer(payout, BUYER);
     exercise_clock.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = series::ELongMismatch, location = series)]
 fun exercise_with_long_from_another_series_aborts() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(BUYER);
     let mut market = scenario.take_shared_by_id<Market>(market_id);
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (other_series_id, other_pool_id) = series::create_series<QUOTE, BASE>(
+    let other_series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE + 1,
@@ -1065,16 +991,13 @@ fun exercise_with_long_from_another_series_aborts() {
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let mut other_series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(other_series_id);
-    let mut other_pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(other_pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let payment = mint_quote(&mut scenario, 1);
     let premium = coin::zero<QUOTE>(scenario.ctx());
     let (wrong_long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut other_series,
-        &mut other_pool,
         collateral,
         premium,
         10,
@@ -1084,71 +1007,209 @@ fun exercise_with_long_from_another_series_aborts() {
         &now,
         scenario.ctx(),
     );
-    series::record_call_underwriting(&mut series, &mut pool, SELLER, 10, balance::zero());
+    series::record_call_underwriting(&mut series, SELLER, 10, balance::zero());
     transfer::public_transfer(wrong_long, BUYER);
     transfer::public_transfer(payment, BUYER);
     seller_premium.destroy_zero();
     fee.destroy_zero();
     now.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     test_scenario::return_shared(other_series);
-    test_scenario::return_shared(other_pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 2);
     finalize_series(&mut scenario, market_id, other_series_id, STRIKE_PRICE + 2);
 
     scenario.next_tx(BUYER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let wrong_long = scenario.take_from_sender<Long<QUOTE, BASE>>();
     let payment = scenario.take_from_sender<Coin<QUOTE>>();
     let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    let payout = series::exercise_call(&mut series, &mut pool, wrong_long, payment, &exercise_clock, scenario.ctx());
+    let payout = series::exercise_call(&mut series, wrong_long, payment, &exercise_clock, scenario.ctx());
     transfer::public_transfer(payout, BUYER);
     exercise_clock.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = series::EInsufficientCollateral, location = series)]
 fun settlement_overdraw_aborts_before_pool_split() {
-    let (mut scenario, market_id, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
-    series::record_call_underwriting(&mut series, &mut pool, SELLER, 10, balance::zero());
+    series::record_call_underwriting(&mut series, SELLER, 10, balance::zero());
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
 
     finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE);
 
     scenario.next_tx(USER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let settlement_clock = clock_at(EXPIRY_MS, scenario.ctx());
-    series::settle_sellers(&mut series, &mut pool, vector[SELLER], &settlement_clock, scenario.ctx());
+    series::settle_sellers(&mut series, vector[SELLER], &settlement_clock, scenario.ctx());
     settlement_clock.destroy_for_testing();
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = series::EInsufficientCollateral, location = series)]
+fun call_exercise_aborts_when_internal_custody_is_depleted() {
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
+
+    scenario.next_tx(SELLER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    series::record_call_underwriting(&mut series, SELLER, 10, balance::zero());
+    let long: Long<QUOTE, BASE> = long::mint(
+        market_id,
+        series_id,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        10,
+        scenario.ctx(),
+    );
+    let payment = mint_quote(&mut scenario, 1);
+    transfer::public_transfer(long, BUYER);
+    transfer::public_transfer(payment, BUYER);
+    test_scenario::return_shared(series);
+
+    finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
+
+    scenario.next_tx(BUYER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
+    let payment = scenario.take_from_sender<Coin<QUOTE>>();
+    let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    let payout = series::exercise_call(&mut series, long, payment, &exercise_clock, scenario.ctx());
+    exercise_clock.destroy_for_testing();
+    transfer::public_transfer(payout, BUYER);
+    test_scenario::return_shared(series);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = series::EInsufficientCollateral, location = series)]
+fun put_exercise_aborts_when_internal_custody_is_depleted() {
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_PUT);
+
+    scenario.next_tx(SELLER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    series::record_put_underwriting(&mut series, SELLER, 1_000_000_000, 3_500_000, balance::zero());
+    let long: Long<QUOTE, BASE> = long::mint(
+        market_id,
+        series_id,
+        OPTION_TYPE_PUT,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        1_000_000_000,
+        scenario.ctx(),
+    );
+    let payment = mint_base(&mut scenario, 1_000_000_000);
+    transfer::public_transfer(long, BUYER);
+    transfer::public_transfer(payment, BUYER);
+    test_scenario::return_shared(series);
+
+    finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE - 1);
+
+    scenario.next_tx(BUYER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
+    let payment = scenario.take_from_sender<Coin<BASE>>();
+    let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    let payout = series::exercise_put(&mut series, long, payment, &exercise_clock, scenario.ctx());
+    exercise_clock.destroy_for_testing();
+    transfer::public_transfer(payout, BUYER);
+    test_scenario::return_shared(series);
+    scenario.end();
+}
+
+#[test]
+fun pro_rata_rounding_dust_remains_in_internal_custody() {
+    let (mut scenario, market_id, series_id) = create_fixture(OPTION_TYPE_CALL);
+
+    scenario.next_tx(SELLER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let mut collateral = mint_base(&mut scenario, 3);
+    let exercise_payment = mint_quote(&mut scenario, 1);
+    let first_collateral = collateral.split(1, scenario.ctx());
+    let first_premium = coin::zero<QUOTE>(scenario.ctx());
+    let (first_long, first_seller_premium, first_fee) = underwriting::underwrite_call<QUOTE, BASE>(
+        &mut series,
+        first_collateral,
+        first_premium,
+        1,
+        0,
+        BUYER,
+        FEE_RECIPIENT,
+        &now,
+        scenario.ctx(),
+    );
+    transfer::public_transfer(collateral, SECOND_SELLER);
+    transfer::public_transfer(first_long, BUYER);
+    transfer::public_transfer(exercise_payment, BUYER);
+    first_seller_premium.destroy_zero();
+    first_fee.destroy_zero();
+    test_scenario::return_shared(series);
+
+    scenario.next_tx(SECOND_SELLER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let collateral = scenario.take_from_sender<Coin<BASE>>();
+    let premium = coin::zero<QUOTE>(scenario.ctx());
+    let (second_long, second_seller_premium, second_fee) = underwriting::underwrite_call<QUOTE, BASE>(
+        &mut series,
+        collateral,
+        premium,
+        2,
+        0,
+        BUYER,
+        FEE_RECIPIENT,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    transfer::public_transfer(second_long, BUYER);
+    second_seller_premium.destroy_zero();
+    second_fee.destroy_zero();
+    test_scenario::return_shared(series);
+
+    finalize_series(&mut scenario, market_id, series_id, STRIKE_PRICE + 1);
+
+    scenario.next_tx(BUYER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let mut long = scenario.take_from_sender<Long<QUOTE, BASE>>();
+    let second_long = scenario.take_from_sender<Long<QUOTE, BASE>>();
+    long::join(&mut long, second_long);
+    let payment = scenario.take_from_sender<Coin<QUOTE>>();
+    let exercise_clock = clock_at(EXPIRY_MS, scenario.ctx());
+    let payout = series::exercise_call(&mut series, long, payment, &exercise_clock, scenario.ctx());
+    transfer::public_transfer(payout, BUYER);
+    exercise_clock.destroy_for_testing();
+    test_scenario::return_shared(series);
+
+    scenario.next_tx(USER);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let settlement_clock = clock_at(EXPIRY_MS + EXERCISE_WINDOW_MS + 1, scenario.ctx());
+    series::settle_sellers(&mut series, vector[SELLER, SECOND_SELLER], &settlement_clock, scenario.ctx());
+    settlement_clock.destroy_for_testing();
+
+    assert_eq!(series::state(&series), STATE_CLOSED);
+    assert_eq!(series::collateral_quote_balance(&series), 1);
+    assert_eq!(series::accounted_quote_balance(&series), 1);
+    assert_eq!(series::excess_quote_balance(&series), 0);
+    test_scenario::return_shared(series);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = underwriting::EFeeExceedsPremium, location = underwriting)]
 fun fee_cannot_exceed_premium() {
-    let (mut scenario, _, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, _, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let premium = mint_quote(&mut scenario, 1);
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         10,
@@ -1163,23 +1224,20 @@ fun fee_cannot_exceed_premium() {
     transfer::public_transfer(seller_premium, SELLER);
     transfer::public_transfer(fee, FEE_RECIPIENT);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = underwriting::EFeeExceedsMaximum, location = underwriting)]
 fun fee_cannot_exceed_market_basis_points_cap() {
-    let (mut scenario, _, series_id, pool_id) = create_fixture_with_fee_bps(OPTION_TYPE_CALL, 500);
+    let (mut scenario, _, series_id) = create_fixture_with_fee_bps(OPTION_TYPE_CALL, 500);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let premium = mint_quote(&mut scenario, 10_000);
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         10,
@@ -1194,23 +1252,20 @@ fun fee_cannot_exceed_market_basis_points_cap() {
     transfer::public_transfer(seller_premium, SELLER);
     transfer::public_transfer(fee, FEE_RECIPIENT);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
 #[test, expected_failure(abort_code = underwriting::EInsufficientCollateral, location = underwriting)]
 fun call_collateral_must_equal_quantity() {
-    let (mut scenario, _, series_id, pool_id) = create_fixture(OPTION_TYPE_CALL);
+    let (mut scenario, _, series_id) = create_fixture(OPTION_TYPE_CALL);
 
     scenario.next_tx(SELLER);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 9);
     let premium = mint_quote(&mut scenario, 1);
     let (long, seller_premium, fee) = underwriting::underwrite_call<QUOTE, BASE>(
         &mut series,
-        &mut pool,
         collateral,
         premium,
         10,
@@ -1225,6 +1280,5 @@ fun call_collateral_must_equal_quantity() {
     transfer::public_transfer(seller_premium, SELLER);
     transfer::public_transfer(fee, FEE_RECIPIENT);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }

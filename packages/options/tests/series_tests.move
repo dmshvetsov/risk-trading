@@ -3,7 +3,7 @@ module options_trading_protocol::series_tests;
 
 use options_trading_protocol::market::{Self, AdminCap, Market};
 use options_trading_protocol::pyth_oracle_unverifiable;
-use options_trading_protocol::series::{Self, CollateralPool, Series};
+use options_trading_protocol::series::{Self, Series};
 use std::unit_test::{assert_eq};
 use sui::balance;
 use sui::clock;
@@ -61,13 +61,13 @@ fun clock_at(timestamp_ms: u64, ctx: &mut TxContext): clock::Clock {
 }
 
 #[test]
-fun anyone_can_create_call_series_with_isolated_collateral_pool() {
+fun anyone_can_create_call_series_with_internal_collateral_pool() {
     let (mut scenario, market_id) = create_market_fixture();
 
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, pool_id) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -80,7 +80,6 @@ fun anyone_can_create_call_series_with_isolated_collateral_pool() {
 
     scenario.next_tx(USER);
     let series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
 
     assert_eq!(series::market_id(&series), market_id);
     assert_eq!(series::option_type(&series), OPTION_TYPE_CALL);
@@ -93,13 +92,14 @@ fun anyone_can_create_call_series_with_isolated_collateral_pool() {
     assert_eq!(series::total_short_quantity(&series), 0);
     assert_eq!(series::total_manual_exercised_quantity(&series), 0);
     assert_eq!(series::total_exercise_by_exception_quantity(&series), 0);
-    assert_eq!(series::collateral_pool_id(&series), pool_id);
-    assert_eq!(series::series_id(&pool), series_id);
-    assert_eq!(series::accounted_base_balance(&pool), 0);
-    assert_eq!(series::accounted_quote_balance(&pool), 0);
+    assert_eq!(series::collateral_base_balance(&series), 0);
+    assert_eq!(series::collateral_quote_balance(&series), 0);
+    assert_eq!(series::accounted_base_balance(&series), 0);
+    assert_eq!(series::accounted_quote_balance(&series), 0);
+    assert_eq!(series::excess_base_balance(&series), 0);
+    assert_eq!(series::excess_quote_balance(&series), 0);
 
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
@@ -110,7 +110,7 @@ fun invalid_option_type_aborts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (_, _) = series::create_series<QUOTE, BASE>(
+    let _ = series::create_series<QUOTE, BASE>(
         &mut market,
         3,
         STRIKE_PRICE,
@@ -130,7 +130,7 @@ fun zero_strike_aborts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (_, _) = series::create_series<QUOTE, BASE>(
+    let _ = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         0,
@@ -150,7 +150,7 @@ fun expiry_at_underwriting_cutoff_aborts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (_, _) = series::create_series<QUOTE, BASE>(
+    let _ = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -170,7 +170,7 @@ fun unsupported_market_coin_types_abort() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (_, _) = series::create_series<OTHER, BASE>(
+    let _ = series::create_series<OTHER, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -190,7 +190,7 @@ fun duplicate_market_type_strike_expiry_aborts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (_, _) = series::create_series<QUOTE, BASE>(
+    let _ = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -198,7 +198,7 @@ fun duplicate_market_type_strike_expiry_aborts() {
         &now,
         scenario.ctx(),
     );
-    let (_, _) = series::create_series<QUOTE, BASE>(
+    let _ = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -218,7 +218,7 @@ fun expiry_phase_is_derived_from_state_and_timing() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let mut now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, _) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_PUT,
         STRIKE_PRICE,
@@ -247,7 +247,7 @@ fun admin_can_finalize_expiry_price_from_pyth_adapter() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, _) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -291,7 +291,7 @@ fun one_expiry_price_can_finalize_matching_series_batch() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (call_series_id, _) = series::create_series<QUOTE, BASE>(
+    let call_series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -299,7 +299,7 @@ fun one_expiry_price_can_finalize_matching_series_batch() {
         &now,
         scenario.ctx(),
     );
-    let (put_series_id, _) = series::create_series<QUOTE, BASE>(
+    let put_series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_PUT,
         STRIKE_PRICE,
@@ -346,7 +346,7 @@ fun finalization_before_expiry_aborts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, _) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -401,7 +401,7 @@ fun batch_finalization_rejects_series_from_different_market() {
     let mut first_market = scenario.take_shared_by_id<Market>(first_market_id);
     let mut second_market = scenario.take_shared_by_id<Market>(second_market_id);
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (first_series_id, _) = series::create_series<QUOTE, BASE>(
+    let first_series_id = series::create_series<QUOTE, BASE>(
         &mut first_market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -409,7 +409,7 @@ fun batch_finalization_rejects_series_from_different_market() {
         &now,
         scenario.ctx(),
     );
-    let (second_series_id, _) = series::create_series<QUOTE, BASE>(
+    let second_series_id = series::create_series<QUOTE, BASE>(
         &mut second_market,
         OPTION_TYPE_PUT,
         STRIKE_PRICE,
@@ -451,7 +451,7 @@ fun finalized_price_drives_post_expiry_phase() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let mut now = clock_at(NOW_MS, scenario.ctx());
-    let (call_series_id, call_pool_id) = series::create_series<QUOTE, BASE>(
+    let call_series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -459,7 +459,7 @@ fun finalized_price_drives_post_expiry_phase() {
         &now,
         scenario.ctx(),
     );
-    let (put_series_id, put_pool_id) = series::create_series<QUOTE, BASE>(
+    let put_series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_PUT,
         STRIKE_PRICE,
@@ -473,11 +473,9 @@ fun finalized_price_drives_post_expiry_phase() {
     let cap = scenario.take_from_sender<AdminCap>();
     let market = scenario.take_shared<Market>();
     let mut call_series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(call_series_id);
-    let mut call_pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(call_pool_id);
     let mut put_series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(put_series_id);
-    let mut put_pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(put_pool_id);
-    series::record_call_underwriting(&mut call_series, &mut call_pool, USER, 1, balance::zero());
-    series::record_put_underwriting(&mut put_series, &mut put_pool, USER, 1, 1, balance::zero());
+    series::record_call_underwriting(&mut call_series, USER, 1, balance::zero());
+    series::record_put_underwriting(&mut put_series, USER, 1, 1, balance::zero());
     let call_price = pyth_oracle_unverifiable::create_expiry_price(
         &market,
         &cap,
@@ -505,9 +503,7 @@ fun finalized_price_drives_post_expiry_phase() {
     scenario.return_to_sender(cap);
     test_scenario::return_shared(market);
     test_scenario::return_shared(call_series);
-    test_scenario::return_shared(call_pool);
     test_scenario::return_shared(put_series);
-    test_scenario::return_shared(put_pool);
     scenario.end();
 }
 
@@ -518,7 +514,7 @@ fun itm_phase_progresses_through_exception_partial_and_full_settlement() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let mut now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, pool_id) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -532,8 +528,7 @@ fun itm_phase_progresses_through_exception_partial_and_full_settlement() {
     let cap = scenario.take_from_sender<AdminCap>();
     let market = scenario.take_shared<Market>();
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
-    series::record_call_underwriting(&mut series, &mut pool, USER, 10, balance::zero());
+    series::record_call_underwriting(&mut series, USER, 10, balance::zero());
     let price = pyth_oracle_unverifiable::create_expiry_price(
         &market,
         &cap,
@@ -559,7 +554,6 @@ fun itm_phase_progresses_through_exception_partial_and_full_settlement() {
     scenario.return_to_sender(cap);
     test_scenario::return_shared(market);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
@@ -570,7 +564,7 @@ fun put_itm_phase_progresses_through_exception_partial_and_full_settlement() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let mut now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, pool_id) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_PUT,
         STRIKE_PRICE,
@@ -584,8 +578,7 @@ fun put_itm_phase_progresses_through_exception_partial_and_full_settlement() {
     let cap = scenario.take_from_sender<AdminCap>();
     let market = scenario.take_shared<Market>();
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    let mut pool = scenario.take_shared_by_id<CollateralPool<QUOTE, BASE>>(pool_id);
-    series::record_put_underwriting(&mut series, &mut pool, USER, 10, 10, balance::zero());
+    series::record_put_underwriting(&mut series, USER, 10, 10, balance::zero());
     let price = pyth_oracle_unverifiable::create_expiry_price(
         &market,
         &cap,
@@ -611,7 +604,6 @@ fun put_itm_phase_progresses_through_exception_partial_and_full_settlement() {
     scenario.return_to_sender(cap);
     test_scenario::return_shared(market);
     test_scenario::return_shared(series);
-    test_scenario::return_shared(pool);
     scenario.end();
 }
 
@@ -622,7 +614,7 @@ fun atm_and_otm_series_expire_without_exercise_for_calls_and_puts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let mut now = clock_at(NOW_MS, scenario.ctx());
-    let (call_atm_id, _) = series::create_series<QUOTE, BASE>(
+    let call_atm_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -630,7 +622,7 @@ fun atm_and_otm_series_expire_without_exercise_for_calls_and_puts() {
         &now,
         scenario.ctx(),
     );
-    let (call_otm_id, _) = series::create_series<QUOTE, BASE>(
+    let call_otm_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE + 1,
@@ -638,7 +630,7 @@ fun atm_and_otm_series_expire_without_exercise_for_calls_and_puts() {
         &now,
         scenario.ctx(),
     );
-    let (put_atm_id, _) = series::create_series<QUOTE, BASE>(
+    let put_atm_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_PUT,
         STRIKE_PRICE,
@@ -646,7 +638,7 @@ fun atm_and_otm_series_expire_without_exercise_for_calls_and_puts() {
         &now,
         scenario.ctx(),
     );
-    let (put_otm_id, _) = series::create_series<QUOTE, BASE>(
+    let put_otm_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_PUT,
         STRIKE_PRICE - 1,
@@ -723,7 +715,7 @@ fun zero_expiry_price_aborts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, _) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -762,7 +754,7 @@ fun publish_time_before_expiry_aborts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, _) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -801,7 +793,7 @@ fun oracle_feed_mismatch_aborts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, _) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -839,7 +831,7 @@ fun oracle_name_mismatch_aborts() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, _) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -877,7 +869,7 @@ fun finalized_price_is_immutable() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, _) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,
@@ -941,7 +933,7 @@ fun non_pyth_market_oracle_aborts_in_pyth_adapter() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared_by_id<Market>(market_id);
     let now = clock_at(NOW_MS, scenario.ctx());
-    let (series_id, _) = series::create_series<QUOTE, BASE>(
+    let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
         STRIKE_PRICE,

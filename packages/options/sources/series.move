@@ -32,7 +32,6 @@ const EInvalidOptionType: u64 = 0;
 const EInvalidStrike: u64 = 1;
 const EExpiredSeries: u64 = 2;
 const EDuplicateSeries: u64 = 3;
-const EPoolMismatch: u64 = 4;
 const ESellerVaultMissing: u64 = 5;
 const EInvalidExpiryPrice: u64 = 6;
 const EStaleExpiryPrice: u64 = 7;
@@ -76,14 +75,13 @@ public struct Series<phantom QuoteCoin, phantom BaseCoin> has key {
     total_manual_exercise_quote_proceeds: u64,
     expiry_price: Option<u64>,
     expiry_price_publish_time_ms: Option<u64>,
-    collateral_pool_id: ID,
+    collateral_pool: CollateralPool<QuoteCoin, BaseCoin>,
     seller_vault_index: vector<address>,
     state: u8,
 }
 
-public struct CollateralPool<phantom QuoteCoin, phantom BaseCoin> has key {
+public struct CollateralPool<phantom QuoteCoin, phantom BaseCoin> has key, store {
     id: UID,
-    series_id: ID,
     base_balance: Balance<BaseCoin>,
     quote_balance: Balance<QuoteCoin>,
     accounted_base_balance: u64,
@@ -93,7 +91,6 @@ public struct CollateralPool<phantom QuoteCoin, phantom BaseCoin> has key {
 public struct SeriesCreated has copy, drop {
     series_id: ID,
     market_id: ID,
-    collateral_pool_id: ID,
     option_type: u8,
     strike_price: u64,
     expiry_ms: u64,
@@ -151,7 +148,7 @@ public fun create_series<QuoteCoin, BaseCoin>(
     expiry_ms: u64,
     clock: &Clock,
     ctx: &mut TxContext,
-): (ID, ID) {
+): ID {
     market::assert_not_paused(market);
     market::assert_supported_coin_types<QuoteCoin, BaseCoin>(market);
     assert!(option_type == OPTION_TYPE_CALL || option_type == OPTION_TYPE_PUT, EInvalidOptionType);
@@ -164,9 +161,7 @@ public fun create_series<QuoteCoin, BaseCoin>(
     let exercise_window_end_ms = expiry_ms + EXERCISE_WINDOW_MS;
     let exception_window_end_ms = exercise_window_end_ms + EXCEPTION_WINDOW_MS;
     let series_id = object::new(ctx);
-    let pool_id = object::new(ctx);
     let series_object_id = object::uid_to_inner(&series_id);
-    let pool_object_id = object::uid_to_inner(&pool_id);
     let market_id = market::id(market);
 
     let series = Series<QuoteCoin, BaseCoin> {
@@ -188,24 +183,21 @@ public fun create_series<QuoteCoin, BaseCoin>(
         total_manual_exercise_quote_proceeds: 0,
         expiry_price: option::none(),
         expiry_price_publish_time_ms: option::none(),
-        collateral_pool_id: pool_object_id,
+        collateral_pool: CollateralPool<QuoteCoin, BaseCoin> {
+            id: object::new(ctx),
+            base_balance: balance::zero(),
+            quote_balance: balance::zero(),
+            accounted_base_balance: 0,
+            accounted_quote_balance: 0,
+        },
         seller_vault_index: vector[],
         state: STATE_OPEN,
-    };
-    let pool = CollateralPool<QuoteCoin, BaseCoin> {
-        id: pool_id,
-        series_id: series_object_id,
-        base_balance: balance::zero(),
-        quote_balance: balance::zero(),
-        accounted_base_balance: 0,
-        accounted_quote_balance: 0,
     };
 
     market::add_series(market, option_type, strike_price, expiry_ms, series_object_id);
     event::emit(SeriesCreated {
         series_id: series_object_id,
         market_id,
-        collateral_pool_id: pool_object_id,
         option_type,
         strike_price,
         expiry_ms,
@@ -213,8 +205,7 @@ public fun create_series<QuoteCoin, BaseCoin>(
         exception_window_end_ms,
     });
     transfer::share_object(series);
-    transfer::share_object(pool);
-    (series_object_id, pool_object_id)
+    series_object_id
 }
 
 public(package) fun new_expiry_price(
@@ -387,12 +378,11 @@ public(package) fun assert_open_for_underwriting<QuoteCoin, BaseCoin>(
 
 public(package) fun record_call_underwriting<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     seller: address,
     quantity: u64,
     collateral: Balance<BaseCoin>,
 ) {
-    assert_pool_for_series(series, pool);
+    let pool = &mut series.collateral_pool;
     pool.base_balance.join(collateral);
     pool.accounted_base_balance = pool.accounted_base_balance + quantity;
     add_seller_vault(series, seller, quantity, quantity);
@@ -400,13 +390,12 @@ public(package) fun record_call_underwriting<QuoteCoin, BaseCoin>(
 
 public(package) fun record_put_underwriting<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     seller: address,
     quantity: u64,
     collateral_quantity: u64,
     collateral: Balance<QuoteCoin>,
 ) {
-    assert_pool_for_series(series, pool);
+    let pool = &mut series.collateral_pool;
     pool.quote_balance.join(collateral);
     pool.accounted_quote_balance = pool.accounted_quote_balance + collateral_quantity;
     add_seller_vault(series, seller, quantity, collateral_quantity);
@@ -436,25 +425,26 @@ public fun phase<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>, cloc
 
 public fun exercise_call<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     long: Long<QuoteCoin, BaseCoin>,
     payment: Coin<QuoteCoin>,
     clock: &Clock,
     ctx: &mut TxContext,
 ): Coin<BaseCoin> {
     assert!(series.option_type == OPTION_TYPE_CALL, EInvalidOptionType);
-    assert_manual_exercise_ready(series, pool, &long, clock);
+    assert_manual_exercise_ready(series, &long, clock);
     let quantity = burn_matching_long(series, long);
     assert!(quantity > 0, EInvalidExerciseQuantity);
 
     let payment_required = strike_payment(series, quantity);
     assert!(payment.value() == payment_required, EInvalidExercisePayment);
-    assert!(pool.accounted_base_balance >= quantity, EInsufficientCollateral);
-    assert!(pool.base_balance.value() >= quantity, EInsufficientCollateral);
+    assert!(series.collateral_pool.accounted_base_balance >= quantity, EInsufficientCollateral);
+    assert!(series.collateral_pool.base_balance.value() >= quantity, EInsufficientCollateral);
 
+    let pool = &mut series.collateral_pool;
     pool.quote_balance.join(payment.into_balance());
     pool.accounted_quote_balance = pool.accounted_quote_balance + payment_required;
     pool.accounted_base_balance = pool.accounted_base_balance - quantity;
+    let payout = coin::from_balance(pool.base_balance.split(quantity), ctx);
     series.total_manual_exercised_quantity = series.total_manual_exercised_quantity + quantity;
     series.total_manual_exercise_quote_proceeds = series.total_manual_exercise_quote_proceeds + payment_required;
     event::emit(Exercised {
@@ -465,30 +455,31 @@ public fun exercise_call<QuoteCoin, BaseCoin>(
         input_asset_amount: payment_required,
         output_asset_amount: quantity,
     });
-    coin::from_balance(pool.base_balance.split(quantity), ctx)
+    payout
 }
 
 public fun exercise_put<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     long: Long<QuoteCoin, BaseCoin>,
     payment: Coin<BaseCoin>,
     clock: &Clock,
     ctx: &mut TxContext,
 ): Coin<QuoteCoin> {
     assert!(series.option_type == OPTION_TYPE_PUT, EInvalidOptionType);
-    assert_manual_exercise_ready(series, pool, &long, clock);
+    assert_manual_exercise_ready(series, &long, clock);
     let quantity = burn_matching_long(series, long);
     assert!(quantity > 0, EInvalidExerciseQuantity);
 
     let quote_payout = strike_payment(series, quantity);
     assert!(payment.value() == quantity, EInvalidExercisePayment);
-    assert!(pool.accounted_quote_balance >= quote_payout, EInsufficientCollateral);
-    assert!(pool.quote_balance.value() >= quote_payout, EInsufficientCollateral);
+    assert!(series.collateral_pool.accounted_quote_balance >= quote_payout, EInsufficientCollateral);
+    assert!(series.collateral_pool.quote_balance.value() >= quote_payout, EInsufficientCollateral);
 
+    let pool = &mut series.collateral_pool;
     pool.base_balance.join(payment.into_balance());
     pool.accounted_base_balance = pool.accounted_base_balance + quantity;
     pool.accounted_quote_balance = pool.accounted_quote_balance - quote_payout;
+    let payout = coin::from_balance(pool.quote_balance.split(quote_payout), ctx);
     series.total_manual_exercised_quantity = series.total_manual_exercised_quantity + quantity;
     series.total_manual_exercise_base_proceeds = series.total_manual_exercise_base_proceeds + quantity;
     event::emit(Exercised {
@@ -499,23 +490,21 @@ public fun exercise_put<QuoteCoin, BaseCoin>(
         input_asset_amount: quantity,
         output_asset_amount: quote_payout,
     });
-    coin::from_balance(pool.quote_balance.split(quote_payout), ctx)
+    payout
 }
 
 public fun settle_sellers<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     sellers: vector<address>,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert_pool_for_series(series, pool);
     assert_seller_settlement_ready(series, clock);
     let mut settled_seller_count = 0;
     let mut base_paid_total = 0;
     let mut quote_paid_total = 0;
     sellers.do!(|seller| {
-        let (base_paid, quote_paid) = settle_seller(series, pool, seller, ctx);
+        let (base_paid, quote_paid) = settle_seller(series, seller, ctx);
         settled_seller_count = settled_seller_count + 1;
         base_paid_total = base_paid_total + base_paid;
         quote_paid_total = quote_paid_total + quote_paid;
@@ -533,11 +522,9 @@ public fun settle_sellers<QuoteCoin, BaseCoin>(
 
 fun assert_manual_exercise_ready<QuoteCoin, BaseCoin>(
     series: &Series<QuoteCoin, BaseCoin>,
-    pool: &CollateralPool<QuoteCoin, BaseCoin>,
     long: &Long<QuoteCoin, BaseCoin>,
     clock: &Clock,
 ) {
-    assert_pool_for_series(series, pool);
     assert!(phase(series, clock) == PHASE_MANUAL_EXERCISE, EInvalidExercisePhase);
     assert!(long::market_id(long) == series.market_id, ELongMismatch);
     assert!(long::series_id(long) == object::id(series), ELongMismatch);
@@ -575,7 +562,6 @@ fun assert_seller_settlement_ready<QuoteCoin, BaseCoin>(
 
 fun settle_seller<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
     seller: address,
     ctx: &mut TxContext,
 ): (u64, u64) {
@@ -588,9 +574,9 @@ fun settle_seller<QuoteCoin, BaseCoin>(
 
     remove_seller_from_index(series, seller);
     let (base_paid, quote_paid) = if (!is_in_the_money(series)) {
-        settle_original_collateral(series, pool, seller, collateral_quantity, ctx)
+        settle_original_collateral(series, seller, collateral_quantity, ctx)
     } else {
-        settle_exercise_proceeds(series, pool, seller, short_quantity, ctx)
+        settle_exercise_proceeds(series, seller, short_quantity, ctx)
     };
     event::emit(SellerPayoutSettled {
         series_id: object::id(series),
@@ -603,12 +589,12 @@ fun settle_seller<QuoteCoin, BaseCoin>(
 }
 
 fun settle_original_collateral<QuoteCoin, BaseCoin>(
-    series: &Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    series: &mut Series<QuoteCoin, BaseCoin>,
     seller: address,
     collateral_quantity: u64,
     ctx: &mut TxContext,
 ): (u64, u64) {
+    let pool = &mut series.collateral_pool;
     if (series.option_type == OPTION_TYPE_CALL) {
         assert!(pool.accounted_base_balance >= collateral_quantity, EInsufficientCollateral);
         assert!(pool.base_balance.value() >= collateral_quantity, EInsufficientCollateral);
@@ -625,12 +611,12 @@ fun settle_original_collateral<QuoteCoin, BaseCoin>(
 }
 
 fun settle_exercise_proceeds<QuoteCoin, BaseCoin>(
-    series: &Series<QuoteCoin, BaseCoin>,
-    pool: &mut CollateralPool<QuoteCoin, BaseCoin>,
+    series: &mut Series<QuoteCoin, BaseCoin>,
     seller: address,
     short_quantity: u64,
     ctx: &mut TxContext,
 ): (u64, u64) {
+    let pool = &mut series.collateral_pool;
     if (series.option_type == OPTION_TYPE_CALL) {
         let payout = pro_rata(series.total_manual_exercise_quote_proceeds, short_quantity, series.total_short_quantity);
         assert!(pool.accounted_quote_balance >= payout, EInsufficientCollateral);
@@ -781,14 +767,6 @@ fun add_seller_vault<QuoteCoin, BaseCoin>(
     series.total_short_quantity = series.total_short_quantity + quantity;
 }
 
-fun assert_pool_for_series<QuoteCoin, BaseCoin>(
-    series: &Series<QuoteCoin, BaseCoin>,
-    pool: &CollateralPool<QuoteCoin, BaseCoin>,
-) {
-    assert!(pool.series_id == object::id(series), EPoolMismatch);
-    assert!(series.collateral_pool_id == object::id(pool), EPoolMismatch);
-}
-
 public fun option_type_call(): u8 {
     OPTION_TYPE_CALL
 }
@@ -934,10 +912,6 @@ public fun seller_settlement_state<QuoteCoin, BaseCoin>(
     seller_vault(series, seller).settlement_state
 }
 
-public fun collateral_pool_id<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): ID {
-    series.collateral_pool_id
-}
-
 public fun state<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u8 {
     series.state
 }
@@ -950,16 +924,28 @@ public fun expiry_price_publish_time_ms<QuoteCoin, BaseCoin>(series: &Series<Quo
     *series.expiry_price_publish_time_ms.borrow()
 }
 
-public fun series_id<QuoteCoin, BaseCoin>(pool: &CollateralPool<QuoteCoin, BaseCoin>): ID {
-    pool.series_id
+public fun collateral_base_balance<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.collateral_pool.base_balance.value()
 }
 
-public fun accounted_base_balance<QuoteCoin, BaseCoin>(pool: &CollateralPool<QuoteCoin, BaseCoin>): u64 {
-    pool.accounted_base_balance
+public fun collateral_quote_balance<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.collateral_pool.quote_balance.value()
 }
 
-public fun accounted_quote_balance<QuoteCoin, BaseCoin>(pool: &CollateralPool<QuoteCoin, BaseCoin>): u64 {
-    pool.accounted_quote_balance
+public fun accounted_base_balance<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.collateral_pool.accounted_base_balance
+}
+
+public fun accounted_quote_balance<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    series.collateral_pool.accounted_quote_balance
+}
+
+public fun excess_base_balance<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    collateral_base_balance(series) - accounted_base_balance(series)
+}
+
+public fun excess_quote_balance<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
+    collateral_quote_balance(series) - accounted_quote_balance(series)
 }
 
 fun seller_vault<QuoteCoin, BaseCoin>(
