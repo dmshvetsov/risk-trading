@@ -237,10 +237,20 @@ The contract MUST emit `BuyerVaultClosed` with:
 - quote coin type,
 - last withdrawal amount.
 
-### BCS of OrderV1
+`OrderV1` with signature and public_key that signed the order must be passed as `vector<u8>` to the smart contract as a buyer order to buy an option specified in `OrderV1` and can be used by seller to underwrite an option contract.
+
+### BCS of Signed OrderV1
 
 ```
-public struct OrderV1 has copy, drop {
+struct SignedOrderV1 has drop {
+  order: vector<u8>,      // BCS(OrderV1)
+  signature: vector<u8>,  // serialized Sui signature
+  public_key: vector<u8>, // signer public key bytes
+}
+```
+
+```
+struct OrderV1 has copy, drop {
     domain: vector<u8>, // exactly "otp:order:v1"
     seller: address,
     market_id: address,
@@ -253,7 +263,7 @@ public struct OrderV1 has copy, drop {
     premium_per_contract: u64,
     good_till_ms: u64,
     buyer_vault_id: address,
-    signer: address, // also address of the buyer
+    signer: address, // also address of the buyer must match address derived from SignedOrderV1 public_key
 }
 ```
 
@@ -267,9 +277,9 @@ public struct OrderV1 has copy, drop {
 - fields with address bytes of `OrderV1` should be checked for equality against corresponding objects using `object::id(object).to_address()`
 - on-chain order domain verification relies on market_id, series_id, and buyer_vault_id equality checks against live objects
 
-### OrderV1 signature
+OrderV1 signature MUST be standard Sui serialized Ed25519 signature blob. Verify the signature against `SignedOrderV1.public_key` using Sui's personal-message flow and check the `SignedOrderV1.public_key` derived address equals `OrderV1.signer`, `OrderV1` `signer` MUST be address of a public key that produced the `OrderV1` signature.
 
-OrderV1 signature MUST be standard Sui serialized Ed25519 signature blob. Recover/verify the signer using Sui’s personal-message flow. `OrderV1` `signer` MUST be public key that produced the `OrderV1` signature.
+
 
 ## Collateral Pool
 
@@ -289,7 +299,7 @@ Underwriting creates `Long` tokens for a buyer and records a seller short obliga
 
 Underwriting MUST be rejected when the series expiry is less than or equal to the minimum underwriting time to expiry after the current time.
 
-- The contract verifies the signature, signer-vault ownership, deadline, direction, exact argument/order match, sufficient vault balance, and unused `orderHash`.
+- The contract verifies the signature, signer-vault ownership, deadline, direction, exact argument/order match, sufficient vault balance, and unused `order_hash`.
 - The contract computes `order_hash = blake2b256(bcs(OrderV1))` and stores it in `Series`, caller-provided hashes MUST BE forbidden.
 - A successful fill atomically marks the order consumed, deducts premium from the vault, deposits seller collateral, mints the long to the maker, pays premium minus fee to the seller, and pays the fee recipient.
 
@@ -299,7 +309,7 @@ For a covered call atomic underwrite transaction:
   - `seller` address
   - `market_id`
   - `series_id`
-  - `call_put_market`
+  - `call_put_marker`
   - `strike_price`
   - `expiry_ms`
   - quantity of contracts to underwrite
