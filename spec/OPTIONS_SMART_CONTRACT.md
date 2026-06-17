@@ -242,8 +242,6 @@ The contract MUST emit `BuyerVaultClosed` with:
 ```
 public struct OrderV1 has copy, drop {
     domain: vector<u8>, // exactly "otp:order:v1"
-    protocol_package_id: address,
-    chain_id: vector<u8>, // exactly "sui:mainnet" or "sui:testnet" or "sui:devnet" must match the current contract execution environemnt, e.g. testent orders MUST be aborted in mainnet
     seller: address,
     market_id: address,
     series_id: address,
@@ -268,6 +266,7 @@ public struct OrderV1 has copy, drop {
 - Implementations MUST reject missing, additional, reordered, wrongly typed, or out-of-range fields.
 - The signature payload MUST be the canonical BCS bytes wrapped according to Sui personal-message signing.
 - fields with address bytes of `OrderV1` should be checked for equality against corresponding objects using `object::id(object).to_address()`
+- on-chain order domain verification relies on market_id, series_id, and buyer_vault_id equality checks against live objects
 
 ## Collateral Pool
 
@@ -294,40 +293,38 @@ Underwriting MUST be rejected when the series expiry is less than or equal to th
 For a covered call atomic underwrite transaction:
 - seller provides signed by a buyer `OrderV1`
 - provided `OrderV1` matches seller options parameters in full:
-  - chain
-  - package id,
-  - seller address
-  - market id
-  - series id
-  - option type
-  - strike price
-  - expiry
+  - `seller` address
+  - `market_id`
+  - `series_id`
+  - `call_put_market`
+  - `strike_price`
+  - `expiry_ms`
   - quantity of contracts to underwrite
   - must be long side, 
   - "good till" must not expire
+- verifies that `buyer_vault_id` matches passed `BuyerVault<QuoteCoin>`, owned by `OrderV1` `signer` and have sufficient amount to pay premium
 - verifies the `OrderV1` hash was not used before to prevent replay attack
 - seller deposits `BaseCoin` collateral equal to the option quantity into the internal `CollateralPool` of the `Series`,
-- buyer pays premium in `QuoteCoin` from `BuyerVault` of the `OrderV1` signer where `OrderV1` signer equals `BuyerVault` owner, `BuyerVault` must have sufficient amount to pay premium
+- buyer pays premium in `QuoteCoin` from passed `BuyerVault` owned by `OrderV1` `signer`
 - contract mints and transfers `Long` token to buyer using his signer address
 - seller vault short quantity increases in `SellerVault`.
 
 For a cash-secured put atomic underwrite transaction:
 - seller provides signed by a buyer `OrderV1`
 - provided `OrderV1` matches seller options parameters in full:
-  - chain
-  - package id,
-  - seller address
-  - market id
-  - series id
-  - option type
-  - strike price
-  - expiry
+  - `seller` address
+  - `market_id`
+  - `series_id`
+  - `call_put_market`
+  - `strike_price`
+  - `expiry_ms`
   - quantity of contracts to underwrite
   - must be long side, 
   - "good till" must not expire
+- verifies that `buyer_vault_id` matches passed `BuyerVault<QuoteCoin>`, owned by `OrderV1` `signer` and have sufficient amount to pay premium
 - verifies the `OrderV1` hash was not used before to prevent replay attack
 - seller deposits `QuoteCoin` collateral equal to `strike_payment(quantity)` into the internal `CollateralPool` of the `Series`,
-- buyer pays premium in `QuoteCoin` from `BuyerVault` of the `OrderV1` signer where `OrderV1` signer equals `BuyerVault` owner, `BuyerVault` must have sufficient amount to pay premium
+- buyer pays premium in `QuoteCoin` from passed `BuyerVault` owned by `OrderV1` `signer`
 - contract mints and transfers `Long` token to buyer using his signer address
 - seller vault short quantity increases in `SellerVault`.
 
@@ -345,6 +342,8 @@ Premium and fee handling:
 The market MAY admin-configured maximum fee basis points. If present, the smart contract MUST reject underwriting if fees above that maximum fee.
 
 Underwrite public functions MUST NOT be PTB composable.
+
+`OrderV1` replay attacks protection is made by `market_id`, `series_id`, `buyer_vault_id` on-chain checks that must match intended network (mainnet, testente) object IDs.
 
 The contract MUST emit `Underwritten` with:
 - series id,
@@ -772,6 +771,9 @@ MVP MUST NOT implement:
 - seller collateral top-up after underwriting,
 - seller short reduction before expiry,
 - seller excess collateral withdrawal before expiry.
+- underwite module chain id and package id verification during underwriting, following field may be added to orderv2:
+  - protocol_package_id: address,
+  - chain_id: vector<u8>, // exactly "sui:mainnet" or "sui:testnet" or "sui:devnet" must match the current contract execution environemnt, e.g. testent orders MUST be aborted in mainnet
 
 ## Main Design Tradeoffs
 
@@ -780,3 +782,5 @@ The design chooses seller vault records over transferable writer tokens to keep 
 The design chooses transferable long SFT objects so options remain composable and mergeable by series.
 
 The cost of this design is per-series dust and a larger `Series` object. Physically exercised quantity still must be allocated to seller vaults pro-rata by short quantity because long tokens are fungible by series and are not matched to seller vaults.
+
+Sui transactions use a distinct serialization format that intrinsically incorporates chain-specific identifiers. Thus there is no need explicit chain id specification.
