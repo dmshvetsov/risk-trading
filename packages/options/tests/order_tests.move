@@ -99,7 +99,7 @@ fun signed_call_fill_debits_vault_and_settles_atomically() {
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
     let mut vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
     let now = clock_at(NOW_MS, scenario.ctx());
-    underwriting::underwrite_call_signed(
+    underwriting::underwrite_call(
         &market,
         &mut series,
         &mut vault,
@@ -150,7 +150,7 @@ fun signed_put_fill_debits_vault_and_settles_atomically() {
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
     let mut vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
     let now = clock_at(NOW_MS, scenario.ctx());
-    underwriting::underwrite_put_signed(
+    underwriting::underwrite_put(
         &market,
         &mut series,
         &mut vault,

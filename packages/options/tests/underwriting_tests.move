@@ -116,7 +116,7 @@ fun underwrite_call_and_collect(
     let market_id = series::market_id(&series);
     let series_id = object::id(&series);
     let market = scenario.take_shared_by_id<Market>(market_id);
-    underwriting::underwrite_call<QUOTE, BASE>(
+    underwriting::execute_call_underwriting<QUOTE, BASE>(
         &market,
         &mut series,
         collateral,
@@ -157,7 +157,7 @@ fun underwrite_put_and_collect(
     let market_id = series::market_id(&series);
     let series_id = object::id(&series);
     let market = scenario.take_shared_by_id<Market>(market_id);
-    underwriting::underwrite_put<QUOTE, BASE>(
+    underwriting::execute_put_underwriting<QUOTE, BASE>(
         &market,
         &mut series,
         collateral,
@@ -219,7 +219,7 @@ fun call_underwriting_transfers_assets_and_emits_long_id() {
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let premium = mint_quote(&mut scenario, 100);
-    underwriting::underwrite_call<QUOTE, BASE>(
+    underwriting::execute_call_underwriting<QUOTE, BASE>(
         &market,
         &mut series,
         collateral,
@@ -280,7 +280,7 @@ fun paused_market_rejects_call_underwriting() {
     let now = clock_at(NOW_MS, scenario.ctx());
     let collateral = mint_base(&mut scenario, 10);
     let premium = mint_quote(&mut scenario, 1);
-    underwriting::underwrite_call<QUOTE, BASE>(
+    underwriting::execute_call_underwriting<QUOTE, BASE>(
         &market,
         &mut series,
         collateral,
@@ -309,7 +309,7 @@ fun put_underwriting_transfers_assets_to_declared_recipients() {
     let mut quote_payment = mint_quote(&mut scenario, 21);
     let collateral = quote_payment.split(1, scenario.ctx());
     let premium = quote_payment;
-    underwriting::underwrite_put<QUOTE, BASE>(
+    underwriting::execute_put_underwriting<QUOTE, BASE>(
         &market,
         &mut series,
         collateral,
@@ -360,7 +360,7 @@ fun paused_market_rejects_put_underwriting() {
     let mut quote_payment = mint_quote(&mut scenario, 2);
     let collateral = quote_payment.split(1, scenario.ctx());
     let premium = quote_payment;
-    underwriting::underwrite_put<QUOTE, BASE>(
+    underwriting::execute_put_underwriting<QUOTE, BASE>(
         &market,
         &mut series,
         collateral,

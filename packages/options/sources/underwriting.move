@@ -67,7 +67,7 @@ public struct Underwritten has copy, drop {
     long_token_id: ID,
 }
 
-entry fun underwrite_call_signed<QuoteCoin, BaseCoin>(
+entry fun underwrite_call<QuoteCoin, BaseCoin>(
     market: &Market,
     series: &mut Series<QuoteCoin, BaseCoin>,
     buyer_vault: &mut BuyerVault<QuoteCoin>,
@@ -87,7 +87,7 @@ entry fun underwrite_call_signed<QuoteCoin, BaseCoin>(
     let premium_total = calculate_premium_total(&order);
     let premium = buyer_vault::debit(buyer_vault, premium_total, ctx);
     consume_order(series, &order_bytes);
-    underwrite_call(
+    execute_call_underwriting(
         market,
         series,
         collateral,
@@ -101,7 +101,7 @@ entry fun underwrite_call_signed<QuoteCoin, BaseCoin>(
     );
 }
 
-entry fun underwrite_put_signed<QuoteCoin, BaseCoin>(
+entry fun underwrite_put<QuoteCoin, BaseCoin>(
     market: &Market,
     series: &mut Series<QuoteCoin, BaseCoin>,
     buyer_vault: &mut BuyerVault<QuoteCoin>,
@@ -121,7 +121,7 @@ entry fun underwrite_put_signed<QuoteCoin, BaseCoin>(
     let premium_total = calculate_premium_total(&order);
     let premium = buyer_vault::debit(buyer_vault, premium_total, ctx);
     consume_order(series, &order_bytes);
-    underwrite_put(
+    execute_put_underwriting(
         market,
         series,
         collateral,
@@ -239,7 +239,7 @@ public fun order_buyer_vault_id(order: &OrderV1): address { order.buyer_vault_id
 public fun order_signer(order: &OrderV1): address { order.signer }
 
 #[allow(lint(self_transfer))]
-public(package) fun underwrite_call<QuoteCoin, BaseCoin>(
+public(package) fun execute_call_underwriting<QuoteCoin, BaseCoin>(
     market: &Market,
     series: &mut Series<QuoteCoin, BaseCoin>,
     collateral: Coin<BaseCoin>,
@@ -290,7 +290,7 @@ public(package) fun underwrite_call<QuoteCoin, BaseCoin>(
 }
 
 #[allow(lint(self_transfer))]
-public(package) fun underwrite_put<QuoteCoin, BaseCoin>(
+public(package) fun execute_put_underwriting<QuoteCoin, BaseCoin>(
     market: &Market,
     series: &mut Series<QuoteCoin, BaseCoin>,
     collateral: Coin<QuoteCoin>,
