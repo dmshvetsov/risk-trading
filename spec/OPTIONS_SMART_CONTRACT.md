@@ -747,9 +747,9 @@ The contract SHOULD expose at least:
 - `buyer::depoit`
 - `buyer::withdraw`
 
-## Non-Goals For V1
+## Non-Goals For MVP
 
-V1 MUST NOT implement:
+MVP MUST NOT implement:
 - American exercise,
 - pure cash-settlement
 - automatic clawback exercise,
