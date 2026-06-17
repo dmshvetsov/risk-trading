@@ -38,9 +38,9 @@ fun create_market_fixture(): (test_scenario::Scenario, ID) {
     market::init_for_testing(scenario.ctx());
 
     scenario.next_tx(ADMIN);
-    let cap = scenario.take_from_sender<AdminCap>();
+    let mut cap = scenario.take_from_sender<AdminCap>();
     let market_id = market::create_market<QUOTE, BASE>(
-        &cap,
+        &mut cap,
         "SUI",
         "pyth",
         b"feed-sui-usdc",
@@ -100,6 +100,33 @@ fun anyone_can_create_call_series_with_internal_collateral_pool() {
     assert_eq!(series::excess_quote_balance(&series), 0);
 
     test_scenario::return_shared(series);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = market::EPaused, location = market)]
+fun paused_market_rejects_series_creation() {
+    let (mut scenario, _) = create_market_fixture();
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let mut market = scenario.take_shared<Market>();
+    market::pause(&mut market, &cap, scenario.ctx());
+    scenario.return_to_sender(cap);
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(USER);
+    let mut market = scenario.take_shared<Market>();
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let _ = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    test_scenario::return_shared(market);
     scenario.end();
 }
 
@@ -383,9 +410,9 @@ fun batch_finalization_rejects_series_from_different_market() {
     let (mut scenario, first_market_id) = create_market_fixture();
 
     scenario.next_tx(ADMIN);
-    let cap = scenario.take_from_sender<AdminCap>();
+    let mut cap = scenario.take_from_sender<AdminCap>();
     let second_market_id = market::create_market<QUOTE, BASE>(
-        &cap,
+        &mut cap,
         "BTC",
         "pyth",
         b"feed-btc-usdc",
@@ -916,9 +943,9 @@ fun non_pyth_market_oracle_aborts_in_pyth_adapter() {
     market::init_for_testing(scenario.ctx());
 
     scenario.next_tx(ADMIN);
-    let cap = scenario.take_from_sender<AdminCap>();
+    let mut cap = scenario.take_from_sender<AdminCap>();
     let market_id = market::create_market<QUOTE, BASE>(
-        &cap,
+        &mut cap,
         "SUI",
         "switchboard",
         b"feed-sui-usdc",

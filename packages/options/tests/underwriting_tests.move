@@ -40,9 +40,9 @@ fun create_fixture_with_fee_bps(option_type: u8, max_operational_fee_bps: u64): 
     create_currency_caps(&mut scenario);
 
     scenario.next_tx(ADMIN);
-    let cap = scenario.take_from_sender<AdminCap>();
+    let mut cap = scenario.take_from_sender<AdminCap>();
     let market_id = market::create_market<QUOTE, BASE>(
-        &cap,
+        &mut cap,
         "SUI",
         "pyth",
         b"feed-sui-usdc",
@@ -385,9 +385,9 @@ fun admin_creates_market_and_series_then_call_lifecycle_settles_itm() {
     create_currency_caps(&mut scenario);
 
     scenario.next_tx(ADMIN);
-    let cap = scenario.take_from_sender<AdminCap>();
+    let mut cap = scenario.take_from_sender<AdminCap>();
     let market_id = market::create_market<QUOTE, BASE>(
-        &cap,
+        &mut cap,
         "SUI",
         "pyth",
         b"feed-sui-usdc",

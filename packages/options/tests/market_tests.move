@@ -28,9 +28,9 @@ fun create_market_fixture<QuoteCoin, BaseCoin>(
     market::init_for_testing(scenario.ctx());
 
     scenario.next_tx(ADMIN);
-    let cap = scenario.take_from_sender<AdminCap>();
+    let mut cap = scenario.take_from_sender<AdminCap>();
     let market_id = market::create_market<QuoteCoin, BaseCoin>(
-        &cap,
+        &mut cap,
         oracle_base,
         oracle,
         oracle_feed_id,
@@ -154,9 +154,9 @@ fun multiple_markets_can_be_created_for_same_pair_with_different_collateral() {
     );
 
     scenario.next_tx(ADMIN);
-    let cap = scenario.take_from_sender<AdminCap>();
+    let mut cap = scenario.take_from_sender<AdminCap>();
     let hbtc_market_id = market::create_market<USDC, HBTC>(
-        &cap,
+        &mut cap,
         "BTC",
         "pyth",
         b"feed-btc-usdc-hbtc",
@@ -181,5 +181,106 @@ fun multiple_markets_can_be_created_for_same_pair_with_different_collateral() {
 
     test_scenario::return_shared(wbtc_market);
     test_scenario::return_shared(hbtc_market);
+    scenario.end();
+}
+
+#[test, expected_failure(abort_code = market::EMarketAlreadyExists, location = market)]
+fun duplicate_oracle_base_and_coin_types_abort() {
+    let (mut scenario, _) = create_market_fixture<USDC, WBTC>(
+        "BTC",
+        "pyth",
+        b"feed-btc-usdc",
+        6,
+        8,
+        100_000_000,
+    );
+
+    scenario.next_tx(ADMIN);
+    let mut cap = scenario.take_from_sender<AdminCap>();
+    let _ = market::create_market<USDC, WBTC>(
+        &mut cap,
+        "BTC",
+        "another-oracle",
+        b"another-feed",
+        18,
+        18,
+        1,
+        0,
+        scenario.ctx(),
+    );
+    scenario.return_to_sender(cap);
+    scenario.end();
+}
+
+#[test]
+fun pausing_one_market_does_not_pause_another() {
+    let (mut scenario, first_market_id) = create_market_fixture<USDC, WBTC>(
+        "BTC",
+        "pyth",
+        b"feed-btc-usdc",
+        6,
+        8,
+        100_000_000,
+    );
+
+    scenario.next_tx(ADMIN);
+    let mut cap = scenario.take_from_sender<AdminCap>();
+    let second_market_id = market::create_market<USDC, HBTC>(
+        &mut cap,
+        "BTC",
+        "pyth",
+        b"feed-btc-usdc",
+        6,
+        8,
+        100_000_000,
+        500,
+        scenario.ctx(),
+    );
+    scenario.return_to_sender(cap);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let mut first_market = scenario.take_shared_by_id<Market>(first_market_id);
+    let second_market = scenario.take_shared_by_id<Market>(second_market_id);
+
+    market::pause(&mut first_market, &cap, scenario.ctx());
+
+    assert_eq!(market::is_paused(&first_market), true);
+    assert_eq!(market::is_paused(&second_market), false);
+    market::assert_not_paused(&second_market);
+
+    scenario.return_to_sender(cap);
+    test_scenario::return_shared(first_market);
+    test_scenario::return_shared(second_market);
+    scenario.end();
+}
+
+#[test]
+fun same_coin_types_with_different_oracle_base_remain_creatable() {
+    let (mut scenario, first_market_id) = create_market_fixture<USDC, WBTC>(
+        "BTC",
+        "pyth",
+        b"feed-btc-usdc",
+        6,
+        8,
+        100_000_000,
+    );
+
+    scenario.next_tx(ADMIN);
+    let mut cap = scenario.take_from_sender<AdminCap>();
+    let second_market_id = market::create_market<USDC, WBTC>(
+        &mut cap,
+        "WBTC",
+        "pyth",
+        b"feed-wbtc-usdc",
+        6,
+        8,
+        100_000_000,
+        500,
+        scenario.ctx(),
+    );
+    scenario.return_to_sender(cap);
+
+    assert!(first_market_id != second_market_id);
     scenario.end();
 }

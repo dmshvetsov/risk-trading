@@ -9,6 +9,7 @@ const ENotAdmin: u64 = 0;
 const EUnsupportedCoinTypes: u64 = 1;
 const EPaused: u64 = 2;
 const EInvalidOperationalFeeBps: u64 = 3;
+const EMarketAlreadyExists: u64 = 4;
 
 const BPS_DENOMINATOR: u64 = 10_000;
 
@@ -61,7 +62,7 @@ public fun init_for_testing(ctx: &mut TxContext) {
 }
 
 public fun create_market<QuoteCoin, BaseCoin>(
-    cap: &AdminCap,
+    cap: &mut AdminCap,
     oracle_base: String,
     oracle: String,
     oracle_feed_id: vector<u8>,
@@ -74,6 +75,13 @@ public fun create_market<QuoteCoin, BaseCoin>(
     assert!(max_operational_fee_bps <= BPS_DENOMINATOR, EInvalidOperationalFeeBps);
     let quote_coin_type = type_name::with_original_ids<QuoteCoin>();
     let base_coin_type = type_name::with_original_ids<BaseCoin>();
+    let market_key = vector[
+        oracle_base.into_bytes(),
+        quote_coin_type.into_string().into_bytes(),
+        base_coin_type.into_string().into_bytes(),
+    ];
+    assert!(!dynamic_field::exists(&cap.id, market_key), EMarketAlreadyExists);
+    dynamic_field::add(&mut cap.id, market_key, true);
     let market = Market {
         id: object::new(ctx),
         oracle_base,
