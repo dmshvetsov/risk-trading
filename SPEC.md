@@ -89,11 +89,11 @@ Makers API MUST implement endpoint `POST /otp/rfq/order` to provide order
 
 Makers MUST use a wallet associated with their protocol account to sign quotes and orders.
 
-Makers MUST sign quotes with the wallet used to create maker account.
+Makers MUST sign quotes with the wallet used to create `Maker` account.
 
 Makers MUST sign order with takers size and taker address. Order signature MUST be submitted on-chain and logged in underwrite event.
 
-Maker `QuoteV1` quotes MUST be treated as off-chain short-lived reusable offers and MUST NOT be used to create option tokens. Maker quotes are reusable until `offerValidUntilUnixTs` or until `offerValidUntilTotalContractsQty` is exhausted. Maker liability starts only after maker signs `OrderV1`.
+Maker `QuoteV1` signed messages MUST be treated as reusable, short-lived off-chain offers to buy options and MUST NOT authorize premium payment and/or token purchase. A maker MUST authorize `Long` buy and authorizes payment of the specified premium only by signing `OrderV1`.
 
 The same signed quote MAY be used by multiple takers while `offerValidUntilUnixTs` has not passed or `offerValidUntilTotalContractsQty` is not exceeded and on-chain underwriting requirements can be satisfied. When RFQ server sends a transaction to Broadcaster it MUST deduct order quantity from current quote `offerValidUntilTotalContractsQty`, RFQ MUST not track if transaction was actually broadcasted on-chain thus the server does not guarantees to maker that his quote will be filled right up to `offerValidUntilTotalContractsQty`. RFQ server MUST NOT send more contracts quantity than `offerValidUntilTotalContractsQty` of current quote.
 
@@ -105,7 +105,7 @@ Quotes and orders MUST be signed as versioned BCS structs: `QuoteV1` and `OrderV
 
 Each signed struct MUST include a `domain` field. Quote domain MUST be `otp:makerquote:v1`. Order domain MUST be `otp:makerorder:v1`.
 
-Signature scheme for v1 MUST be Sui personal-message signing over the BCS bytes with Ed25519 keys. RFQ server MUST verify `QuoteV1` and `OrderV1` signatures. Smart contracts MUST verify `OrderV1` domain, BCS bytes, signer address, and signature before underwriting.
+Signature scheme for v1 MUST be Sui personal-message signing over the BCS bytes with Ed25519 keys. RFQ server MUST verify `MakerQuoteV1` and `MakerOrderV1` signatures. Smart contracts MUST verify `MakerOrderV1` domain, BCS bytes, signer address, and signature before underwriting.
 
 RFQ server MUST send quote to the order endpoint only for maker that created this quote.
 
@@ -176,20 +176,20 @@ type ExecutionRequest = {
 type MakerOrderV1 = {
   domain: 'otp:makerorder:v1'
   protocolPackageId: string
+  chainId: 'sui:mainnet' | 'sui:testnet' // must match quote request
   takerAddress: string // must match ExecutionRequest.takerAddress
   collateralTokenAddress: string // must match quote request and derived vault
   collateralTokenDecimals: number
   cashTokenAddress: string // must match quote request, also will be used to pay premium
   cashTokenDecimals: number
-  chainId: 'sui:mainnet' | 'sui:testnet' // must match quote request
   callPutMarker: 1 | 2 // u8 1: call 2: put, must match quote request
-  longShortMarker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
+  sideMarker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
   strikePriceDecimals: string // uses configured Pyth oracle exponent, must match quote request and derived vault
   expiryUnixTs: number
   contractsQtyDecimals: string // uses collateralTokenDecimals
-  goodTillUnixTs: number
   cashPremiumPerContract: string // premium per 1 option contract in premium token decimals
-  makerId: string // uniq maker id created in the protocol database
+  goodTillUnixTs: number
+  makerVaultId: string // uniq maker vault id created in the protocol
   quoteId: string // must match ExecutionRequest.quote.quoteId
   signer: string // EOA wallet address that manages maker protocol account
 }

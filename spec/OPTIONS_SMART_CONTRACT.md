@@ -158,7 +158,7 @@ Long tokens MUST support:
 
 After the exercise window, an unexercised ITM `Long` token is no longer a physical exercise right. It becomes a claim ticket against the isolated claim pool only if exercise-by-exception has completed for the series. After exercise-by-exception window ends `Long` token is expired worthless.
 
-## Seller Vault Model
+## Seller Vault Object Model
 
 Stored under `Series` as dynamic fields keyed by seller address. Additionally `Series` must store `seller_vault_index: vector<address>` to allow batch processing over `SellerVault`s.
 
@@ -172,6 +172,65 @@ Each `SellerVault` MUST store:
 - short quantity,
 - collateral quantity,
 - settlement state,
+
+## Buyer Vault Object Model
+
+`BuyerVault` MUST be stored as a separate shared object. One `BuyerVault<QuoteCoin>` per buyer address and `QuoteCoin`. `BuyerVault` funds able to pay premiums across `Market`s that uses the same `QuoteCoin`.
+
+```move
+struct BuyerVault<phantom QuoteCoin> has key {
+    id: UID,
+    owner: address,
+    balance: Balance<QuoteCoin>,
+}
+```
+
+Only the maker’s owner wallet MUST be able to deposit and withdraw `QuoteCoin` from `BuyerVault<QuoteCoin>`. Maker deposits and withdraws `QuoteCoin`, withdrawals require transaction sender to be `BuyerVault` owner. Withdrawal and underwriting mutate the same `BuyerVault`, preventing either operation from spending an outdated balance.
+
+`BuyerVault<QuoteCoin>` `QuoteCoin` balance fund premiums to buy `Long` options for a `Market` that uses that exaxt `QuoteCoin`.
+
+Withdrawals may use only the unspent balance.
+
+Buyer authorizes a `Long` purchase by signing canonical BCS `OrderV1` bytes using Sui personal-message Ed25519 signing.
+
+Vault operations:
+- create_vault: records ctx.sender() as owner.
+- deposit: accepts Coin<QuoteCoin> and requires ctx.sender() == vault.owner.
+- withdraw: requires ctx.sender() == vault.owner.
+- Emit events for creation, deposits, and withdrawals.
+
+
+### BCS of OrderV1
+
+```
+public struct OrderV1 has copy, drop {
+    domain: vector<u8>, // exactly "otp:order:v1"
+    protocol_package_id: address,
+    chain_id: vector<u8>, // exactly "sui:mainnet" or "sui:testnet" or "sui:devnet" must match the current contract execution environemnt, e.g. testent orders MUST be aborted in mainnet
+    seller: address,
+    market_id: address,
+    series_id: address,
+    call_put_marker: u8 // 1: call option 2: put option
+    side_market: u8 // 1: long (buy option) 2: short (sell option)
+    strike_price: u64, // in QuoteCoin
+    expiry_ms: u64,
+    contracts_quantity: u64,
+    premium_per_contract: u64,
+    good_till_ms: u64,
+    buyer_vault_id: address,
+    quote_id: vector<u8>,
+    signer: address, // also address of the buyer
+}
+```
+
+- Fields MUST be BCS-serialized in exactly the declared order.
+- Integers MUST use fixed-width little-endian BCS encoding.
+- address MUST be 32 canonical Sui address bytes.
+- vector<u8> MUST use a ULEB128 length prefix followed by raw bytes.
+- Human-readable numeric strings MUST be converted to base-unit integers before serialization.
+- Implementations MUST reject missing, additional, reordered, wrongly typed, or out-of-range fields.
+- The signature payload MUST be the canonical BCS bytes wrapped according to Sui personal-message signing.
+- fields with address bytes of `OrderV1` should be checked for equality against corresponding objects using `object::id(object).to_address()`
 
 ## Collateral Pool
 
@@ -191,16 +250,48 @@ Underwriting creates `Long` tokens for a buyer and records a seller short obliga
 
 Underwriting MUST be rejected when the series expiry is less than or equal to the minimum underwriting time to expiry after the current time.
 
-For a covered call:
+- The contract verifies the signature, signer-vault ownership, deadline, direction, exact argument/order match, sufficient vault balance, and unused `orderHash`.
+- The contract computes `order_hash = blake2b256(bcs(OrderV1))` and stores it in `Series`, caller-provided hashes MUST BE forbidden.
+- A successful fill atomically marks the order consumed, deducts premium from the vault, deposits seller collateral, mints the long to the maker, pays premium minus fee to the seller, and pays the fee recipient.
+
+For a covered call atomic underwrite transaction:
+- seller provides signed by a buyer `OrderV1`
+- provided `OrderV1` matches seller options parameters in full:
+  - chain
+  - package id,
+  - seller address
+  - market id
+  - series id
+  - option type
+  - strike price
+  - expiry
+  - quantity of contracts to underwrite
+  - must be long side, 
+  - "good till" must not expire
+- verifies the `OrderV1` hash was not used before to prevent replay attack
 - seller deposits `BaseCoin` collateral equal to the option quantity into the internal `CollateralPool` of the `Series`,
-- buyer pays premium in `QuoteCoin`,
-- contract mints and transfers `Long` token to buyer,
+- buyer pays premium in `QuoteCoin` from `BuyerVault` of the `OrderV1` signer where `OrderV1` signer equals `BuyerVault` owner, `BuyerVault` must have sufficient amount to pay premium
+- contract mints and transfers `Long` token to buyer using his signer address
 - seller vault short quantity increases in `SellerVault`.
 
-For a cash-secured put:
+For a cash-secured put atomic underwrite transaction:
+- seller provides signed by a buyer `OrderV1`
+- provided `OrderV1` matches seller options parameters in full:
+  - chain
+  - package id,
+  - seller address
+  - market id
+  - series id
+  - option type
+  - strike price
+  - expiry
+  - quantity of contracts to underwrite
+  - must be long side, 
+  - "good till" must not expire
+- verifies the `OrderV1` hash was not used before to prevent replay attack
 - seller deposits `QuoteCoin` collateral equal to `strike_payment(quantity)` into the internal `CollateralPool` of the `Series`,
-- buyer pays premium in `QuoteCoin`,
-- contract mints/transfers `Long` token to buyer,
+- buyer pays premium in `QuoteCoin` from `BuyerVault` of the `OrderV1` signer where `OrderV1` signer equals `BuyerVault` owner, `BuyerVault` must have sufficient amount to pay premium
+- contract mints and transfers `Long` token to buyer using his signer address
 - seller vault short quantity increases in `SellerVault`.
 
 Seller collateral MUST be deposited in full 1:1, in other words fully collateralized.
@@ -640,6 +731,9 @@ The contract SHOULD expose at least:
 - `pause`
 - `unpause`
 - `admin_recover_excess`
+- `buyer::create_vault`
+- `buyer::depoit`
+- `buyer::withdraw`
 
 ## Non-Goals For V1
 

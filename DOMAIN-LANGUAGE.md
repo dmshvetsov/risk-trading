@@ -62,6 +62,8 @@ Mobile first - is a design and software development strategy that prioritizes cr
 
 PTB - programmable transaction block, a Sui blockchain transaction that can be grouped and broadcasted to Sui blockchain together as a single unit (execute all or nothing)
 
+BSC (Binary Canonical Serialization) - Sui’s deterministic binary format for serializing signed data and transaction values.
+
 EOA - externally owned account is a user-controlled blockchain wallet controlled by a private key.
 
 Physical settlement of an option - is a process at contract expiration where the buyer and seller exchange the actual underlying asset rather than just transferring cash profits or losses.
