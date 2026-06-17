@@ -69,7 +69,7 @@ The minimum underwriting time to expiry is 8 hours.
 A series object MUST contain:
 - unique `series_id`,
 - `market_id`
-- option type marker: `CALL` or `PUT`,
+- `call_put_market` (option type): 1 for CALL, 2 for PUT
 - `strike_price`,
 - `expiry_ms`,
 - `exercise_window_end_ms = expiry_ms + 1 hour`,
@@ -253,7 +253,6 @@ public struct OrderV1 has copy, drop {
     premium_per_contract: u64,
     good_till_ms: u64,
     buyer_vault_id: address,
-    quote_id: vector<u8>,
     signer: address, // also address of the buyer
 }
 ```
@@ -267,6 +266,10 @@ public struct OrderV1 has copy, drop {
 - The signature payload MUST be the canonical BCS bytes wrapped according to Sui personal-message signing.
 - fields with address bytes of `OrderV1` should be checked for equality against corresponding objects using `object::id(object).to_address()`
 - on-chain order domain verification relies on market_id, series_id, and buyer_vault_id equality checks against live objects
+
+### OrderV1 signature
+
+OrderV1 signature MUST be standard Sui serialized Ed25519 signature blob. Recover/verify the signer using Sui’s personal-message flow. `OrderV1` `signer` MUST be public key that produced the `OrderV1` signature.
 
 ## Collateral Pool
 
@@ -331,6 +334,7 @@ For a cash-secured put atomic underwrite transaction:
 Seller collateral MUST be deposited in full 1:1, in other words fully collateralized.
 
 Premium and fee handling:
+- total premium calculation `premium_total = premium_per_contract * contracts_quantity` with checked `u64` overflow and abort on overflow.
 - buyer pays `premium_total` in `QuoteCoin`,
 - `operational_fee` is deducted from `premium_total`,
 - seller receives `premium_total - operational_fee`,

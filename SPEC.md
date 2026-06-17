@@ -190,7 +190,6 @@ type MakerOrderV1 = {
   cashPremiumPerContract: string // premium per 1 option contract in premium token decimals
   goodTillUnixTs: number
   makerVaultId: string // uniq maker vault id created in the protocol
-  quoteId: string // must match ExecutionRequest.quote.quoteId
   signer: string // EOA wallet address that manages maker protocol account
 }
 ```
