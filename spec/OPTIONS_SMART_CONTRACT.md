@@ -52,6 +52,14 @@ The market MUST store:
 
 The contract MUST reject operations for unsupported coin types.
 
+The contract MUST emit `MarketCreated` with:
+- market id,
+- oracle base symbol or id,
+- quote coin type,
+- base coin type,
+- oracle name,
+- oracle feed id.
+
 ## Series Object Model
 
 `Series` MUST be stored as a separate shared object.
@@ -126,6 +134,13 @@ The contract MUST enforce:
 - market coin types are supported,
 - no duplicate series exists for the same market, option type, strike, and expiry.
 
+The contract MUST emit `SeriesCreated` with:
+- series id,
+- market id,
+- option type,
+- strike,
+- expiry.
+
 ## Long Token Model
 
 Each `Long` token MUST contain:
@@ -197,7 +212,23 @@ Vault operations:
 - create_vault: records ctx.sender() as owner.
 - deposit: accepts Coin<QuoteCoin> and requires ctx.sender() == vault.owner.
 - withdraw: requires ctx.sender() == vault.owner.
-- Emit events for creation, deposits, and withdrawals.
+
+The contract MUST emit `BuyerVaultCreated` with:
+- buyer vault id,
+- owner,
+- quote coin type.
+
+The contract MUST emit `BuyerVaultDeposited` with:
+- buyer vault id,
+- owner,
+- quote coin type,
+- amount.
+
+The contract MUST emit `BuyerVaultWithdrawn` with:
+- buyer vault id,
+- owner,
+- quote coin type,
+- amount.
 
 
 ### BCS of OrderV1
@@ -309,6 +340,16 @@ The market MAY admin-configured maximum fee basis points. If present, the smart 
 
 Underwrite public functions MUST NOT be PTB composable.
 
+The contract MUST emit `Underwritten` with:
+- series id,
+- seller,
+- buyer,
+- quantity,
+- collateral deposited,
+- premium total,
+- protocol fee,
+- long token id.
+
 ## Strike Payment Calculation
 
 The contract MUST provide deterministic conversion between `BaseCoin` quantity and `QuoteCoin` strike payment.
@@ -380,6 +421,20 @@ Finalizing a valid expiration price MUST move the series from `Open` to `Expirat
 
 If no valid bounded price is finalized, exercise MUST remain blocked.
 
+The contract MUST emit `ExpiryPriceFinalized` with:
+- series id,
+- oracle name,
+- oracle feed id,
+- settlement price,
+- publish time,
+- price payload hash.
+
+When an ATM or OTM series is resolved without exercise, the contract MUST emit `SeriesNoExerciseResolved` with:
+- series id,
+- option type,
+- settlement price,
+- strike.
+
 ## Manual Physical Exercise
 
 Exercise is holder-initiated.
@@ -418,6 +473,14 @@ Exercise MUST abort if:
 - `Long` token option does not match `Series`,
 - `Long` token quantity is zero,
 - the internal `CollateralPool` of the given `Series` does not have enough collateral for the full provided `Long` token quantity.
+
+The contract MUST emit `Exercised` with:
+- series id,
+- holder,
+- option type,
+- quantity,
+- input asset amount,
+- output asset amount.
 
 ## Flash-Loan Exercise
 
@@ -485,6 +548,20 @@ The contract MUST NOT hard-code a DEX, lending protocol, swap route, or flash-lo
 
 The operation SHOULD support caller-provided minimum net claim amounts so exercise-by-exception caller can enforce slippage limits.
 
+The contract MUST emit `ExerciseByException` with:
+- series id,
+- option type,
+- quantity,
+- seller payment asset amount,
+- released collateral asset amount,
+- net claim asset amount,
+- claim pool id, if created.
+
+When the exception window ends with unexercised quantity, the contract MUST emit `ExceptionWindowExpired` with:
+- series id,
+- option type,
+- remaining unexercised quantity.
+
 ## Claim Pool Object Model
 
 The `ClaimPool` MUST be a separate object from the `Series` and `SellerVaults`. It SHOULD be created only after exercise-by-exception results in non-zero assets for remaining `Long` holders.
@@ -512,6 +589,14 @@ Claim rounding MUST favor pool solvency. The final valid claim MAY receive remai
 Claiming from the claim pool MUST NOT require loading the old `Series` object, seller vault records, or old collateral accounting.
 
 After exercise-by-exception completes and seller payout settlement for the series is complete, the old series and seller-vault storage SHOULD be closable so storage rebates can be claimed. The claim pool MAY remain on-chain independently until late holders claim or the pool is fully depleted and closed.
+
+The contract MUST emit `ClaimPoolClaimed` with:
+- claim pool id,
+- series id,
+- holder,
+- long token id,
+- quantity,
+- claim asset amount.
 
 ## Seller Settlement
 
@@ -549,6 +634,19 @@ Seller settlement MUST abort if:
 
 Rounding dust MUST remain in the internal `CollateralPool` of the `Series` and MUST be recoverable only through admin recovery after the recovery delay.
 
+Each seller payout MUST emit `SellerPayoutSettled` with:
+- series id,
+- seller,
+- short quantity,
+- base paid,
+- quote paid.
+
+Each completed settlement batch MUST emit `SeriesSettlementBatchCompleted` with:
+- series id,
+- settled seller count,
+- base paid total,
+- quote paid total.
+
 ## Accounting Invariant
 
 Rules that must always stay true so the contract cannot lose track of who is owed what.
@@ -581,105 +679,6 @@ The contract MUST emit enough events for wallets, indexers, and keepers to disco
 - claim pool claims,
 - series-level or batched seller settlement.
 
-## On-Chain Events
-
-The contract MUST emit events for:
-
-`MarketCreated`
-- market id,
-- oracle base symbol or id,
-- quote coin type,
-- base coin type,
-- oracle name
-- oracle feed id.
-
-`SeriesCreated`
-- series id,
-- market id,
-- option type,
-- strike,
-- expiry.
-
-`Underwritten`
-- series id,
-- seller,
-- buyer,
-- quantity,
-- collateral deposited,
-- premium total,
-- protocol fee,
-- long token id.
-
-`ExpiryPriceFinalized`
-- series id,
-- oracle name
-- oracle feed id,
-- settlement price,
-- publish time,
-- price payload hash.
-
-`SeriesNoExerciseResolved`
-- series id,
-- option type,
-- settlement price,
-- strike.
-
-`Exercised`
-- series id,
-- holder,
-- option type,
-- quantity,
-- input asset amount,
-- output asset amount.
-
-`ExerciseByException`
-- series id,
-- option type,
-- quantity,
-- seller payment asset amount,
-- released collateral asset amount,
-- net claim asset amount,
-- claim pool id, if created.
-
-`ExceptionWindowExpired`
-- series id,
-- option type,
-- remaining unexercised quantity.
-
-`ClaimPoolClaimed`
-- claim pool id,
-- series id,
-- holder,
-- long token id,
-- quantity,
-- claim asset amount.
-
-`SellerPayoutSettled`
-- series id,
-- seller,
-- short quantity,
-- base paid,
-- quote paid.
-
-`SeriesSettlementBatchCompleted`
-- series id,
-- settled seller count,
-- base paid total,
-- quote paid total.
-
-`Paused`
-- admin.
-
-`Unpaused`
-- admin.
-
-`AdminRecovered`
-- admin,
-- asset type,
-- amount,
-- recipient,
-- reason code.
-
 ## Pause
 
 The admin pause MUST be applied per market.
@@ -696,6 +695,12 @@ When a market is paused:
 
 Pause authority MUST be held by an admin capability.
 
+Pausing a market MUST emit `Paused` with:
+- admin.
+
+Unpausing a market MUST emit `Unpaused` with:
+- admin.
+
 ## Admin Recovery
 
 Admin recovery MUST be limited to:
@@ -708,6 +713,13 @@ Admin recovery MUST NOT withdraw collateral required for open, exercisable, or u
 Admin recovery MUST NOT withdraw claim-pool balances owed to unclaimed `Long` tokens.
 
 Admin recovery MUST emit `AdminRecovered`.
+
+`AdminRecovered` MUST contain:
+- admin,
+- asset type,
+- amount,
+- recipient,
+- reason code.
 
 ## Public Function Surface
 
