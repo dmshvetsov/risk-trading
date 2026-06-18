@@ -43,12 +43,12 @@ The on-chain token model is specified in `spec/OPTIONS_SMART_CONTRACT.md`.
 
 `<oracle base coin symbol 3-5 chars>-<oracle quote coin symbol also used as "cash" token 3-5 chars>-<base coin symbol 3-5 chars>-<DDMMMYY format expiration date>-<strike price either flaoting point number 0. or whole 150 but not both>-<call/put marker C or P char>`
 
-Examples:
-- `BTC-USDT-WBTC-5JUN26-75000-C` options uses $BTC price, $USDT quote and "cash" for premium and deposit, $WBTC as collateral in Call option with expiration date 5 June 2026 and strike price 75000 in $USDT
-- `BTC-USDT-WBTC-28AUG26-68000-P` options uses $BTC price, $USDT quote and "cash" for premium and deposit, $WBTC as asset in Put option with expiration date 28 August 2026 and with strike price 68000 in $USDT
-- `BTC-USDC-HBTC-5JUN26-68000-P` options uses $BTC price, $USDC quote and "cash" for premium and deposit, $HBTC (hashi BTC) as asset in Put option with expiration date 5 June 2026 and with a strike price 68000 in $USDC
+Ticker schema examples:
+- `BTC-USDT-WBTC-5JUN26-75000-C` options uses $BTC price, $USDT quote "cash" for premium, $WBTC base coin as collateral in Call option with expiration date 5 June 2026 and strike price 75000 in $USDT
+- `BTC-USDT-WBTC-28AUG26-68000-P` options uses $BTC price, $USDT quote "cash" for premium and deposit, $WBTC as base coin in Put option with expiration date 28 August 2026 and with strike price 68000 in $USDT
+- `BTC-USDC-HBTC-5JUN26-68000-P` options uses $BTC price, $USDC quote "cash" for premium and deposit, $HBTC (hashi BTC) as base coin in Put option with expiration date 5 June 2026 and with a strike price 68000 in $USDC
 - `BTC-USDC-TBTC-5JUN26-1002000-C`
-- `SUI-USDC-SUI-5JUN26-0.97-C` options uses $SUI price, $USDC quote for base $SUI and "cash" for premium and deposit, $SUI as collateral
+- `SUI-USDC-SUI-5JUN26-0.97-C` options uses $SUI price, $USDC quote for base $SUI and "cash" for premium, $SUI base coin as collateral
 - `SUI-USDC-HASUI-5JUN26-0.72-P`
 - `DEEP-USDC-DEEP-5JUN26-0.035-C`
 
@@ -199,7 +199,7 @@ Responsible to broadcast off-chain agreed contract between taker and maker to Su
 
 MUST implement API for:
 - request for required parameters to build a Sui PTB for takers to underwrite an option contract for a given quote
-- settlement API that can be triggered by Cloduflare Scheduled job (Cron) or manually by an administrator of the protocol Operations team
+- API to call on-chain settlement, that can be triggered by Cloduflare Scheduled job (Cron) or with authorized HTTP API request
 - submitting transaction on-chain
 
 MUST implement Cloudflare queues for transaction submission where sequential processing is required by shared on-chain object access.
@@ -213,12 +213,12 @@ User interface for takers and makers.
 MUST be mobile fist application.
 
 MUST implement following pages:
-- Home page with supported assets and call to action to open an option contract.
-- Option quote builder page for a selected asset and contract type, including strike selection, expiry selection, position size input, collateral requirements, quoted premium, oracle spot price, expected expiry outcome of the contracts if price stay above equal or below strike. Must request another quote if current expires. Must have a CTA that triggers an on-chain transaction.
+- Home page with supported assets and call to action to earn instant payout (premium) for selling cash secured put and covered calls
+- Taker option request for quotes builder page for a selected asset and contract type, including strike selection, expiry selection, position size input, collateral requirements, quoted premium, oracle spot price, expected expiry outcome of the contracts if price stay above and below-or-equal to strike. Must request another quote if current expires. Must have a CTA that triggers an underwrite on-chain transaction.
 - Taker dashboard page showing open positions with indication what will happen if expiration and settlement will be now, settled positions, expired positions, pending settlement, with data for position: spot/current oracle price (if open position) otherwise price at expiration, strike, premium
 - Maker dashboard page showing open positions, ITM/OTM status, required settlement funds, settlement readiness, and settlement history
 
-Taker UI MUST use simple language. MUST NOT mention of options or derivatives.
+Home page and Taker UI MUST use simple language. MUST NOT mention of options or derivatives.
 
 Maker UI MUST use professional option trader language.
 
