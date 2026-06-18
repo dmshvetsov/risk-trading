@@ -1,0 +1,21 @@
+name = "rfq-server"
+main = "src/index.ts"
+compatibility_date = "2026-06-18"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rfq-server-db"
+database_id = "local-rfq-server-db"
+migrations_dir = "migrations"
+
+[[durable_objects.bindings]]
+name = "QUOTES"
+class_name = "QuoteStore"
+
+[[queues.producers]]
+binding = "BROADCAST_QUEUE"
+queue = "broadcast-server-submissions"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuoteStore"]

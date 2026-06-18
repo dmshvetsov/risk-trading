@@ -1,0 +1,8 @@
+name = "broadcast-server"
+main = "src/index.ts"
+compatibility_date = "2026-06-18"
+
+[[queues.consumers]]
+queue = "broadcast-server-submissions"
+max_batch_size = 1
+max_batch_timeout = 1
