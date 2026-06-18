@@ -279,8 +279,6 @@ struct OrderV1 has copy, drop {
 
 OrderV1 signature MUST be standard Sui serialized Ed25519 signature blob. Verify the signature against `SignedOrderV1.public_key` using Sui's personal-message flow and check the `SignedOrderV1.public_key` derived address equals `OrderV1.signer`, `OrderV1` `signer` MUST be address of a public key that produced the `OrderV1` signature.
 
-
-
 ## Collateral Pool
 
 `CollateralPool` MUST be an internal wrapped/nested object inside `Series`.
@@ -651,7 +649,7 @@ Seller settlement MUST abort if:
 - series does not exist,
 - settlement arithmetic would overdraw the internal `CollateralPool` of the `Series`.
 
-Rounding dust MUST remain in the internal `CollateralPool` of the `Series` and MUST be recoverable only through admin recovery after the recovery delay.
+Rounding dust MUST remain in the internal `CollateralPool` of the `Series` and MUST be recoverable only through admin recovery after `series.state == Closed` and `now >= series.exception_window_end_ms` and `now >= series.exercise_window_end_ms` and all seller payouts, manual exercises for given `Series` are fully accounted and settled, only the remaining unreserved balance may be recovered.
 
 Each seller payout MUST emit `SellerPayoutSettled` with:
 - series id,
@@ -724,7 +722,7 @@ Unpausing a market MUST emit `Unpaused` with:
 
 Admin recovery MUST be limited to:
 - excess balances not reserved by accounting,
-- rounding dust after a conservative recovery delay,
+- series collateral pool rounding dust after collateral pool is fully settlement and series is closed,
 - unsupported objects or coins accidentally sent to auxiliary admin-controlled objects, if technically possible.
 
 Admin recovery MUST NOT withdraw collateral required for open, exercisable, or unsettled series.
