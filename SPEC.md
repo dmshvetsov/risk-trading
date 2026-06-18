@@ -32,7 +32,7 @@ Process in high-level flow for makers:
 ## Technical Stack
 
 - Sui blockchain, and Move Language for smart contracts,
-- Cloudflare (workers, durable object, cache API, cron, queues) written in Rust language
+- Cloudflare (workers, durable object, cache API, cron, queues) written in TypeScript
 - Cloudflare D1 database
 
 ### Token
@@ -60,13 +60,11 @@ The smart contract design, object model, underwriting, exercise, settlement, and
 
 ### 2. Server (Off-chain infrastructure)
 
-Implemented as Cloudflare workers.
-
-#### 2.1 CRUD and RFQ Server
+#### 2.1 RFQ and CRUD API Server
 
 Responsible to handle create, read, update, delete actions on the server database that required to facilitate main activity of the protocol explained in `## What the protocol does`
 
-Implemented using Cloudflare Workers infrastructure and written in Rust programming language and `worker-rs` crate.
+Implemented using Cloudflare Workers infrastructure.
 
 MUST implement API for:
 - request for quote
@@ -194,6 +192,8 @@ type SignedMakerOrderV1Response = {
 `orderHash` MUST be `blake2b256(bcs(OrderV1))`. Smart contracts MUST compute `orderHash` from canonical `OrderV1` BCS bytes and MUST NOT trust a caller-provided hash.
 
 #### 2.2 Broadcast Server
+
+Implemented using Cloudflare Workers infrastructure.
 
 Responsible to broadcast off-chain agreed contract between taker and maker to Sui blockchain.
 
