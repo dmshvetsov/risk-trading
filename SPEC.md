@@ -74,9 +74,9 @@ MUST use Cloudflare Durable Object as a way to store provided quotes and their e
 
 ### How Integration with Market Makers works
 
-Makers API MUST implement endpoint `POST /otp/rfq/quote` to provide time bound contracts quantity bound quotes
+Makers API MUST implement endpoint to receive quote API calls to be able to provide time bound contracts quantity bound quotes
 
-Makers API MUST implement endpoint `POST /otp/rfq/order` to provide order
+Makers API MUST implement endpoint to receive order API calls to be able to provide buy orders
 
 Makers MUST use a wallet associated with their protocol account to sign quotes and orders.
 
@@ -232,7 +232,7 @@ MUST use Pyth Sui API oracle to submit prices at time of expiration on-chain.
 
 ### Supported assets / cash pairs in the protocol
 
-- Bitcoin / USDC
+- OracleBase: Bitcoin / QuoteCoin: USDC / 
   - Sui contracts (collateral address) `0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC` with `WBTC` ticker, for reference https://www.coingecko.com/en/coins/wrapped-bitcoin
   - Pyth oracle: `Crypto.BTC/USD` symbol and price feed id `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`
   - 1 option contract = 1 BTC, partial contracts for example 0.05, 0.1, 0.95 are allowed
@@ -240,8 +240,23 @@ MUST use Pyth Sui API oracle to submit prices at time of expiration on-chain.
 
 ## Premium
 
-Always paid in "cash" token of option contract.
+Always paid in `BaseCoin` "cash" token of option contract.
 
 ## Protocol Fees
 
-Protocol fees MUST not be disclosure in seller/taker UI.
+Protocol fees MUST not be disclosure in seller/taker UI. Paid in `BaseCoin`. Fee recipient address and fee basis points from asked by Maker premium MUST be specified per each underwriting transaction.
+
+## Vault minimal required amount to be eligible
+
+Handled case by case by in business agreement between admins/operators of the application with market makers
+
+## Features and User Stories
+
+### Maker on boarding and Maker quote and buy order issuing readiness 
+
+- as a maker i want to open special for market makers hidden page "Maker Dashboard" on web UI to see my status: my open vaults for the currently connected wallet and their balances, these vaults statuses approved/not for issuing quotes and orders against these vaults, current URL for quote endpoint, current URL for order endpoint
+- as a maker on my dashboard i want to create a new vault with a specific QuoteCoin (from the list of available to trade QuoteCoin), with quote endpoint URL for RFQ server, with order endpoint URL for RFQ server, so i can later deposit at least minimal amount of QuoteCoin to be able to become eligible to issuing quotes and order against this vault
+- as a maker I want to be able to update RFQs server quote and order endpoints URLs for a specific vault
+- as a maker I want to be able to deposit and withdraw correspond QuoteCoin from a vault that I own to vault owner wallet
+
+- as server admin I want to issue a Cloudflare command (direct db query, API call, etc UI not required) to switch on/off ability to receive RFQs, issue quotes and buy orders for a specific maker's vault
