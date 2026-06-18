@@ -1,0 +1,31 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fontsource-variable/noto-sans": "^5.2.10",
+    "@fontsource-variable/playfair-display": "^5.2.8",
+    "@mysten/dapp-kit": "^1.0.6",
+    "@mysten/sui": "^2.16.2",
+    "@tanstack/react-router": "1.169.2",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "25.7.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
+    "tailwindcss": "^4.3.0",
+    "typescript": "6.0.3",
+    "vite": "8.0.12",
+    "vitest": "^4.0.15"
+  }
+}

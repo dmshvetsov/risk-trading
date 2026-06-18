@@ -1,0 +1,140 @@
+import React, { lazy, Suspense } from "react";
+import {
+  Link,
+  Outlet,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from "@tanstack/react-router";
+import { useCurrentAccount } from "@mysten/dapp-kit";
+
+import { AppShell } from "./components/app-shell";
+import { ErrorPanel } from "./components/error-panel";
+import { LoadingPanel } from "./components/loading-panel";
+import { getWalletLabel } from "./lib/wallet";
+
+const HomePage = lazy(() => import("./pages/home-page"));
+const TakerShellPage = lazy(() => import("./pages/taker-shell-page"));
+const MakerShellPage = lazy(() => import("./pages/maker-shell-page"));
+const TakerShellIndexPage = lazy(() => import("./pages/taker-shell-index-page"));
+const MakerShellIndexPage = lazy(() => import("./pages/maker-shell-index-page"));
+const SharedStatesPage = lazy(() => import("./pages/shared-states-page"));
+
+class RouteErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <ErrorPanel
+          title="This screen is unavailable"
+          message="Refresh the page or return home while we reconnect."
+        />
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function RootLayout() {
+  const account = useCurrentAccount();
+
+  return (
+    <AppShell walletLabel={getWalletLabel(account?.address ?? null)}>
+      <RouteErrorBoundary>
+        <Suspense fallback={<LoadingPanel message="Loading the next screen..." />}>
+          <Outlet />
+        </Suspense>
+      </RouteErrorBoundary>
+    </AppShell>
+  );
+}
+
+const rootRoute = createRootRoute({
+  component: RootLayout,
+});
+
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+  component: HomePage,
+});
+
+const takerShellRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/taker",
+  component: () => (
+    <TakerShellPage>
+      <Outlet />
+    </TakerShellPage>
+  ),
+});
+
+const makerShellRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/maker",
+  component: () => (
+    <MakerShellPage>
+      <Outlet />
+    </MakerShellPage>
+  ),
+});
+
+const sharedStatesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/states",
+  component: SharedStatesPage,
+});
+
+const takerShellIndexRoute = createRoute({
+  getParentRoute: () => takerShellRoute,
+  path: "/",
+  component: TakerShellIndexPage,
+});
+
+const makerShellIndexRoute = createRoute({
+  getParentRoute: () => makerShellRoute,
+  path: "/",
+  component: MakerShellIndexPage,
+});
+
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  takerShellRoute.addChildren([takerShellIndexRoute]),
+  makerShellRoute.addChildren([makerShellIndexRoute]),
+  sharedStatesRoute,
+]);
+
+export const router = createRouter({
+  routeTree,
+  defaultPendingComponent: () => (
+    <LoadingPanel message="Loading the next screen..." />
+  ),
+  defaultErrorComponent: () => (
+    <ErrorPanel
+      title="Something went wrong"
+      message="Try again in a moment."
+    />
+  ),
+  defaultNotFoundComponent: () => (
+    <ErrorPanel
+      title="Page not found"
+      message="Use the menu to return to a supported screen."
+      actions={<Link to="/">Go home</Link>}
+    />
+  ),
+});
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}
