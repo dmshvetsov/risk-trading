@@ -12,20 +12,22 @@ This document uses `./DOMAIN-LANGUAGE.md` as way to describe option trading spec
 
 ## What the protocol does
 
-- the protocol facilitates trades between two parties, takers "DeFi participants" and makers "Market Makers"
-- on-chain option roles, collateral movement, token ownership, exercise, and settlement are specified in `spec/OPTIONS_SMART_CONTRACT.md`
+The protocol facilitates trades between two parties, "DeFi participants" as takers or option sellers and makers "Market Makers" as option buyers, these are two types of application users
+
+Takers are selling options, thus they are protocol option sellers. Makers buying options, thus they are protocol option buyers.
 
 Process in high-level flow for takers:
 - taker visits the protocol web application (UI)
 - taker picks contract type "covered call" or "cash secured put" and contract expiration date weekly or monthly
 - taker use the protocol web application to receive best quote from integrated to the protocol makers for given contract type call/put, asset collateral, cash token and expiration date
-- taker agrees to a quote and signs a blockchain transaction sent through the protocol server
+- taker agrees to a quote and signs a blockchain transaction with maker's buy order and 
 - protocol server broadcasts it to Sui Blockchain
 
 Process in high-level flow for makers:
 - maker integrates their API to the protocol server by implementing an endpoint(s) that returns quotes for takers
-- maker meets protocol eligibility requirements to participate in RFQ flow
-- maker provides signed quotes and orders that are executed on-chain according to `spec/OPTIONS_SMART_CONTRACT.md`
+- maker meets protocol eligibility requirements to participate in RFQ flow by depositing minimal `QuoteCoin` amount of to their on-chain buyer vault
+- maker provides signed quotes for taker
+- maker signs orders for quotes terms that takers chosen to underwrite (sell) an option, taker underwrite transaction with maker's order executed on-chain according to `spec/OPTIONS_SMART_CONTRACT.md`
 
 ## Technical Stack
 
@@ -33,22 +35,13 @@ Process in high-level flow for makers:
 - Cloudflare (workers, durable object, cache API, cron, queues) written in Rust language
 - Cloudflare D1 database
 
-## Option implementation
-
-On-chain option contract consist of:
-- underlying assets with an oracle spot price
-- collateral asset
-  - can be the same underlying asset like $SUI same underlying and collateral
-  - or liquid version $sSUI as collateral for $SUI underlying
-  - or wrapped version $WBTC as collateral for $BTC underlying
-
 ### Token
 
 The on-chain token model is specified in `spec/OPTIONS_SMART_CONTRACT.md`.
 
 ### Ticker schema
 
-`<oracle base symbol 3-5 chars>-<oracle quote symbol also used as "cash" token 3-5 chars>-<collateral symbol 3-5 chars>-<DDMMMYY format expiration date>-<strike price either flaoting point number 0. or whole 150 but not both>-<call/put marker C or P char>`
+`<oracle base coin symbol 3-5 chars>-<oracle quote coin symbol also used as "cash" token 3-5 chars>-<base coin symbol 3-5 chars>-<DDMMMYY format expiration date>-<strike price either flaoting point number 0. or whole 150 but not both>-<call/put marker C or P char>`
 
 Examples:
 - `BTC-USDT-WBTC-5JUN26-75000-C` options uses $BTC price, $USDT quote and "cash" for premium and deposit, $WBTC as collateral in Call option with expiration date 5 June 2026 and strike price 75000 in $USDT
@@ -91,23 +84,21 @@ Makers MUST use a wallet associated with their protocol account to sign quotes a
 
 Makers MUST sign quotes with the wallet used to create `Maker` account.
 
-Makers MUST sign order with takers size and taker address. Order signature MUST be submitted on-chain and logged in underwrite event.
+Makers as a buyer MUST sign off-chain non transaction buy order messages with takers size and taker address. Order signature and public key used to sign it MUST be submitted on-chain and logged in underwrite event. Public key must be owner of the Maker vault that will be used to pay for buy order.
 
 Maker `QuoteV1` signed messages MUST be treated as reusable, short-lived off-chain offers to buy options and MUST NOT authorize premium payment and/or token purchase. A maker MUST authorize `Long` buy and authorizes payment of the specified premium only by signing `OrderV1`.
 
-The same signed quote MAY be used by multiple takers while `offerValidUntilUnixTs` has not passed or `offerValidUntilTotalContractsQty` is not exceeded and on-chain underwriting requirements can be satisfied. When RFQ server sends a transaction to Broadcaster it MUST deduct order quantity from current quote `offerValidUntilTotalContractsQty`, RFQ MUST not track if transaction was actually broadcasted on-chain thus the server does not guarantees to maker that his quote will be filled right up to `offerValidUntilTotalContractsQty`. RFQ server MUST NOT send more contracts quantity than `offerValidUntilTotalContractsQty` of current quote.
+The same signed quote MAY be used by multiple takers while `offerValidUntilUnixMs` has not passed or `offerValidUntilTotalContractsQty` is not exceeded and on-chain underwriting requirements can be satisfied. When RFQ server sends a transaction to Broadcaster it MUST deduct order quantity from current quote `offerValidUntilTotalContractsQty`, RFQ MUST not track if transaction was actually broadcasted on-chain thus the server does not guarantees to maker that his quote will be filled right up to `offerValidUntilTotalContractsQty`. RFQ server MUST NOT send more contracts quantity than `offerValidUntilTotalContractsQty` of current quote.
 
 ### Signed quote and order messages
 
-JSON in this API is transport format only. Makers MUST NOT sign JSON bytes directly.
-
 Quotes and orders MUST be signed as versioned BCS structs: `QuoteV1` and `OrderV1`. Field order MUST be exactly the order shown in `MakerQuoteV1` and `MakerOrderV1`. String amounts MUST be parsed as base-unit unsigned integers before BCS serialization. Addresses MUST use canonical Sui address bytes. Missing, null, extra, floating-point, or wrongly scaled fields MUST be rejected.
 
-Each signed struct MUST include a `domain` field. Quote domain MUST be `otp:makerquote:v1`. Order domain MUST be `otp:makerorder:v1`.
+Each signed struct MUST include a `domain` field. Quote domain MUST be `otp:quote:v1`. Order domain MUST be `otp:order:v1`.
 
-Signature scheme for v1 MUST be Sui personal-message signing over the BCS bytes with Ed25519 keys. RFQ server MUST verify `MakerQuoteV1` and `MakerOrderV1` signatures. Smart contracts MUST verify `MakerOrderV1` domain, BCS bytes, signer address, and signature before underwriting.
+Signature scheme for v1 MUST be Sui personal-message signing over the BCS bytes with Ed25519 keys. RFQ server MUST verify `MakerQuoteV1` and `MakerOrderV1` signatures.
 
-RFQ server MUST send quote to the order endpoint only for maker that created this quote.
+RFQ server MUST send quote to the Makers order endpoint only for maker that created this quote.
 
 
 ```
@@ -123,10 +114,8 @@ type QuoteRequest = {
     callPutMarker: 1 | 2 // u8 1: call 2: put
     longShortMarker: 1 | 2 // u8 1: long (buy option) 2: short (sell option)
     strikePriceDecimals: string // uses configured Pyth oracle exponent
-    expiryUnixTs: number
+    expiryUnixMs: number
     contractsQtyDecimals: string // uses collateralTokenDecimals
-    protocolPackageId: string // protocol package id
-    chainId: 'sui:mainnet' | 'sui:testnet'
   }
 }
 ```
@@ -145,14 +134,12 @@ type MakerQuoteV1 = {
   callPutMarker: 1 | 2 // u8 1: call 2: put, must match quote request
   longShortMarker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
   strikePriceDecimals: string // uses configured Pyth oracle exponent, must match quote request
-  expiryUnixTs: number
+  expiryUnixMs: number
   signer: string // EOA wallet that manages maker protocol account
   cashPremiumPerContract: string // premium per 1 option contract in premium token decimals, cashTokenAddress is used for premium
   offerValidUntilTotalContractsQtyDecimals: string // must be >= contractsQtyDecimals of the request, uses collateralTokenDecimals
-  offerValidUntilUnixTs: number
+  offerValidUntilUnixMs: number
   makerId: string // uniq maker id created in the protocol database
-  protocolPackageId: string // must match quote request
-  chainId: 'sui:mainnet' | 'sui:testnet' // must match quote request
 }
 ```
 
@@ -174,21 +161,17 @@ type ExecutionRequest = {
 
 ```
 type MakerOrderV1 = {
-  domain: 'otp:makerorder:v1'
-  protocolPackageId: string
-  chainId: 'sui:mainnet' | 'sui:testnet' // must match quote request
-  takerAddress: string // must match ExecutionRequest.takerAddress
-  collateralTokenAddress: string // must match quote request and derived vault
-  collateralTokenDecimals: number
-  cashTokenAddress: string // must match quote request, also will be used to pay premium
-  cashTokenDecimals: number
+  domain: 'otp:order:v1'
+  takerAddress: string // must match ExecutionRequest.takerAddress, on-chain seller addres
+  marketId: string,
+  seriesId: string,
   callPutMarker: 1 | 2 // u8 1: call 2: put, must match quote request
   sideMarker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
   strikePriceDecimals: string // uses configured Pyth oracle exponent, must match quote request and derived vault
-  expiryUnixTs: number
+  expiryUnixMs: number // unix milliseconds
   contractsQtyDecimals: string // uses collateralTokenDecimals
   cashPremiumPerContract: string // premium per 1 option contract in premium token decimals
-  goodTillUnixTs: number
+  goodTillUnixMs: number // unix milliseconds
   makerVaultId: string // uniq maker vault id created in the protocol
   signer: string // EOA wallet address that manages maker protocol account
 }
@@ -200,6 +183,10 @@ type ExecutionResponse = {
   orderSignature: string // signature of canonical MakerOrderV1 BCS bytes
 }
 ```
+
+`MakerQuoteV1` is used only off-chain.
+
+`MakerOrderV1` type is used to produce corresponding on-chain `OrderV1` object using Sui BCS, exact match of fields names between the two objects MAY NOT required because of nature of BCS, order of fields MUST match between the two objects. Names for `MakerOrderV1` are taken to better represent the off-chain domain of the application.
 
 `offerValidUntilTotalContractsQty` MUST be tracked by RFQ server and is not validated on-chain.
 

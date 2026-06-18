@@ -12,6 +12,8 @@ Aim to build a strong projects that is useful and grounded in real user needs. S
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
 
+Use beads issue tracker only work that required code changes unless explicitly specified otherwise.
+
 ### Quick Reference
 
 ```bash
