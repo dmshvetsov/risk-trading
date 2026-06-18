@@ -1,14 +1,40 @@
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 
 import { AppChrome } from "./components/app-shell";
 import { HomePage } from "./pages/home-page";
 import { MakerShellPage } from "./pages/maker-shell-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
 import { TakerShellPage } from "./pages/taker-shell-page";
+import { SuiProviders } from "./components/sui-providers";
+import { getRouter } from "./router";
 
 describe("App shell", () => {
+  it("renders the home route at slash", async () => {
+    const testRouter = getRouter(
+      createMemoryHistory({
+        initialEntries: ["/"],
+      }),
+    );
+    const queryClient = new QueryClient();
+
+    await testRouter.load();
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <SuiProviders>
+          <RouterProvider router={testRouter} />
+        </SuiProviders>
+      </QueryClientProvider>,
+    );
+
+    assert.match(html, /Earn cash upfront/i);
+    assert.match(html, /Open the taker shell/i);
+  });
+
   it("shows mobile-first navigation and wallet session messaging", () => {
     const html = renderToStaticMarkup(
       <AppChrome

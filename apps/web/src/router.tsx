@@ -1,24 +1,25 @@
-import React, { lazy, Suspense } from "react";
+import React, { Suspense } from "react";
 import {
   Link,
   Outlet,
+  createBrowserHistory,
   createRootRoute,
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
+import type { RouterHistory } from "@tanstack/react-router";
 import { useCurrentAccount } from "@mysten/dapp-kit";
 
 import { AppShell } from "./components/app-shell";
 import { ErrorPanel } from "./components/error-panel";
 import { LoadingPanel } from "./components/loading-panel";
 import { getWalletLabel } from "./lib/wallet";
-
-const HomePage = lazy(() => import("./pages/home-page"));
-const TakerShellPage = lazy(() => import("./pages/taker-shell-page"));
-const MakerShellPage = lazy(() => import("./pages/maker-shell-page"));
-const TakerShellIndexPage = lazy(() => import("./pages/taker-shell-index-page"));
-const MakerShellIndexPage = lazy(() => import("./pages/maker-shell-index-page"));
-const SharedStatesPage = lazy(() => import("./pages/shared-states-page"));
+import HomePage from "./pages/home-page";
+import TakerShellPage from "./pages/taker-shell-page";
+import MakerShellPage from "./pages/maker-shell-page";
+import TakerShellIndexPage from "./pages/taker-shell-index-page";
+import MakerShellIndexPage from "./pages/maker-shell-index-page";
+import SharedStatesPage from "./pages/shared-states-page";
 
 class RouteErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -106,35 +107,38 @@ const makerShellIndexRoute = createRoute({
   component: MakerShellIndexPage,
 });
 
-const routeTree = rootRoute.addChildren([
+export const routeTree = rootRoute.addChildren([
   indexRoute,
   takerShellRoute.addChildren([takerShellIndexRoute]),
   makerShellRoute.addChildren([makerShellIndexRoute]),
   sharedStatesRoute,
 ]);
 
-export const router = createRouter({
-  routeTree,
-  defaultPendingComponent: () => (
-    <LoadingPanel message="Loading the next screen..." />
-  ),
-  defaultErrorComponent: () => (
-    <ErrorPanel
-      title="Something went wrong"
-      message="Try again in a moment."
-    />
-  ),
-  defaultNotFoundComponent: () => (
-    <ErrorPanel
-      title="Page not found"
-      message="Use the menu to return to a supported screen."
-      actions={<Link to="/">Go home</Link>}
-    />
-  ),
-});
+export function getRouter(history?: RouterHistory) {
+  return createRouter({
+    routeTree,
+    history: history ?? createBrowserHistory(),
+    defaultPendingComponent: () => (
+      <LoadingPanel message="Loading the next screen..." />
+    ),
+    defaultErrorComponent: () => (
+      <ErrorPanel
+        title="Something went wrong"
+        message="Try again in a moment."
+      />
+    ),
+    defaultNotFoundComponent: () => (
+      <ErrorPanel
+        title="Page not found"
+        message="Use the menu to return to a supported screen."
+        actions={<Link to="/">Go home</Link>}
+      />
+    ),
+  });
+}
 
 declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router;
+    router: ReturnType<typeof getRouter>;
   }
 }

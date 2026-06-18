@@ -146,6 +146,9 @@ importers:
       '@mysten/sui':
         specifier: ^2.16.2
         version: 2.16.2(typescript@6.0.3)
+      '@tanstack/react-query':
+        specifier: ^5.100.10
+        version: 5.100.10(react@19.2.6)
       '@tanstack/react-router':
         specifier: 1.169.2
         version: 1.169.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
