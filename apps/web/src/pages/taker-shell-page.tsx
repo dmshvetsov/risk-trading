@@ -9,7 +9,7 @@ import {
 
 export function TakerShellPage({ children }: PropsWithChildren) {
   return (
-    <div className="page-stack">
+    <div className="grid gap-6">
       <PageSection
         eyebrow="Taker shell"
         title="Wallet-gated seller routes mount here"

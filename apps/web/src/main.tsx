@@ -1,5 +1,4 @@
-import "@fontsource-variable/noto-sans";
-import "@fontsource-variable/playfair-display";
+import "@fontsource-variable/inter/index.css";
 import "@mysten/dapp-kit/dist/index.css";
 import "./styles.css";
 

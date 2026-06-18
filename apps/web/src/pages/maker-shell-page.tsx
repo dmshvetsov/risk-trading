@@ -9,7 +9,7 @@ import {
 
 export function MakerShellPage({ children }: PropsWithChildren) {
   return (
-    <div className="page-stack">
+    <div className="grid gap-6">
       <PageSection
         eyebrow="Maker shell"
         title="Professional options language starts here"

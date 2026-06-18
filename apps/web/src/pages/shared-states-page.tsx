@@ -4,7 +4,7 @@ import { PageSection } from "../components/page-section";
 
 export function SharedStatesPage() {
   return (
-    <div className="page-stack">
+    <div className="grid gap-6">
       <PageSection
         eyebrow="Shared states"
         title="Reusable loading and error shells"
