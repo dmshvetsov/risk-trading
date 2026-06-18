@@ -104,18 +104,18 @@ RFQ server MUST send quote to the Makers order endpoint only for maker that crea
 ```
 type QuoteRequest = {
   request: {
-    oracleBaseSymbol: string      // for example eBTC
-    oracleQuoteSymbol: string     // for example USD
-    oracleFeedId: string          // Pyth BTC/USD feed
-    collateralTokenAddress: string
-    collateralTokenDecimals: number
-    cashTokenAddress: string // also will be used to pay premium
-    cashTokenDecimals: number
-    callPutMarker: 1 | 2 // u8 1: call 2: put
-    longShortMarker: 1 | 2 // u8 1: long (buy option) 2: short (sell option)
-    strikePriceDecimals: string // uses configured Pyth oracle exponent
-    expiryUnixMs: number
-    contractsQtyDecimals: string // uses collateralTokenDecimals
+    oracle_base_symbol: string      // for example eBTC
+    oracle_quote_symbol: string     // for example USD
+    oracle_feed_id: string          // Pyth BTC/USD feed
+    collateral_token_address: string
+    collateral_token_decimals: number
+    cash_token_address: string // also will be used to pay premium
+    cash_token_decimals: number
+    call_put_marker: 1 | 2 // u8 1: call 2: put
+    long_short_marker: 1 | 2 // u8 1: long (buy option) 2: short (sell option)
+    strike_price_decimals: string // uses configured Pyth oracle exponent
+    expiry_unix_ms: number
+    contracts_qty_decimals: string // uses collateralTokenDecimals
   }
 }
 ```
@@ -123,64 +123,65 @@ type QuoteRequest = {
 ```
 type MakerQuoteV1 = {
   domain: 'otp:makerquote:v1'
-  quoteId: string; // 36 chars long max
-  oracleBaseSymbol: string      // for example eBTC
-  oracleQuoteSymbol: string     // for example USD
-  oracleFeedId: string          // Pyth BTC/USD feed
-  collateralTokenAddress: string // must match quote request
-  collateralTokenDecimals: number
-  cashTokenAddress: string // must match quote request, also will be used to pay premium
-  cashTokenDecimals: number
-  callPutMarker: 1 | 2 // u8 1: call 2: put, must match quote request
-  longShortMarker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
-  strikePriceDecimals: string // uses configured Pyth oracle exponent, must match quote request
-  expiryUnixMs: number
+  quote_id: string; // 36 chars long max
+  oracle_base_symbol: string      // for example eBTC
+  oracle_quote_symbol: string     // for example USD
+  oracle_feed_id: string          // Pyth BTC/USD feed
+  collateral_token_address: string // must match quote request
+  collateral_token_decimals: number
+  cash_token_address: string // must match quote request, also will be used to pay premium
+  cash_token_decimals: number
+  call_put_marker: 1 | 2 // u8 1: call 2: put, must match quote request
+  long_short_marker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
+  strike_price_decimals: string // uses configured Pyth oracle exponent, must match quote request
+  expiry_unix_ms: number
   signer: string // EOA wallet that manages maker protocol account
-  cashPremiumPerContract: string // premium per 1 option contract in premium token decimals, cashTokenAddress is used for premium
-  offerValidUntilTotalContractsQtyDecimals: string // must be >= contractsQtyDecimals of the request, uses collateralTokenDecimals
-  offerValidUntilUnixMs: number
-  makerId: string // uniq maker id created in the protocol database
+  cash_premium_per_contract: string // premium per 1 option contract in premium token decimals, cashTokenAddress is used for premium
+  offer_valid_until_total_contracts_qty_decimals: string // must be >= contractsQtyDecimals of the request, uses collateralTokenDecimals
+  offer_valid_until_unix_ms: number
+  maker_id: string // uniq maker id created in the protocol database
 }
 ```
 
 ```
 type QuoteResponse = {
   quote: MakerQuoteV1
-	quoteSignature: string // signature of canonical QuoteV1 BCS bytes
+	quote_signature: string // signature of canonical QuoteV1 BCS bytes
 }
 ```
 
 ```
 type ExecutionRequest = {
   quote: QuoteResponse['quote']
-	quoteSignature: string // signature of canonical QuoteV1 BCS bytes
-  contractsQtyDecimals: string // uses collateralTokenDecimals
-  takerAddress: string
+	signature: string // signature of canonical QuoteV1 BCS bytes
+  contracts_qty_decimals: string // uses collateralTokenDecimals
+  taker_address: string
 }
 ```
 
 ```
 type MakerOrderV1 = {
   domain: 'otp:order:v1'
-  takerAddress: string // must match ExecutionRequest.takerAddress, on-chain seller addres
-  marketId: string,
-  seriesId: string,
-  callPutMarker: 1 | 2 // u8 1: call 2: put, must match quote request
-  sideMarker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
-  strikePriceDecimals: string // uses configured Pyth oracle exponent, must match quote request and derived vault
-  expiryUnixMs: number // unix milliseconds
-  contractsQtyDecimals: string // uses collateralTokenDecimals
-  cashPremiumPerContract: string // premium per 1 option contract in premium token decimals
-  goodTillUnixMs: number // unix milliseconds
-  makerVaultId: string // uniq maker vault id created in the protocol
+  taker_address: string // must match ExecutionRequest.taker_address, on-chain seller addres
+  market_id: string,
+  series_id: string,
+  call_put_marker: 1 | 2 // u8 1: call 2: put, must match quote request
+  side_marker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
+  strike_price_decimals: string // uses configured Pyth oracle exponent, must match quote request and derived vault
+  expiry_unix_ms: number // unix milliseconds
+  contracts_qty_decimals: string // uses collateralTokenDecimals
+  cash_premium_per_contract: string // premium per 1 option contract in premium token decimals
+  good_till_unix_ms: number // unix milliseconds
+  maker_vault_id: string // uniq maker vault id created in the protocol
   signer: string // EOA wallet address that manages maker protocol account
 }
 ```
 
 ```
-type ExecutionResponse = {
+type SignedMakerOrderV1Response = {
   order: MakerOrderV1
-  orderSignature: string // signature of canonical MakerOrderV1 BCS bytes
+  signature: string // signature of canonical MakerOrderV1 BCS bytes
+  public_key: string // public_key that signed the MakerOrderV1 and owns maker vault specified in MakerOrderV1
 }
 ```
 
