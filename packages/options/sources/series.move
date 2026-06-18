@@ -1,8 +1,9 @@
 module options_trading_protocol::series;
 
-use options_trading_protocol::market::{Self, Market};
+use options_trading_protocol::market::{Self, AdminCap, Market};
 use options_trading_protocol::long::{Self, Long};
 use std::string::String;
+use std::type_name::{Self, TypeName};
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
@@ -47,6 +48,11 @@ const EInsufficientCollateral: u64 = 15;
 const EInvalidSettlementPhase: u64 = 16;
 const ESellerVaultAlreadySettled: u64 = 17;
 const EOrderAlreadyConsumed: u64 = 18;
+const EInvalidRecoveryPhase: u64 = 19;
+const ENoRecoverableBalance: u64 = 20;
+const EMarketMismatch: u64 = 21;
+
+const RECOVERY_REASON_ROUNDING_DUST: u8 = 1;
 
 public struct SellerVaultKey(address) has copy, drop, store;
 
@@ -142,6 +148,14 @@ public struct SeriesSettlementBatchCompleted has copy, drop {
     settled_seller_count: u64,
     base_paid_total: u64,
     quote_paid_total: u64,
+}
+
+public struct AdminRecovered has copy, drop {
+    admin: address,
+    asset_type: TypeName,
+    amount: u64,
+    recipient: address,
+    reason_code: u8,
 }
 
 public fun create_series<QuoteCoin, BaseCoin>(
@@ -539,6 +553,53 @@ public fun settle_sellers<QuoteCoin, BaseCoin>(
     });
 }
 
+public fun admin_recover_excess<QuoteCoin, BaseCoin>(
+    series: &mut Series<QuoteCoin, BaseCoin>,
+    market: &Market,
+    cap: &AdminCap,
+    recipient: address,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    market::assert_admin(market, cap);
+    assert!(series.market_id == market::id(market), EMarketMismatch);
+    assert!(
+        series.state == STATE_CLOSED
+            && series.seller_vault_index.is_empty()
+            && clock.timestamp_ms() >= series.exercise_window_end_ms
+            && clock.timestamp_ms() >= series.exception_window_end_ms,
+        EInvalidRecoveryPhase,
+    );
+
+    let pool = &mut series.collateral_pool;
+    let base_amount = pool.base_balance.value();
+    let quote_amount = pool.quote_balance.value();
+    assert!(base_amount > 0 || quote_amount > 0, ENoRecoverableBalance);
+    pool.accounted_base_balance = 0;
+    pool.accounted_quote_balance = 0;
+
+    if (base_amount > 0) {
+        transfer::public_transfer(coin::from_balance(pool.base_balance.split(base_amount), ctx), recipient);
+        event::emit(AdminRecovered {
+            admin: ctx.sender(),
+            asset_type: type_name::with_original_ids<BaseCoin>(),
+            amount: base_amount,
+            recipient,
+            reason_code: RECOVERY_REASON_ROUNDING_DUST,
+        });
+    };
+    if (quote_amount > 0) {
+        transfer::public_transfer(coin::from_balance(pool.quote_balance.split(quote_amount), ctx), recipient);
+        event::emit(AdminRecovered {
+            admin: ctx.sender(),
+            asset_type: type_name::with_original_ids<QuoteCoin>(),
+            amount: quote_amount,
+            recipient,
+            reason_code: RECOVERY_REASON_ROUNDING_DUST,
+        });
+    };
+}
+
 fun assert_manual_exercise_ready<QuoteCoin, BaseCoin>(
     series: &Series<QuoteCoin, BaseCoin>,
     long: &Long<QuoteCoin, BaseCoin>,
@@ -761,6 +822,11 @@ public fun set_exercised_quantities_for_testing<QuoteCoin, BaseCoin>(
     series.total_exercise_by_exception_quantity = exercise_by_exception_quantity;
 }
 
+#[test_only]
+public fun set_closed_for_testing<QuoteCoin, BaseCoin>(series: &mut Series<QuoteCoin, BaseCoin>) {
+    series.state = STATE_CLOSED;
+}
+
 fun add_seller_vault<QuoteCoin, BaseCoin>(
     series: &mut Series<QuoteCoin, BaseCoin>,
     seller: address,
@@ -965,6 +1031,30 @@ public fun excess_base_balance<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, B
 
 public fun excess_quote_balance<QuoteCoin, BaseCoin>(series: &Series<QuoteCoin, BaseCoin>): u64 {
     collateral_quote_balance(series) - accounted_quote_balance(series)
+}
+
+public fun recovery_reason_rounding_dust(): u8 {
+    RECOVERY_REASON_ROUNDING_DUST
+}
+
+public fun recovered_admin(event: &AdminRecovered): address {
+    event.admin
+}
+
+public fun recovered_asset_type(event: &AdminRecovered): TypeName {
+    event.asset_type
+}
+
+public fun recovered_amount(event: &AdminRecovered): u64 {
+    event.amount
+}
+
+public fun recovered_recipient(event: &AdminRecovered): address {
+    event.recipient
+}
+
+public fun recovered_reason_code(event: &AdminRecovered): u8 {
+    event.reason_code
 }
 
 fun seller_vault<QuoteCoin, BaseCoin>(

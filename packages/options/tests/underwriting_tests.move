@@ -8,6 +8,7 @@ use options_trading_protocol::pyth_oracle_unverifiable;
 use options_trading_protocol::quote::{Self, QUOTE};
 use options_trading_protocol::series::{Self, Series};
 use options_trading_protocol::underwriting;
+use std::type_name;
 use std::unit_test::assert_eq;
 use sui::balance;
 use sui::clock;
@@ -1469,6 +1470,42 @@ fun pro_rata_rounding_dust_remains_in_internal_custody() {
     assert_eq!(series::accounted_quote_balance(&series), 1);
     assert_eq!(series::excess_quote_balance(&series), 0);
     test_scenario::return_shared(series);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let market = scenario.take_shared_by_id<Market>(market_id);
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    let recovery_clock = clock_at(
+        EXPIRY_MS + EXERCISE_WINDOW_MS + series::exception_window_ms(),
+        scenario.ctx(),
+    );
+    series::admin_recover_excess(
+        &mut series,
+        &market,
+        &cap,
+        ADMIN,
+        &recovery_clock,
+        scenario.ctx(),
+    );
+    recovery_clock.destroy_for_testing();
+    assert_eq!(series::collateral_quote_balance(&series), 0);
+    assert_eq!(series::accounted_quote_balance(&series), 0);
+    let events = event::events_by_type<series::AdminRecovered>();
+    assert_eq!(events.length(), 1);
+    let recovered = &events[0];
+    assert_eq!(series::recovered_admin(recovered), ADMIN);
+    assert_eq!(series::recovered_asset_type(recovered), type_name::with_original_ids<QUOTE>());
+    assert_eq!(series::recovered_amount(recovered), 1);
+    assert_eq!(series::recovered_recipient(recovered), ADMIN);
+    assert_eq!(series::recovered_reason_code(recovered), series::recovery_reason_rounding_dust());
+    scenario.return_to_sender(cap);
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(series);
+
+    scenario.next_tx(ADMIN);
+    let recovered = scenario.take_from_sender<Coin<QUOTE>>();
+    assert_eq!(recovered.value(), 1);
+    transfer::public_transfer(recovered, ADMIN);
     scenario.end();
 }
 

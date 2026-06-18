@@ -105,6 +105,48 @@ fun anyone_can_create_call_series_with_internal_collateral_pool() {
     scenario.end();
 }
 
+#[test, expected_failure(abort_code = series::EInvalidRecoveryPhase, location = series)]
+fun admin_recovery_before_exception_window_end_aborts() {
+    let (mut scenario, _) = create_market_fixture();
+
+    scenario.next_tx(USER);
+    let mut market = scenario.take_shared<Market>();
+    let now = clock_at(NOW_MS, scenario.ctx());
+    let series_id = series::create_series<QUOTE, BASE>(
+        &mut market,
+        OPTION_TYPE_CALL,
+        STRIKE_PRICE,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    now.destroy_for_testing();
+    test_scenario::return_shared(market);
+
+    scenario.next_tx(ADMIN);
+    let cap = scenario.take_from_sender<AdminCap>();
+    let market = scenario.take_shared<Market>();
+    let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    series::set_closed_for_testing(&mut series);
+    let too_early = clock_at(
+        EXPIRY_MS + EXERCISE_WINDOW_MS + EXCEPTION_WINDOW_MS - 1,
+        scenario.ctx(),
+    );
+    series::admin_recover_excess(
+        &mut series,
+        &market,
+        &cap,
+        ADMIN,
+        &too_early,
+        scenario.ctx(),
+    );
+    too_early.destroy_for_testing();
+    scenario.return_to_sender(cap);
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(series);
+    scenario.end();
+}
+
 #[test, expected_failure(abort_code = series::EOrderAlreadyConsumed, location = series)]
 fun signed_order_cannot_be_consumed_twice() {
     let (mut scenario, _) = create_market_fixture();
