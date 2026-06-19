@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it } from "vitest";
 
 import worker, {
@@ -8,18 +10,172 @@ import worker, {
   quoteStoreNameFromRequest,
 } from "./index";
 
+type MakerVaultRow = {
+  created_at: string;
+  deleted_at: string | null;
+  enabled: number;
+  order_endpoint_url: string | null;
+  owner_address: string;
+  quote_coin_symbol: string;
+  quote_coin_type: string;
+  quote_endpoint_url: string | null;
+  updated_at: string;
+  vault_id: string;
+};
+
+class FakeStatement {
+  constructor(
+    private readonly db: FakeD1Database,
+    private readonly sql: string,
+  ) {}
+
+  bind(...values: unknown[]) {
+    return {
+      all: async () => this.db.all(this.sql, values),
+      first: async () => this.db.first(this.sql, values),
+      run: async () => this.db.run(this.sql, values),
+    };
+  }
+}
+
+class FakeD1Database {
+  rows = new Map<string, MakerVaultRow>();
+
+  prepare(sql: string) {
+    return new FakeStatement(this, sql);
+  }
+
+  async all(sql: string, values: unknown[]) {
+    if (!sql.includes("FROM makers_vaults")) {
+      throw new Error(`Unsupported all() SQL: ${sql}`);
+    }
+
+    const owner = values[0];
+    const result = [...this.rows.values()]
+      .filter((row) => row.owner_address === owner)
+      .sort((left, right) => left.created_at.localeCompare(right.created_at));
+
+    return { results: result };
+  }
+
+  async first(sql: string, values: unknown[]) {
+    if (!sql.includes("FROM makers_vaults")) {
+      throw new Error(`Unsupported first() SQL: ${sql}`);
+    }
+
+    const [vaultId] = values;
+    return this.rows.get(String(vaultId)) ?? null;
+  }
+
+  async run(sql: string, values: unknown[]) {
+    if (sql.includes("INSERT INTO makers_vaults")) {
+      const [
+        vaultId,
+        ownerAddress,
+        quoteCoinType,
+        quoteCoinSymbol,
+        enabled,
+        quoteEndpointUrl,
+        orderEndpointUrl,
+        createdAt,
+        updatedAt,
+      ] = values as [
+        string,
+        string,
+        string,
+        string,
+        number,
+        string | null,
+        string | null,
+        string,
+        string,
+      ];
+
+      this.rows.set(vaultId, {
+        vault_id: vaultId,
+        owner_address: ownerAddress,
+        quote_coin_type: quoteCoinType,
+        quote_coin_symbol: quoteCoinSymbol,
+        enabled,
+        quote_endpoint_url: quoteEndpointUrl,
+        order_endpoint_url: orderEndpointUrl,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        deleted_at: null,
+      });
+
+      return { success: true };
+    }
+
+    if (sql.includes("SET quote_endpoint_url = ?")) {
+      const [quoteEndpointUrl, orderEndpointUrl, updatedAt, vaultId] =
+        values as [string | null, string | null, string, string];
+      const row = this.rows.get(vaultId);
+
+      if (!row) {
+        return { meta: { changes: 0 }, success: true };
+      }
+
+      row.quote_endpoint_url = quoteEndpointUrl;
+      row.order_endpoint_url = orderEndpointUrl;
+      row.updated_at = updatedAt;
+      return { meta: { changes: 1 }, success: true };
+    }
+
+    if (sql.includes("SET enabled = 0")) {
+      const [deletedAt, updatedAt, vaultId] = values as [string, string, string];
+      const row = this.rows.get(vaultId);
+
+      if (!row) {
+        return { meta: { changes: 0 }, success: true };
+      }
+
+      row.enabled = 0;
+      row.deleted_at = deletedAt;
+      row.updated_at = updatedAt;
+      return { meta: { changes: 1 }, success: true };
+    }
+
+    throw new Error(`Unsupported run() SQL: ${sql}`);
+  }
+}
+
+function createEnv(db = new FakeD1Database()) {
+  return {
+    BROADCAST_QUEUE: { send: async () => undefined },
+    DB: db,
+    OTP_PACKAGE_ID: "0xotp",
+    QUOTES: {
+      get: () => ({ fetch: async () => new Response(null) }),
+      idFromName: (name: string) => name,
+    },
+    TX_VALIDATOR: {
+      verifyCreateVaultDigest: async (_digest: string) => ({
+        ownerAddress: "0xmaker",
+        quoteCoinType:
+          "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+        vaultId: "0xvault-1",
+      }),
+      verifyCloseVaultDigest: async (_digest: string, vaultId: string) => ({
+        ownerAddress: "0xmaker",
+        vaultId,
+      }),
+    },
+    VAULT_CONFIG_AUTH: {
+      verifyOwnerProof: async (proof: {
+        message: string;
+        ownerAddress: string;
+        signature: string;
+      }) => proof.signature === "valid-signature" && proof.ownerAddress === "0xmaker",
+    },
+  } as never;
+}
+
 describe("rfq worker foundation", () => {
   it("returns a health payload with core bindings surfaced", async () => {
     const response = await worker.fetch(
       new Request("https://example.com/health"),
-      {
-        BROADCAST_QUEUE: { send: async () => undefined },
-        DB: {},
-        QUOTES: {
-          get: () => ({ fetch: async () => new Response(null) }),
-          idFromName: (name: string) => name,
-        },
-      } as never,
+      createEnv(),
     );
 
     assert.equal(response.status, 200);
@@ -31,6 +187,7 @@ describe("rfq worker foundation", () => {
       queueBinding: "configured",
       service: "rfq-server",
       status: "ok",
+      supportedCoins: ["USDC"],
     });
   });
 
@@ -104,22 +261,202 @@ describe("rfq worker foundation", () => {
   });
 
   it("builds the same health payload without a request roundtrip", () => {
-    assert.deepEqual(
-      buildHealthPayload({
-        BROADCAST_QUEUE: { send: async () => undefined },
-        DB: {},
-        QUOTES: {
-          get: () => ({ fetch: async () => new Response(null) }),
-          idFromName: (name: string) => name,
-        },
-      } as never),
-      {
-        durableObjectBinding: "configured",
-        d1Binding: "configured",
-        queueBinding: "configured",
-        service: "rfq-server",
-        status: "ok",
-      },
+    assert.deepEqual(buildHealthPayload(createEnv() as never), {
+      durableObjectBinding: "configured",
+      d1Binding: "configured",
+      queueBinding: "configured",
+      service: "rfq-server",
+      status: "ok",
+      supportedCoins: ["USDC"],
+    });
+  });
+});
+
+describe("maker vault APIs", () => {
+  it("returns supported quote coins from server config", async () => {
+    const response = await worker.fetch(
+      new Request("https://example.com/api/maker/supported-coins"),
+      createEnv(),
     );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      supportedCoins: [
+        {
+          coinType: "0x0::usdc::USDC",
+          network: "localnet",
+          symbol: "USDC",
+        },
+        {
+          coinType:
+            "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+          network: "testnet",
+          symbol: "USDC",
+        },
+        {
+          coinType:
+            "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
+          network: "mainnet",
+          symbol: "USDC",
+        },
+      ],
+    });
+  });
+
+  it("registers a created vault from a verified digest", async () => {
+    const db = new FakeD1Database();
+    const response = await worker.fetch(
+      new Request("https://example.com/api/maker/vaults", {
+        body: JSON.stringify({ createVaultDigest: "digest-1" }),
+        method: "POST",
+      }),
+      createEnv(db),
+    );
+
+    assert.equal(response.status, 201);
+    const payload = (await response.json()) as { vault: Record<string, unknown> };
+    assert.equal(payload.vault.deletedAt, null);
+    assert.equal(payload.vault.enabled, true);
+    assert.equal(payload.vault.orderEndpointUrl, null);
+    assert.equal(payload.vault.ownerAddress, "0xmaker");
+    assert.equal(payload.vault.quoteCoinSymbol, "USDC");
+    assert.equal(
+      payload.vault.quoteCoinType,
+      "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+    );
+    assert.equal(payload.vault.quoteEndpointUrl, null);
+    assert.equal(payload.vault.vaultId, "0xvault-1");
+    assert.match(String(payload.vault.createdAt), /^\d{4}-\d{2}-\d{2}T/);
+    assert.match(String(payload.vault.updatedAt), /^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("lists maker vaults from the database for one owner", async () => {
+    const db = new FakeD1Database();
+    db.rows.set("0xvault-1", {
+      created_at: "2026-06-19T10:00:00.000Z",
+      deleted_at: null,
+      enabled: 1,
+      order_endpoint_url: "https://maker.example/orders",
+      owner_address: "0xmaker",
+      quote_coin_symbol: "USDC",
+      quote_coin_type:
+        "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+      quote_endpoint_url: "https://maker.example/quotes",
+      updated_at: "2026-06-19T10:00:00.000Z",
+      vault_id: "0xvault-1",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/api/maker/vaults?ownerAddress=0xmaker"),
+      createEnv(db),
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      vaults: [
+        {
+          createdAt: "2026-06-19T10:00:00.000Z",
+          deletedAt: null,
+          enabled: true,
+          orderEndpointUrl: "https://maker.example/orders",
+          ownerAddress: "0xmaker",
+          quoteCoinSymbol: "USDC",
+          quoteCoinType:
+            "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+          quoteEndpointUrl: "https://maker.example/quotes",
+          updatedAt: "2026-06-19T10:00:00.000Z",
+          vaultId: "0xvault-1",
+        },
+      ],
+    });
+  });
+
+  it("updates only quote and order endpoint URLs for an active owner vault", async () => {
+    const db = new FakeD1Database();
+    db.rows.set("0xvault-1", {
+      created_at: "2026-06-19T10:00:00.000Z",
+      deleted_at: null,
+      enabled: 1,
+      order_endpoint_url: null,
+      owner_address: "0xmaker",
+      quote_coin_symbol: "USDC",
+      quote_coin_type:
+        "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+      quote_endpoint_url: null,
+      updated_at: "2026-06-19T10:00:00.000Z",
+      vault_id: "0xvault-1",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/api/maker/vaults/0xvault-1", {
+        body: JSON.stringify({
+          orderEndpointUrl: "https://maker.example/orders",
+          ownerProof: {
+            message: "otp:maker-config:v1:0xvault-1",
+            ownerAddress: "0xmaker",
+            signature: "valid-signature",
+          },
+          quoteEndpointUrl: "https://maker.example/quotes",
+        }),
+        method: "PATCH",
+      }),
+      createEnv(db),
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(db.rows.get("0xvault-1")?.quote_endpoint_url, "https://maker.example/quotes");
+    assert.equal(db.rows.get("0xvault-1")?.order_endpoint_url, "https://maker.example/orders");
+  });
+
+  it("soft deletes and disables a vault after a verified close digest", async () => {
+    const db = new FakeD1Database();
+    db.rows.set("0xvault-1", {
+      created_at: "2026-06-19T10:00:00.000Z",
+      deleted_at: null,
+      enabled: 1,
+      order_endpoint_url: "https://maker.example/orders",
+      owner_address: "0xmaker",
+      quote_coin_symbol: "USDC",
+      quote_coin_type:
+        "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+      quote_endpoint_url: "https://maker.example/quotes",
+      updated_at: "2026-06-19T10:00:00.000Z",
+      vault_id: "0xvault-1",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://example.com/api/maker/vaults/0xvault-1/close", {
+        body: JSON.stringify({
+          closeVaultDigest: "digest-2",
+          ownerAddress: "0xmaker",
+        }),
+        method: "POST",
+      }),
+      createEnv(db),
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(db.rows.get("0xvault-1")?.enabled, 0);
+    assert.match(String(db.rows.get("0xvault-1")?.deleted_at), /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal((await response.json()).vault.enabled, false);
+  });
+});
+
+describe("makers_vaults migration", () => {
+  it("creates the makers_vaults table with required fields", () => {
+    const sql = readFileSync(
+      resolve(import.meta.dirname, "../migrations/0001_baseline.sql"),
+      "utf8",
+    );
+
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS makers_vaults/i);
+    assert.match(sql, /vault_id TEXT PRIMARY KEY/i);
+    assert.match(sql, /owner_address TEXT NOT NULL/i);
+    assert.match(sql, /quote_coin_type TEXT NOT NULL/i);
+    assert.match(sql, /quote_coin_symbol TEXT NOT NULL/i);
+    assert.match(sql, /enabled INTEGER NOT NULL DEFAULT 0/i);
+    assert.match(sql, /quote_endpoint_url TEXT/i);
+    assert.match(sql, /order_endpoint_url TEXT/i);
+    assert.match(sql, /deleted_at TEXT/i);
   });
 });
