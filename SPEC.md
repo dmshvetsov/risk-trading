@@ -33,6 +33,7 @@ Process in high-level flow for makers:
 
 - Sui blockchain, and Move Language for smart contracts,
 - Cloudflare (workers, durable object, cache API, cron, queues) written in TypeScript
+- Hono JavaScript/TypeScript Web application framework
 - Cloudflare D1 database
 
 ### Token

@@ -1,6 +1,6 @@
 name = "rfq-server"
 main = "src/index.ts"
-compatibility_date = "2026-06-18"
+compatibility_date = "2026-06-10"
 
 [[d1_databases]]
 binding = "DB"

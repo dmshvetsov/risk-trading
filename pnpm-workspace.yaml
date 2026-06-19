@@ -7,4 +7,5 @@ blockExoticSubdeps: true
 allowBuilds:
   esbuild: true
   msw: true
+  sharp: true
   workerd: true

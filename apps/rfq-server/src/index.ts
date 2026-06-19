@@ -1,3 +1,4 @@
+import { Hono } from "hono";
 import {
   insertVault,
   listVaults,
@@ -92,6 +93,8 @@ const MAKER_SUPPORTED_COINS_PATH = "/api/maker/supported-coins";
 const MAKER_VAULTS_PATH = "/api/maker/vaults";
 const MAKER_VAULT_SUBMISSIONS_PATH = "/api/maker/vaults/submissions";
 const MAKER_VAULT_RECEIPTS_PATH = "/api/internal/maker/vaults/receipts";
+
+const METHOD_NOT_ALLOWED_RESPONSE = new Response("Method not allowed", { status: 405 });
 
 export function buildHealthPayload(env: Partial<Env>) {
   return {
@@ -339,24 +342,6 @@ async function registerCreatedVault(request: Request, env: Env) {
   );
 }
 
-async function handleMakerVaults(request: Request, env: Env) {
-  if (request.method === "GET") {
-    const ownerAddress = new URL(request.url).searchParams.get("ownerAddress");
-    if (!ownerAddress) {
-      return json({ error: "ownerAddress is required" }, 400);
-    }
-
-    const vaults = await listVaults(env.DB, ownerAddress);
-    return json({ vaults: vaults.map(toMakerVault) });
-  }
-
-  if (request.method === "POST") {
-    return registerCreatedVault(request, env);
-  }
-
-  return new Response("Method not allowed", { status: 405 });
-}
-
 async function handleVaultUpdate(request: Request, env: Env, vaultId: string) {
   const current = await readVault(env.DB, vaultId);
   if (!current) {
@@ -438,41 +423,39 @@ async function handleVaultClose(request: Request, env: Env, vaultId: string) {
   return json({ vault: toMakerVault(updated as MakerVaultRow) });
 }
 
-const worker = {
-  async fetch(request: Request, env: Env) {
-    const url = new URL(request.url);
-    if (url.pathname === HEALTH_PATH) {
-      return Response.json(buildHealthPayload(env));
-    }
+const app = new Hono<{ Bindings: Env }>();
 
-    if (url.pathname === MAKER_SUPPORTED_COINS_PATH) {
-      return json({ supportedCoins: supportedQuoteCoins });
-    }
+app.get(HEALTH_PATH, (c) => Response.json(buildHealthPayload(c.env)));
 
-    if (url.pathname === MAKER_VAULTS_PATH) {
-      return handleMakerVaults(request, env);
-    }
+app.get(MAKER_SUPPORTED_COINS_PATH, () => json({ supportedCoins: supportedQuoteCoins }));
 
-    if (url.pathname === MAKER_VAULT_SUBMISSIONS_PATH && request.method === "POST") {
-      return submitCreateVault(request, env);
-    }
+app.get(MAKER_VAULTS_PATH, async (c) => {
+  const ownerAddress = c.req.query("ownerAddress");
+  if (!ownerAddress) {
+    return json({ error: "ownerAddress is required" }, 400);
+  }
 
-    if (url.pathname === MAKER_VAULT_RECEIPTS_PATH && request.method === "POST") {
-      return persistCreateVaultReceipt(request, env);
-    }
+  const vaults = await listVaults(c.env.DB, ownerAddress);
+  return json({ vaults: vaults.map(toMakerVault) });
+});
 
-    const vaultMatch = url.pathname.match(/^\/api\/maker\/vaults\/([^/]+)$/);
-    if (vaultMatch && request.method === "PATCH") {
-      return handleVaultUpdate(request, env, decodeURIComponent(vaultMatch[1] ?? ""));
-    }
+app.post(MAKER_VAULTS_PATH, (c) => registerCreatedVault(c.req.raw, c.env));
+app.all(MAKER_VAULTS_PATH, () => METHOD_NOT_ALLOWED_RESPONSE);
 
-    const closeMatch = url.pathname.match(/^\/api\/maker\/vaults\/([^/]+)\/close$/);
-    if (closeMatch && request.method === "POST") {
-      return handleVaultClose(request, env, decodeURIComponent(closeMatch[1] ?? ""));
-    }
+app.post(MAKER_VAULT_SUBMISSIONS_PATH, (c) => submitCreateVault(c.req.raw, c.env));
+app.all(MAKER_VAULT_SUBMISSIONS_PATH, () => METHOD_NOT_ALLOWED_RESPONSE);
 
-    return new Response("Not found", { status: 404 });
-  },
-};
+app.post(MAKER_VAULT_RECEIPTS_PATH, (c) => persistCreateVaultReceipt(c.req.raw, c.env));
+app.all(MAKER_VAULT_RECEIPTS_PATH, () => METHOD_NOT_ALLOWED_RESPONSE);
 
-export default worker;
+app.patch("/api/maker/vaults/:vaultId", (c) =>
+  handleVaultUpdate(c.req.raw, c.env, c.req.param("vaultId")),
+);
+app.all("/api/maker/vaults/:vaultId", () => METHOD_NOT_ALLOWED_RESPONSE);
+
+app.post("/api/maker/vaults/:vaultId/close", (c) =>
+  handleVaultClose(c.req.raw, c.env, c.req.param("vaultId")),
+);
+app.all("/api/maker/vaults/:vaultId/close", () => METHOD_NOT_ALLOWED_RESPONSE);
+
+export default app;

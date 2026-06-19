@@ -1,6 +1,6 @@
 name = "broadcast-server"
 main = "src/index.ts"
-compatibility_date = "2026-06-18"
+compatibility_date = "2026-06-10"
 
 [[services]]
 binding = "RFQ_SERVER"
