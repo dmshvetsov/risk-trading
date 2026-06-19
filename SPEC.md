@@ -52,27 +52,49 @@ Ticker schema examples:
 - `SUI-USDC-HASUI-5JUN26-0.72-P`
 - `DEEP-USDC-DEEP-5JUN26-0.035-C`
 
-## System Design
-
-### 1. Smart Contracts (on-chain protocol)
+## 1. Smart Contracts (on-chain protocol)
 
 The smart contract design, object model, underwriting, exercise, settlement, and event requirements are specified in `spec/OPTIONS_SMART_CONTRACT.md`.
 
-### 2. Server (Off-chain infrastructure)
+## 2. Server (Off-chain infrastructure)
 
-#### 2.1 RFQ and CRUD API Server
+### 2.1 Database
+
+#### makers_vaults table
+
+- vault_id: primary key, links one row to one on-chain maker vault
+- created_at: timestamp
+- updated_at: timestamp
+- deleted_at: soft-delete timestamp marker
+- owner_address
+- quote_coin_type: exact Sui coin type for the vault
+- quote_coin_symbol: display/admin convenience
+- enabled: admin ON/OFF flag for RFQ participation, marks this vault as ready for market maker participation in the protocol
+- quote_endpoint_url: where RFQ asks this maker for quotes
+- order_endpoint_url: where RFQ asks this maker for orders
+
+### 2.2 RFQ and CRUD API Server
 
 Responsible to handle create, read, update, delete actions on the server database that required to facilitate main activity of the protocol explained in `## What the protocol does`
 
 Implemented using Cloudflare Workers infrastructure.
 
 MUST implement API for:
-- request for quote
+- request for quote using active makers quote URL stored in marker vaults table
+- ask maker to sign a buy order based on previously provided quote
 - user dashboard of sold option contracts open, expired, exercised
+- makers API to create, read, update, delete vaults data
+  - create a vault using a Sui on-chain transaction id (digest) of create_vault call, must store makers vault data in the server database makers vaults table
+  - read must be from the database, except balance read must be from chain
+  - update must only support editing URLs for quote endpoint and order endpoint
+  - mark vault record as soft-delete and `enabled: false` when owner submits an on-chain transaction id (digest) of close_vault call, closed/soft-deleted vaults cannot be edited or used by makers
+- request for required parameters to build a Sui PTB for takers to underwrite an option contract for a given quote
+- API to call on-chain settlement, that can be triggered by Cloduflare Scheduled job (Cron) or with authorized HTTP API request
+- submitting transaction on-chain by web app
 
 MUST use Cloudflare Durable Object as a way to store provided quotes and their expiration.
 
-### How Integration with Market Makers works
+#### How Integration with Market Makers works
 
 Makers API MUST implement endpoint to receive quote API calls to be able to provide time bound contracts quantity bound quotes
 
@@ -88,7 +110,7 @@ Maker `QuoteV1` signed messages MUST be treated as reusable, short-lived off-cha
 
 The same signed quote MAY be used by multiple takers while `offerValidUntilUnixMs` has not passed or `offerValidUntilTotalContractsQty` is not exceeded and on-chain underwriting requirements can be satisfied. When RFQ server sends a transaction to Broadcaster it MUST deduct order quantity from current quote `offerValidUntilTotalContractsQty`, RFQ MUST not track if transaction was actually broadcasted on-chain thus the server does not guarantees to maker that his quote will be filled right up to `offerValidUntilTotalContractsQty`. RFQ server MUST NOT send more contracts quantity than `offerValidUntilTotalContractsQty` of current quote.
 
-### Signed quote and order messages
+#### Signed quote and order messages
 
 Quotes and orders MUST be signed as versioned BCS structs: `QuoteV1` and `OrderV1`. Field order MUST be exactly the order shown in `MakerQuoteV1` and `MakerOrderV1`. String amounts MUST be parsed as base-unit unsigned integers before BCS serialization. Addresses MUST use canonical Sui address bytes. Missing, null, extra, floating-point, or wrongly scaled fields MUST be rejected.
 
@@ -191,22 +213,18 @@ type SignedMakerOrderV1Response = {
 
 `orderHash` MUST be `blake2b256(bcs(OrderV1))`. Smart contracts MUST compute `orderHash` from canonical `OrderV1` BCS bytes and MUST NOT trust a caller-provided hash.
 
-#### 2.2 Broadcast Server
+#### Environment variables
 
-Implemented using Cloudflare Workers infrastructure.
+- `OTP_PACKAGE_ID` protocol package id, MUST be used to derive addresses to read and write (send transactions) on-chain data
+- `BROADCAST_SERVER_BASE_URL` URL to call broadcast server methods
 
-Responsible to broadcast off-chain agreed contract between taker and maker to Sui blockchain.
+#### Broadcasting transactions on-chain
 
-MUST implement API for:
-- request for required parameters to build a Sui PTB for takers to underwrite an option contract for a given quote
-- API to call on-chain settlement, that can be triggered by Cloduflare Scheduled job (Cron) or with authorized HTTP API request
-- submitting transaction on-chain
-
-MUST implement Cloudflare queues for transaction submission where sequential processing is required by shared on-chain object access.
+MUST implement Cloudflare queues for transaction submission where sequential processing is required by shared on-chain object access. All transactions that require sequential broadcasting MUST use broadcast queue to submit transaction on-chain. Transaction that do not require strict sequential order MAY NOT use broadcast queue but free to use it anyway if it simplifies the application design and maintainability.
 
 Broadcast server runs one in-flight transaction per configured queue partition and waits for finality before next transaction.
 
-### 2.3 Web App (Off-chain decentralized application)
+## 2.4 Web App (Off-chain decentralized application with UI)
 
 User interface for takers and makers.
 
@@ -216,23 +234,32 @@ MUST implement following pages:
 - Home page with supported assets and call to action to earn instant payout (premium) for selling cash secured put and covered calls
 - Taker option request for quotes builder page for a selected asset and contract type, including strike selection, expiry selection, position size input, collateral requirements, quoted premium, oracle spot price, expected expiry outcome of the contracts if price stay above and below-or-equal to strike. Must request another quote if current expires. Must have a CTA that triggers an underwrite on-chain transaction.
 - Taker dashboard page showing open positions with indication what will happen if expiration and settlement will be now, settled positions, expired positions, pending settlement, with data for position: spot/current oracle price (if open position) otherwise price at expiration, strike, premium
-- Maker dashboard page showing open positions, ITM/OTM status, required settlement funds, settlement readiness, and settlement history
+- Maker dashboard page consist off
+  - positions tab/sub-page: showing open positions, ITM/OTM status, required settlement funds, settlement readiness, and settlement history
+  - vaults tab/sub-page: showing list of makers vaults and their state, balances, UI to edit and close vaults
 
 Home page and Taker UI MUST use simple language. MUST NOT mention of options or derivatives.
 
 Maker UI MUST use professional option trader language.
 
-MUST use Broadcast server to submit transaction on-chain.
-
-MUST use Pyth Hermess client to fetch prices for assets.
+MUST use RFQ server broadcast queue to submit transaction on-chain that requires sequential order. MUST use RFQ server to broadcast other transactions on-chain to simplify the design.
 
 ## Oracles
 
 MUST use Pyth Sui API oracle to submit prices at time of expiration on-chain.
 
-### Supported assets / cash pairs in the protocol
+MUST use Pyth Hermess off-chain client to fetch prices for assets.
 
-- OracleBase: Bitcoin / QuoteCoin: USDC / 
+### Supported Coins
+
+List of supported QuoteCoin:
+- USDC
+  - mainnet `0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC`
+  - testnet `0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC` a custom USDC coin MAY be created to simplify testing and own a faucet for testnet users
+  - a custom development USDC coin must be created for localnet
+
+List of supported BaseCoin / QuoteCoin pairs and their oracles:
+- OracleBase: Bitcoin / QuoteCoin: USDC / BaseCoin WBTC
   - Sui contracts (collateral address) `0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC` with `WBTC` ticker, for reference https://www.coingecko.com/en/coins/wrapped-bitcoin
   - Pyth oracle: `Crypto.BTC/USD` symbol and price feed id `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`
   - 1 option contract = 1 BTC, partial contracts for example 0.05, 0.1, 0.95 are allowed
@@ -250,13 +277,41 @@ Protocol fees MUST not be disclosure in seller/taker UI. Paid in `BaseCoin`. Fee
 
 Handled case by case by in business agreement between admins/operators of the application with market makers
 
+## Admin access
+
+Administrators must authorize changes in server database with `wrangler d1 execute` commands that are wrapped in CLI utility that expose available administrative actions. Authentication and authorization is delegated to Cloudflare/wrangler login, thus administrators must have Cloudflare access to run D1 queries.
+
+`wrangler d1 execute` `--env` flag must be used to run commands against
+
+## Application environments
+
+Cloudflare server workers must work in following environments
+
+- `development:localnet` environment for development, has no real users data and must be run on Sui localnet network
+- `staging:testnet` testing and demo environment that may contain real users data that is not guaranteed to be preserved over product iterations and Sui tetnet network iterations, this data has lower value in comparison to real production users data
+- `production:mainnet` production environment with real users data in database and Sui mainnet network
+
+Wrangler configuration JSONC file must be configured so: 
+- top-level configuration is `production` environment of `production:mainnet`
+- `development` cloudflare/wrangler env is for `development:localnet`
+- `staging` cloudflare/wrangler env is for `staging:testnet`
+
 ## Features and User Stories
 
 ### Maker on boarding and Maker quote and buy order issuing readiness 
 
-- as a maker i want to open special for market makers hidden page "Maker Dashboard" on web UI to see my status: my open vaults for the currently connected wallet and their balances, these vaults statuses approved/not for issuing quotes and orders against these vaults, current URL for quote endpoint, current URL for order endpoint
-- as a maker on my dashboard i want to create a new vault with a specific QuoteCoin (from the list of available to trade QuoteCoin), with quote endpoint URL for RFQ server, with order endpoint URL for RFQ server, so i can later deposit at least minimal amount of QuoteCoin to be able to become eligible to issuing quotes and order against this vault
-- as a maker I want to be able to update RFQs server quote and order endpoints URLs for a specific vault
-- as a maker I want to be able to deposit and withdraw correspond QuoteCoin from a vault that I own to vault owner wallet
+- as a maker i want to visit special for market makers hidden page "Maker Dashboard" on web UI to see my status: my open vaults for the currently connected wallet and their balances, these vaults statuses approved/not for issuing quotes and orders against these vaults, current URL for quote endpoint, current URL for order endpoint
+- as a maker on my web app dashboard i want to sign create_vault transaction and submit it to RFQ server so i can create a new vault with a specific QuoteCoin (from the list of available to trade QuoteCoin), with quote endpoint URL for RFQ server, with order endpoint URL for RFQ server 
+- as a maker on my web app dashboard i want to sign deposit transaction and submit it to RFQ server, to deposit or withdraw correspond QuoteCoin from a vault that I own to vault owner wallet
+- as a maker on my web app dashboard I want to submit a HTTP form to update RFQs server quote and order endpoints URLs for a specific vault
+- as a maker on my web app dashboard i want to sign close_vault transaction and submit it to RFQ server to close a specific vault
 
-- as server admin I want to issue a Cloudflare command (direct db query, API call, etc UI not required) to switch on/off ability to receive RFQs, issue quotes and buy orders for a specific maker's vault
+- as server admin I want to issue a wrangler CLI command with specific maker vault id to switch its ability on/off to receive RFQs, thus issue quotes and buy orders for a specific maker's vault
+
+## Unspecified Requirements and out off scope
+
+If requirement is not specified it MUST NOT be built.
+
+Out of scope of off-chain infrastructure implementation:
+- indexing on-chain events of the protocol
+- database freshness updates for table records that represent on-chain objects and state, manual re-indexing and backfills MAY be used instead
