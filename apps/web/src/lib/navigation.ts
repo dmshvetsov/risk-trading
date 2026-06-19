@@ -16,11 +16,6 @@ export const navigationItems: NavigationItem[] = [
     summary: "Future seller flows mount here",
   },
   {
-    href: "/maker",
-    label: "Maker shell",
-    summary: "Future maker routes mount here",
-  },
-  {
     href: "/states",
     label: "Shared states",
     summary: "Loading and error patterns live here",

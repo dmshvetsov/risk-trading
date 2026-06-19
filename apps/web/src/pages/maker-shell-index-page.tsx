@@ -3,11 +3,11 @@ import { ListCard } from "../components/page-section";
 export function MakerShellIndexPage() {
   return (
     <ListCard
-      title="Current mounted child"
+      title="Maker dashboard tabs"
       items={[
-        { label: "Route", value: "/maker" },
-        { label: "Purpose", value: "Default child content for the maker shell" },
-        { label: "Next step", value: "Attach dashboard and settlement routes under this layout" },
+        { label: "Vaults", value: "Open /maker/vaults for balances and endpoint actions" },
+        { label: "Positions", value: "Open /maker/positions for readiness and history" },
+        { label: "Access", value: "Keep this dashboard hidden from the main navigation" },
       ]}
     />
   );

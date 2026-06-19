@@ -6,7 +6,7 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 
 import { AppChrome } from "./components/app-shell";
 import { HomePage } from "./pages/home-page";
-import { MakerShellPage } from "./pages/maker-shell-page";
+import { MakerVaultCardView } from "./pages/maker-vaults-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
 import { TakerShellPage } from "./pages/taker-shell-page";
 import { SuiProviders } from "./components/sui-providers";
@@ -49,6 +49,7 @@ describe("App shell", () => {
 
     assert.match(html, /Taker shell/);
     assert.match(html, /Shared states/);
+    assert.doesNotMatch(html, /Maker shell|Maker dashboard/);
     assert.match(html, /Wallet not connected/);
     assert.match(html, /Route content/);
   });
@@ -76,17 +77,79 @@ describe("Taker copy", () => {
 });
 
 describe("Maker copy", () => {
-  it("uses professional options language on the maker shell", () => {
+  it("renders vault state, edit controls, and close action on the vaults tab", () => {
     const html = renderToStaticMarkup(
-      <MakerShellPage>
-        <div>Nested child slot</div>
-      </MakerShellPage>,
+      <MakerVaultCardView
+        vault={{
+          balance: "250.00 USDC",
+          enabled: true,
+          orderEndpointUrl: "https://maker.example/orders",
+          quoteCoinSymbol: "USDC",
+          quoteCoinType:
+            "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+          quoteEndpointUrl: "https://maker.example/quotes",
+          vaultId: "0xvault-1",
+        }}
+        quoteEndpointUrl="https://maker.example/quotes"
+        orderEndpointUrl="https://maker.example/orders"
+        closeVaultDigest=""
+        onQuoteEndpointUrlChange={() => undefined}
+        onOrderEndpointUrlChange={() => undefined}
+        onCloseVaultDigestChange={() => undefined}
+        onUpdateEndpoints={() => undefined}
+        onSubmitCloseDigest={() => undefined}
+      />,
     );
 
-    assert.match(html, /covered call/i);
-    assert.match(html, /cash-secured put/i);
-    assert.match(html, /ITM|OTM/);
-    assert.match(html, /Nested child slot/i);
+    assert.match(html, /250.00 USDC/);
+    assert.match(html, /Save vault endpoints/);
+    assert.match(html, /Submit close digest/);
+    assert.match(html, /Ready for RFQs/);
+  });
+
+  it("renders the hidden maker route on direct visit", async () => {
+    const testRouter = getRouter(
+      createMemoryHistory({
+        initialEntries: ["/maker"],
+      }),
+    );
+    const queryClient = new QueryClient();
+
+    await testRouter.load();
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <SuiProviders>
+          <RouterProvider router={testRouter} />
+        </SuiProviders>
+      </QueryClientProvider>,
+    );
+
+    assert.match(html, /Maker Dashboard/);
+    assert.match(html, /\/maker\/vaults/);
+    assert.match(html, /\/maker\/positions/);
+  });
+
+  it("renders the maker positions sub-page on direct visit", async () => {
+    const testRouter = getRouter(
+      createMemoryHistory({
+        initialEntries: ["/maker/positions"],
+      }),
+    );
+    const queryClient = new QueryClient();
+
+    await testRouter.load();
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <SuiProviders>
+          <RouterProvider router={testRouter} />
+        </SuiProviders>
+      </QueryClientProvider>,
+    );
+
+    assert.match(html, /Positions/);
+    assert.match(html, /Settlement readiness/i);
   });
 });
 

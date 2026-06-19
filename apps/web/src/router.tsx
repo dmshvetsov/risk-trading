@@ -19,6 +19,8 @@ import TakerShellPage from "./pages/taker-shell-page";
 import MakerShellPage from "./pages/maker-shell-page";
 import TakerShellIndexPage from "./pages/taker-shell-index-page";
 import MakerShellIndexPage from "./pages/maker-shell-index-page";
+import MakerVaultsPage from "./pages/maker-vaults-page";
+import MakerPositionsPage from "./pages/maker-positions-page";
 import SharedStatesPage from "./pages/shared-states-page";
 
 class RouteErrorBoundary extends React.Component<
@@ -107,10 +109,26 @@ const makerShellIndexRoute = createRoute({
   component: MakerShellIndexPage,
 });
 
+const makerVaultsRoute = createRoute({
+  getParentRoute: () => makerShellRoute,
+  path: "/vaults",
+  component: MakerVaultsPage,
+});
+
+const makerPositionsRoute = createRoute({
+  getParentRoute: () => makerShellRoute,
+  path: "/positions",
+  component: MakerPositionsPage,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   takerShellRoute.addChildren([takerShellIndexRoute]),
-  makerShellRoute.addChildren([makerShellIndexRoute]),
+  makerShellRoute.addChildren([
+    makerShellIndexRoute,
+    makerVaultsRoute,
+    makerPositionsRoute,
+  ]),
   sharedStatesRoute,
 ]);
 
