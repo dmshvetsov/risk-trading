@@ -94,19 +94,6 @@ const MAKER_VAULTS_PATH = "/api/maker/vaults";
 const MAKER_VAULT_SUBMISSIONS_PATH = "/api/maker/vaults/submissions";
 const MAKER_VAULT_RECEIPTS_PATH = "/api/internal/maker/vaults/receipts";
 
-const METHOD_NOT_ALLOWED_RESPONSE = new Response("Method not allowed", { status: 405 });
-
-export function buildHealthPayload(env: Partial<Env>) {
-  return {
-    durableObjectBinding: env.QUOTES ? "configured" : "missing",
-    d1Binding: env.DB ? "configured" : "missing",
-    queueBinding: env.BROADCAST_QUEUE ? "configured" : "missing",
-    service: "rfq-server",
-    status: "ok",
-    supportedCoins: [...new Set(supportedQuoteCoins.map((coin) => coin.symbol))],
-  };
-}
-
 export function quoteStoreNameFromRequest(requestId: string) {
   return `quote-request:${requestId}`;
 }
@@ -142,7 +129,7 @@ export class QuoteStore {
   }
 }
 
-function json(data: unknown, status = 200) {
+function jsonResponse(data: unknown, status = 200) {
   return Response.json(data, { status });
 }
 
@@ -201,7 +188,13 @@ async function submitCreateVault(request: Request, env: Env) {
     !orderEndpointUrl ||
     !supportedQuoteCoins.some((coin) => coin.coinType === payload.quoteCoinType)
   ) {
-    return json({ error: "valid signed transaction, quote coin, and endpoints are required" }, 400);
+    return jsonResponse(
+      {
+        error:
+          "valid signed transaction, quote coin, and endpoints are required",
+      },
+      400,
+    );
   }
 
   const submission: CreateMakerVaultSubmission = {
@@ -215,7 +208,7 @@ async function submitCreateVault(request: Request, env: Env) {
     transactionBytes: payload.transactionBytes,
   };
   await env.BROADCAST_QUEUE.send(submission);
-  return json({ submissionId: submission.submissionId }, 202);
+  return jsonResponse({ submissionId: submission.submissionId }, 202);
 }
 
 function parseCreatedVault(
@@ -266,17 +259,22 @@ function parseCreatedVault(
 async function persistCreateVaultReceipt(request: Request, env: Env) {
   if (
     !env.BROADCAST_RECEIPT_TOKEN ||
-    request.headers.get("authorization") !== `Bearer ${env.BROADCAST_RECEIPT_TOKEN}`
+    request.headers.get("authorization") !==
+      `Bearer ${env.BROADCAST_RECEIPT_TOKEN}`
   ) {
-    return json({ error: "unauthorized receipt callback" }, 401);
+    return jsonResponse({ error: "unauthorized receipt callback" }, 401);
   }
 
   const payload = (await request.json()) as {
     receipt?: TransactionReceipt;
     submission?: unknown;
   };
-  if (!payload.receipt || !isCreateMakerVaultSubmission(payload.submission) || !env.OTP_PACKAGE_ID) {
-    return json({ error: "invalid create vault receipt" }, 400);
+  if (
+    !payload.receipt ||
+    !isCreateMakerVaultSubmission(payload.submission) ||
+    !env.OTP_PACKAGE_ID
+  ) {
+    return jsonResponse({ error: "invalid create vault receipt" }, 400);
   }
 
   const verified = parseCreatedVault(
@@ -285,12 +283,15 @@ async function persistCreateVaultReceipt(request: Request, env: Env) {
     env.OTP_PACKAGE_ID,
   );
   if (!verified) {
-    return json({ error: "receipt does not contain the expected BuyerVault" }, 400);
+    return jsonResponse(
+      { error: "receipt does not contain the expected BuyerVault" },
+      400,
+    );
   }
 
   const existing = await readVault(env.DB, verified.vaultId);
   if (existing) {
-    return json({ vault: toMakerVault(existing) });
+    return jsonResponse({ vault: toMakerVault(existing) });
   }
 
   const vault = await insertVault(env.DB, {
@@ -298,7 +299,7 @@ async function persistCreateVaultReceipt(request: Request, env: Env) {
     orderEndpointUrl: payload.submission.orderEndpointUrl,
     quoteEndpointUrl: payload.submission.quoteEndpointUrl,
   });
-  return json({ vault: toMakerVault(vault as MakerVaultRow) }, 201);
+  return jsonResponse({ vault: toMakerVault(vault as MakerVaultRow) }, 201);
 }
 
 async function registerCreatedVault(request: Request, env: Env) {
@@ -307,7 +308,7 @@ async function registerCreatedVault(request: Request, env: Env) {
   };
 
   if (!payload.createVaultDigest || !env.TX_VALIDATOR) {
-    return json({ error: "createVaultDigest is required" }, 400);
+    return jsonResponse({ error: "createVaultDigest is required" }, 400);
   }
 
   const result = await env.TX_VALIDATOR.verifyCreateVaultDigest(
@@ -316,16 +317,21 @@ async function registerCreatedVault(request: Request, env: Env) {
   );
 
   if (!result.quoteCoinType) {
-    return json({ error: "quoteCoinType is missing from verified digest" }, 400);
+    return jsonResponse(
+      { error: "quoteCoinType is missing from verified digest" },
+      400,
+    );
   }
 
-  if (!supportedQuoteCoins.some((coin) => coin.coinType === result.quoteCoinType)) {
-    return json({ error: "quote coin is not supported" }, 400);
+  if (
+    !supportedQuoteCoins.some((coin) => coin.coinType === result.quoteCoinType)
+  ) {
+    return jsonResponse({ error: "quote coin is not supported" }, 400);
   }
 
   const existing = await readVault(env.DB, result.vaultId);
   if (existing) {
-    return json({ vault: toMakerVault(existing) }, 200);
+    return jsonResponse({ vault: toMakerVault(existing) }, 200);
   }
 
   const vault = await insertVault(env.DB, {
@@ -334,7 +340,7 @@ async function registerCreatedVault(request: Request, env: Env) {
     vaultId: result.vaultId,
   });
 
-  return json(
+  return jsonResponse(
     {
       vault: toMakerVault(vault as MakerVaultRow),
     },
@@ -345,11 +351,11 @@ async function registerCreatedVault(request: Request, env: Env) {
 async function handleVaultUpdate(request: Request, env: Env, vaultId: string) {
   const current = await readVault(env.DB, vaultId);
   if (!current) {
-    return json({ error: "vault not found" }, 404);
+    return jsonResponse({ error: "vault not found" }, 404);
   }
 
   if (current.deleted_at) {
-    return json({ error: "closed vaults cannot be edited" }, 409);
+    return jsonResponse({ error: "closed vaults cannot be edited" }, 409);
   }
 
   const payload = (await request.json()) as {
@@ -359,18 +365,18 @@ async function handleVaultUpdate(request: Request, env: Env, vaultId: string) {
   };
 
   if (!payload.ownerProof || !env.VAULT_CONFIG_AUTH) {
-    return json({ error: "signed owner proof is required" }, 400);
+    return jsonResponse({ error: "signed owner proof is required" }, 400);
   }
 
   if (payload.ownerProof.ownerAddress !== current.owner_address) {
-    return json({ error: "owner mismatch" }, 403);
+    return jsonResponse({ error: "owner mismatch" }, 403);
   }
 
   const proofIsValid = await env.VAULT_CONFIG_AUTH.verifyOwnerProof(
     payload.ownerProof,
   );
   if (!proofIsValid) {
-    return json({ error: "invalid owner proof" }, 403);
+    return jsonResponse({ error: "invalid owner proof" }, 403);
   }
 
   await updateVaultEndpoints(
@@ -381,17 +387,17 @@ async function handleVaultUpdate(request: Request, env: Env, vaultId: string) {
   );
 
   const updated = await readVault(env.DB, vaultId);
-  return json({ vault: toMakerVault(updated as MakerVaultRow) });
+  return jsonResponse({ vault: toMakerVault(updated as MakerVaultRow) });
 }
 
 async function handleVaultClose(request: Request, env: Env, vaultId: string) {
   const current = await readVault(env.DB, vaultId);
   if (!current) {
-    return json({ error: "vault not found" }, 404);
+    return jsonResponse({ error: "vault not found" }, 404);
   }
 
   if (current.deleted_at) {
-    return json({ vault: toMakerVault(current) });
+    return jsonResponse({ vault: toMakerVault(current) });
   }
 
   const payload = (await request.json()) as {
@@ -405,7 +411,10 @@ async function handleVaultClose(request: Request, env: Env, vaultId: string) {
     payload.ownerAddress !== current.owner_address ||
     !env.TX_VALIDATOR
   ) {
-    return json({ error: "valid ownerAddress and closeVaultDigest are required" }, 400);
+    return jsonResponse(
+      { error: "valid ownerAddress and closeVaultDigest are required" },
+      400,
+    );
   }
 
   const verified = await env.TX_VALIDATOR.verifyCloseVaultDigest(
@@ -414,48 +423,75 @@ async function handleVaultClose(request: Request, env: Env, vaultId: string) {
     env.OTP_PACKAGE_ID,
   );
 
-  if (verified.ownerAddress !== current.owner_address || verified.vaultId !== vaultId) {
-    return json({ error: "verified close digest does not match vault owner" }, 403);
+  if (
+    verified.ownerAddress !== current.owner_address ||
+    verified.vaultId !== vaultId
+  ) {
+    return jsonResponse(
+      { error: "verified close digest does not match vault owner" },
+      403,
+    );
   }
 
   await softDeleteVault(env.DB, vaultId);
   const updated = await readVault(env.DB, vaultId);
-  return json({ vault: toMakerVault(updated as MakerVaultRow) });
+  return jsonResponse({ vault: toMakerVault(updated as MakerVaultRow) });
 }
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.get(HEALTH_PATH, (c) => Response.json(buildHealthPayload(c.env)));
+app.get(HEALTH_PATH, (c) => Response.json({ status: "ok" }));
 
-app.get(MAKER_SUPPORTED_COINS_PATH, () => json({ supportedCoins: supportedQuoteCoins }));
+app.get(MAKER_SUPPORTED_COINS_PATH, () =>
+  jsonResponse({ supportedCoins: supportedQuoteCoins }),
+);
 
 app.get(MAKER_VAULTS_PATH, async (c) => {
   const ownerAddress = c.req.query("ownerAddress");
   if (!ownerAddress) {
-    return json({ error: "ownerAddress is required" }, 400);
+    return jsonResponse({ error: "ownerAddress is required" }, 400);
   }
 
   const vaults = await listVaults(c.env.DB, ownerAddress);
-  return json({ vaults: vaults.map(toMakerVault) });
+  return jsonResponse({ vaults: vaults.map(toMakerVault) });
 });
 
 app.post(MAKER_VAULTS_PATH, (c) => registerCreatedVault(c.req.raw, c.env));
-app.all(MAKER_VAULTS_PATH, () => METHOD_NOT_ALLOWED_RESPONSE);
+app.all(
+  MAKER_VAULTS_PATH,
+  () => new Response("Method not allowed", { status: 405 }),
+);
 
-app.post(MAKER_VAULT_SUBMISSIONS_PATH, (c) => submitCreateVault(c.req.raw, c.env));
-app.all(MAKER_VAULT_SUBMISSIONS_PATH, () => METHOD_NOT_ALLOWED_RESPONSE);
+app.post(MAKER_VAULT_SUBMISSIONS_PATH, (c) =>
+  submitCreateVault(c.req.raw, c.env),
+);
+app.all(
+  MAKER_VAULT_SUBMISSIONS_PATH,
+  () => new Response("Method not allowed", { status: 405 }),
+);
 
-app.post(MAKER_VAULT_RECEIPTS_PATH, (c) => persistCreateVaultReceipt(c.req.raw, c.env));
-app.all(MAKER_VAULT_RECEIPTS_PATH, () => METHOD_NOT_ALLOWED_RESPONSE);
+app.post(MAKER_VAULT_RECEIPTS_PATH, (c) =>
+  persistCreateVaultReceipt(c.req.raw, c.env),
+);
+app.all(
+  MAKER_VAULT_RECEIPTS_PATH,
+  () => new Response("Method not allowed", { status: 405 }),
+);
 
 app.patch("/api/maker/vaults/:vaultId", (c) =>
   handleVaultUpdate(c.req.raw, c.env, c.req.param("vaultId")),
 );
-app.all("/api/maker/vaults/:vaultId", () => METHOD_NOT_ALLOWED_RESPONSE);
+app.all(
+  "/api/maker/vaults/:vaultId",
+  () => new Response("Method not allowed", { status: 405 }),
+);
 
 app.post("/api/maker/vaults/:vaultId/close", (c) =>
   handleVaultClose(c.req.raw, c.env, c.req.param("vaultId")),
 );
-app.all("/api/maker/vaults/:vaultId/close", () => METHOD_NOT_ALLOWED_RESPONSE);
+app.all(
+  "/api/maker/vaults/:vaultId/close",
+  () => new Response("Method not allowed", { status: 405 }),
+);
 
 export default app;
