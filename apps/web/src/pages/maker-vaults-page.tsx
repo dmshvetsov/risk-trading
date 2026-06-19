@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   useCurrentAccount,
   useSignPersonalMessage,
+  useSignTransaction,
   useSuiClient,
 } from "@mysten/dapp-kit";
+import { Transaction } from "@mysten/sui/transactions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -113,6 +115,153 @@ async function fetchVaultBalances(
         : `Unavailable ${vault.quoteCoinSymbol}`,
     };
   });
+}
+
+export function buildCreateVaultTransaction(packageId: string, quoteCoinType: string) {
+  const transaction = new Transaction();
+  transaction.moveCall({
+    target: `${packageId}::buyer_vault::create_vault`,
+    typeArguments: [quoteCoinType],
+  });
+  return transaction;
+}
+
+export function CreateMakerVaultFormView({
+  isPending = false,
+  onOrderEndpointUrlChange = () => undefined,
+  onQuoteCoinTypeChange = () => undefined,
+  onQuoteEndpointUrlChange = () => undefined,
+  onSubmit = () => undefined,
+  orderEndpointUrl = "",
+  quoteCoinType,
+  quoteEndpointUrl = "",
+  supportedCoins,
+}: {
+  isPending?: boolean;
+  onOrderEndpointUrlChange?: (value: string) => void;
+  onQuoteCoinTypeChange?: (value: string) => void;
+  onQuoteEndpointUrlChange?: (value: string) => void;
+  onSubmit?: () => void;
+  orderEndpointUrl?: string;
+  quoteCoinType?: string;
+  quoteEndpointUrl?: string;
+  supportedCoins: SupportedCoin[];
+}) {
+  return (
+    <form
+      className="grid gap-3 border border-border p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <p className="text-sm font-medium">Create vault</p>
+      <label className="grid gap-1 text-sm">
+        <span className="text-muted-foreground">Quote coin</span>
+        <select
+          className="border border-input bg-background px-3 py-2"
+          value={quoteCoinType ?? supportedCoins[0]?.coinType ?? ""}
+          onChange={(event) => onQuoteCoinTypeChange(event.target.value)}
+        >
+          {supportedCoins.map((coin) => (
+            <option key={coin.coinType} value={coin.coinType}>
+              {coin.symbol}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="grid gap-1 text-sm">
+        <span className="text-muted-foreground">Quote endpoint URL</span>
+        <input
+          className="border border-input bg-background px-3 py-2"
+          onChange={(event) => onQuoteEndpointUrlChange(event.target.value)}
+          placeholder="https://maker.example/quotes"
+          required
+          type="url"
+          value={quoteEndpointUrl}
+        />
+      </label>
+      <label className="grid gap-1 text-sm">
+        <span className="text-muted-foreground">Order endpoint URL</span>
+        <input
+          className="border border-input bg-background px-3 py-2"
+          onChange={(event) => onOrderEndpointUrlChange(event.target.value)}
+          placeholder="https://maker.example/orders"
+          required
+          type="url"
+          value={orderEndpointUrl}
+        />
+      </label>
+      <Button disabled={isPending || supportedCoins.length === 0} type="submit">
+        {isPending ? "Waiting for wallet..." : "Sign and create vault"}
+      </Button>
+    </form>
+  );
+}
+
+function CreateMakerVaultForm({
+  accountAddress,
+  supportedCoins,
+}: {
+  accountAddress: string;
+  supportedCoins: SupportedCoin[];
+}) {
+  const queryClient = useQueryClient();
+  const signTransaction = useSignTransaction();
+  const [quoteCoinType, setQuoteCoinType] = useState("");
+  const [quoteEndpointUrl, setQuoteEndpointUrl] = useState("");
+  const [orderEndpointUrl, setOrderEndpointUrl] = useState("");
+  const selectedCoinType = quoteCoinType || supportedCoins[0]?.coinType || "";
+
+  const createVault = useMutation({
+    mutationFn: async () => {
+      if (!appConfig.otpPackageId || !selectedCoinType) {
+        throw new Error("Vault package or quote coin is not configured");
+      }
+      const transaction = buildCreateVaultTransaction(
+        appConfig.otpPackageId,
+        selectedCoinType,
+      );
+      const signed = await signTransaction.mutateAsync({ transaction });
+      const response = await fetch(
+        `${appConfig.rfqApiUrl}/api/maker/vaults/submissions`,
+        {
+          body: JSON.stringify({
+            orderEndpointUrl,
+            ownerAddress: accountAddress,
+            quoteCoinType: selectedCoinType,
+            quoteEndpointUrl,
+            signature: signed.signature,
+            transactionBytes: signed.bytes,
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        },
+      );
+      if (!response.ok) {
+        throw new Error("Failed to submit create vault transaction");
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["maker-vaults", accountAddress],
+      });
+    },
+  });
+
+  return (
+    <CreateMakerVaultFormView
+      isPending={createVault.isPending}
+      onOrderEndpointUrlChange={setOrderEndpointUrl}
+      onQuoteCoinTypeChange={setQuoteCoinType}
+      onQuoteEndpointUrlChange={setQuoteEndpointUrl}
+      onSubmit={() => void createVault.mutateAsync()}
+      orderEndpointUrl={orderEndpointUrl}
+      quoteCoinType={selectedCoinType}
+      quoteEndpointUrl={quoteEndpointUrl}
+      supportedCoins={supportedCoins}
+    />
+  );
 }
 
 export function MakerVaultCard({
@@ -338,11 +487,13 @@ export function MakerVaultCardView({
 
 export function MakerVaultsView({
   accountAddress,
+  createVaultForm,
   isLoading,
   supportedCoins,
   vaults,
 }: {
   accountAddress: string | null;
+  createVaultForm?: ReactNode;
   isLoading: boolean;
   supportedCoins: SupportedCoin[];
   vaults: MakerVaultRecord[];
@@ -370,6 +521,12 @@ export function MakerVaultsView({
               Connect the maker wallet to load vault state, balances, and endpoint actions.
             </p>
           ) : null}
+
+          {accountAddress
+            ? createVaultForm ?? (
+                <CreateMakerVaultFormView supportedCoins={supportedCoins} />
+              )
+            : null}
 
           {accountAddress && isLoading ? (
             <p className="text-sm text-muted-foreground">Loading maker vault state...</p>
@@ -410,6 +567,7 @@ export function MakerVaultsPage() {
     queryKey: ["maker-vaults", account?.address ?? null],
     queryFn: () => fetchMakerVaults(account?.address ?? ""),
     enabled: Boolean(account?.address),
+    refetchInterval: account?.address ? 3_000 : false,
   });
 
   const balancesQuery = useQuery({
@@ -425,12 +583,24 @@ export function MakerVaultsPage() {
   return (
     <MakerVaultsView
       accountAddress={account?.address ?? null}
+      createVaultForm={
+        account?.address ? (
+          <CreateMakerVaultForm
+            accountAddress={account.address}
+            supportedCoins={(supportedCoinsQuery.data ?? []).filter(
+              (coin) => coin.network === appConfig.network,
+            )}
+          />
+        ) : null
+      }
       isLoading={
         supportedCoinsQuery.isLoading ||
         vaultsQuery.isLoading ||
         balancesQuery.isLoading
       }
-      supportedCoins={supportedCoinsQuery.data ?? []}
+      supportedCoins={(supportedCoinsQuery.data ?? []).filter(
+        (coin) => coin.network === appConfig.network,
+      )}
       vaults={balancesQuery.data ?? []}
     />
   );

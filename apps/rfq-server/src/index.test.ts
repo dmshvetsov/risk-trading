@@ -143,6 +143,7 @@ class FakeD1Database {
 function createEnv(db = new FakeD1Database()) {
   return {
     BROADCAST_QUEUE: { send: async () => undefined },
+    BROADCAST_RECEIPT_TOKEN: "receipt-token",
     DB: db,
     OTP_PACKAGE_ID: "0xotp",
     QUOTES: {
@@ -169,6 +170,34 @@ function createEnv(db = new FakeD1Database()) {
       }) => proof.signature === "valid-signature" && proof.ownerAddress === "0xmaker",
     },
   } as never;
+}
+
+function createdVaultReceipt(packageId = "0xotp") {
+  return {
+    digest: "digest-1",
+    effects: { status: { status: "success" } },
+    events: [
+      {
+        packageId,
+        transactionModule: "buyer_vault",
+        type: `${packageId}::buyer_vault::BuyerVaultCreated`,
+        parsedJson: {
+          owner: "0xmaker",
+          quote_coin_type: {
+            name: "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+          },
+          vault_id: "0xvault-1",
+        },
+      },
+    ],
+    objectChanges: [
+      {
+        objectId: "0xvault-1",
+        objectType: `${packageId}::buyer_vault::BuyerVault<0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC>`,
+        type: "created",
+      },
+    ],
+  };
 }
 
 describe("rfq worker foundation", () => {
@@ -328,6 +357,74 @@ describe("maker vault APIs", () => {
     assert.equal(payload.vault.vaultId, "0xvault-1");
     assert.match(String(payload.vault.createdAt), /^\d{4}-\d{2}-\d{2}T/);
     assert.match(String(payload.vault.updatedAt), /^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("queues a signed create transaction and persists verified endpoints from its receipt", async () => {
+    const db = new FakeD1Database();
+    const queued: unknown[] = [];
+    const env = createEnv(db) as ReturnType<typeof createEnv> & {
+      BROADCAST_QUEUE: { send(message: unknown): Promise<void> };
+    };
+    env.BROADCAST_QUEUE = { send: async (message) => void queued.push(message) };
+
+    const submitResponse = await worker.fetch(
+      new Request("https://example.com/api/maker/vaults/submissions", {
+        body: JSON.stringify({
+          ownerAddress: "0xmaker",
+          orderEndpointUrl: "https://maker.example/orders",
+          quoteCoinType:
+            "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+          quoteEndpointUrl: "https://maker.example/quotes",
+          signature: "wallet-signature",
+          transactionBytes: "signed-transaction-bytes",
+        }),
+        method: "POST",
+      }),
+      env,
+    );
+
+    assert.equal(submitResponse.status, 202);
+    assert.equal(queued.length, 1);
+
+    const receiptResponse = await worker.fetch(
+      new Request("https://example.com/api/internal/maker/vaults/receipts", {
+        body: JSON.stringify({
+          receipt: createdVaultReceipt(),
+          submission: queued[0],
+        }),
+        method: "POST",
+        headers: { authorization: "Bearer receipt-token" },
+      }),
+      env,
+    );
+
+    assert.equal(receiptResponse.status, 201);
+    assert.equal(db.rows.get("0xvault-1")?.quote_endpoint_url, "https://maker.example/quotes");
+    assert.equal(db.rows.get("0xvault-1")?.order_endpoint_url, "https://maker.example/orders");
+  });
+
+  it("rejects a BuyerVault receipt created by another package", async () => {
+    const response = await worker.fetch(
+      new Request("https://example.com/api/internal/maker/vaults/receipts", {
+        body: JSON.stringify({
+          receipt: createdVaultReceipt("0xattacker"),
+          submission: {
+            kind: "create-maker-vault",
+            ownerAddress: "0xmaker",
+            quoteCoinType:
+              "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+            signature: "wallet-signature",
+            submissionId: "submission-1",
+            transactionBytes: "signed-transaction-bytes",
+          },
+        }),
+        method: "POST",
+        headers: { authorization: "Bearer receipt-token" },
+      }),
+      createEnv(),
+    );
+
+    assert.equal(response.status, 400);
   });
 
   it("lists maker vaults from the database for one owner", async () => {

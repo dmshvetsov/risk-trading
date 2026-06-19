@@ -6,6 +6,7 @@ function getDefaultNetworkName(): AppNetwork {
 
 export const appConfig = {
   network: getDefaultNetworkName(),
+  otpPackageId: import.meta.env.VITE_OTP_PACKAGE_ID ?? "",
   rfqApiUrl: import.meta.env.VITE_RFQ_API_URL ?? "http://localhost:8787",
   broadcastApiUrl:
     import.meta.env.VITE_BROADCAST_API_URL ?? "http://localhost:8788",

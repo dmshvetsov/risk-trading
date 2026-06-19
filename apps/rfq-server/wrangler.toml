@@ -19,3 +19,39 @@ queue = "broadcast-server-submissions"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["QuoteStore"]
+
+[[env.development.d1_databases]]
+binding = "DB"
+database_name = "rfq-server-db-development"
+database_id = "local-rfq-server-db"
+migrations_dir = "migrations"
+
+[[env.development.durable_objects.bindings]]
+name = "QUOTES"
+class_name = "QuoteStore"
+
+[[env.development.queues.producers]]
+binding = "BROADCAST_QUEUE"
+queue = "broadcast-server-submissions-development"
+
+[[env.development.migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuoteStore"]
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "rfq-server-db-staging"
+database_id = "staging-rfq-server-db"
+migrations_dir = "migrations"
+
+[[env.staging.durable_objects.bindings]]
+name = "QUOTES"
+class_name = "QuoteStore"
+
+[[env.staging.queues.producers]]
+binding = "BROADCAST_QUEUE"
+queue = "broadcast-server-submissions-staging"
+
+[[env.staging.migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuoteStore"]

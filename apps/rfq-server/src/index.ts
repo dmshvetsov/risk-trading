@@ -33,6 +33,7 @@ type VaultConfigProof = {
 };
 
 export interface Env {
+  BROADCAST_RECEIPT_TOKEN?: string;
   BROADCAST_QUEUE: {
     send(message: unknown): Promise<void>;
   };
@@ -83,10 +84,39 @@ type MakerVaultRow = {
   vault_id: string;
 };
 
+export type CreateMakerVaultSubmission = {
+  kind: "create-maker-vault";
+  orderEndpointUrl: string | null;
+  ownerAddress: string;
+  quoteCoinType: string;
+  quoteEndpointUrl: string | null;
+  signature: string;
+  submissionId: string;
+  transactionBytes: string;
+};
+
+type TransactionReceipt = {
+  digest?: string;
+  effects?: { status?: { status?: string } };
+  events?: Array<{
+    packageId?: string;
+    parsedJson?: Record<string, unknown>;
+    transactionModule?: string;
+    type?: string;
+  }>;
+  objectChanges?: Array<{
+    objectId?: string;
+    objectType?: string;
+    type?: string;
+  }>;
+};
+
 const HEALTH_PATH = "/health";
 const STATE_KEY = "quote-state";
 const MAKER_SUPPORTED_COINS_PATH = "/api/maker/supported-coins";
 const MAKER_VAULTS_PATH = "/api/maker/vaults";
+const MAKER_VAULT_SUBMISSIONS_PATH = "/api/maker/vaults/submissions";
+const MAKER_VAULT_RECEIPTS_PATH = "/api/internal/maker/vaults/receipts";
 
 export function buildHealthPayload(env: Partial<Env>) {
   return {
@@ -203,7 +233,9 @@ async function insertVault(
   db: D1Database,
   input: {
     ownerAddress: string;
+    orderEndpointUrl?: string | null;
     quoteCoinType: string;
+    quoteEndpointUrl?: string | null;
     vaultId: string;
   },
 ) {
@@ -229,14 +261,146 @@ async function insertVault(
       input.quoteCoinType,
       getQuoteCoinSymbol(input.quoteCoinType),
       1,
-      null,
-      null,
+      input.quoteEndpointUrl ?? null,
+      input.orderEndpointUrl ?? null,
       timestamp,
       timestamp,
     )
     .run();
 
   return readVault(db, input.vaultId);
+}
+
+function isCreateMakerVaultSubmission(
+  input: unknown,
+): input is CreateMakerVaultSubmission {
+  if (!input || typeof input !== "object") {
+    return false;
+  }
+
+  const value = input as Record<string, unknown>;
+  return (
+    value.kind === "create-maker-vault" &&
+    typeof value.ownerAddress === "string" &&
+    typeof value.quoteCoinType === "string" &&
+    typeof value.signature === "string" &&
+    typeof value.submissionId === "string" &&
+    typeof value.transactionBytes === "string"
+  );
+}
+
+async function submitCreateVault(request: Request, env: Env) {
+  const payload = (await request.json()) as Partial<CreateMakerVaultSubmission>;
+  const quoteEndpointUrl = normalizeUrl(payload.quoteEndpointUrl);
+  const orderEndpointUrl = normalizeUrl(payload.orderEndpointUrl);
+
+  if (
+    !payload.ownerAddress ||
+    !payload.quoteCoinType ||
+    !payload.signature ||
+    !payload.transactionBytes ||
+    !quoteEndpointUrl ||
+    !orderEndpointUrl ||
+    !supportedQuoteCoins.some((coin) => coin.coinType === payload.quoteCoinType)
+  ) {
+    return json({ error: "valid signed transaction, quote coin, and endpoints are required" }, 400);
+  }
+
+  const submission: CreateMakerVaultSubmission = {
+    kind: "create-maker-vault",
+    orderEndpointUrl,
+    ownerAddress: payload.ownerAddress,
+    quoteCoinType: payload.quoteCoinType,
+    quoteEndpointUrl,
+    signature: payload.signature,
+    submissionId: crypto.randomUUID(),
+    transactionBytes: payload.transactionBytes,
+  };
+  await env.BROADCAST_QUEUE.send(submission);
+  return json({ submissionId: submission.submissionId }, 202);
+}
+
+function parseCreatedVault(
+  receipt: TransactionReceipt,
+  submission: CreateMakerVaultSubmission,
+  packageId: string,
+) {
+  if (receipt.effects?.status?.status !== "success") {
+    return null;
+  }
+
+  const event = receipt.events?.find(
+    (candidate) =>
+      candidate.packageId === packageId &&
+      candidate.transactionModule === "buyer_vault" &&
+      candidate.type === `${packageId}::buyer_vault::BuyerVaultCreated`,
+  );
+  const vaultId = event?.parsedJson?.vault_id;
+  const ownerAddress = event?.parsedJson?.owner;
+  const quoteCoinTypeValue = event?.parsedJson?.quote_coin_type;
+  const quoteCoinType =
+    typeof quoteCoinTypeValue === "string"
+      ? quoteCoinTypeValue
+      : quoteCoinTypeValue &&
+          typeof quoteCoinTypeValue === "object" &&
+          "name" in quoteCoinTypeValue &&
+          typeof quoteCoinTypeValue.name === "string"
+        ? quoteCoinTypeValue.name
+        : null;
+  if (
+    typeof vaultId !== "string" ||
+    ownerAddress !== submission.ownerAddress ||
+    quoteCoinType !== submission.quoteCoinType
+  ) {
+    return null;
+  }
+
+  const expectedObjectType = `${packageId}::buyer_vault::BuyerVault<${submission.quoteCoinType}>`;
+  const createdObject = receipt.objectChanges?.find(
+    (change) =>
+      change.type === "created" &&
+      change.objectId === vaultId &&
+      change.objectType === expectedObjectType,
+  );
+  return createdObject ? { ownerAddress, quoteCoinType, vaultId } : null;
+}
+
+async function persistCreateVaultReceipt(request: Request, env: Env) {
+  if (
+    !env.BROADCAST_RECEIPT_TOKEN ||
+    request.headers.get("authorization") !== `Bearer ${env.BROADCAST_RECEIPT_TOKEN}`
+  ) {
+    return json({ error: "unauthorized receipt callback" }, 401);
+  }
+
+  const payload = (await request.json()) as {
+    receipt?: TransactionReceipt;
+    submission?: unknown;
+  };
+  if (!payload.receipt || !isCreateMakerVaultSubmission(payload.submission) || !env.OTP_PACKAGE_ID) {
+    return json({ error: "invalid create vault receipt" }, 400);
+  }
+
+  const verified = parseCreatedVault(
+    payload.receipt,
+    payload.submission,
+    env.OTP_PACKAGE_ID,
+  );
+  if (!verified) {
+    return json({ error: "receipt does not contain the expected BuyerVault" }, 400);
+  }
+
+  const existing = await readVault(env.DB, verified.vaultId);
+  if (existing) {
+    return json({ vault: toMakerVault(existing) });
+  }
+
+  const vault = await insertVault(env.DB, {
+    ...verified,
+    orderEndpointUrl: payload.submission.orderEndpointUrl,
+    quoteEndpointUrl: payload.submission.quoteEndpointUrl,
+  });
+  return json({ vault: toMakerVault(vault as MakerVaultRow) }, 201);
 }
 
 async function updateVaultEndpoints(
@@ -428,6 +592,14 @@ const worker = {
 
     if (url.pathname === MAKER_VAULTS_PATH) {
       return handleMakerVaults(request, env);
+    }
+
+    if (url.pathname === MAKER_VAULT_SUBMISSIONS_PATH && request.method === "POST") {
+      return submitCreateVault(request, env);
+    }
+
+    if (url.pathname === MAKER_VAULT_RECEIPTS_PATH && request.method === "POST") {
+      return persistCreateVaultReceipt(request, env);
     }
 
     const vaultMatch = url.pathname.match(/^\/api\/maker\/vaults\/([^/]+)$/);

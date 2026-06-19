@@ -6,7 +6,7 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 
 import { AppChrome } from "./components/app-shell";
 import { HomePage } from "./pages/home-page";
-import { MakerVaultCardView } from "./pages/maker-vaults-page";
+import { MakerVaultCardView, MakerVaultsView } from "./pages/maker-vaults-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
 import { TakerShellPage } from "./pages/taker-shell-page";
 import { SuiProviders } from "./components/sui-providers";
@@ -77,6 +77,29 @@ describe("Taker copy", () => {
 });
 
 describe("Maker copy", () => {
+  it("renders the connected maker create-vault form", () => {
+    const html = renderToStaticMarkup(
+      <MakerVaultsView
+        accountAddress="0xmaker"
+        isLoading={false}
+        supportedCoins={[
+          {
+            coinType:
+              "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+            network: "testnet",
+            symbol: "USDC",
+          },
+        ]}
+        vaults={[]}
+      />,
+    );
+
+    assert.match(html, /Create vault/);
+    assert.match(html, /Quote endpoint URL/);
+    assert.match(html, /Order endpoint URL/);
+    assert.match(html, /USDC/);
+  });
+
   it("renders vault state, edit controls, and close action on the vaults tab", () => {
     const html = renderToStaticMarkup(
       <MakerVaultCardView

@@ -4,6 +4,7 @@ import { describe, it } from "vitest";
 import worker, {
   buildHealthPayload,
   createFinalityAwaiter,
+  createSuiFinalityAwaiter,
   drainBatch,
 } from "./index";
 
@@ -56,5 +57,41 @@ describe("broadcast worker foundation", () => {
       service: "broadcast-server",
       status: "ok",
     });
+  });
+
+  it("executes a maker vault transaction and forwards its receipt before ack", async () => {
+    const callbacks: Request[] = [];
+    const rpcCalls: RequestInfo | URL[] = [];
+    const awaitFinality = createSuiFinalityAwaiter(
+      {
+        BROADCAST_RECEIPT_TOKEN: "receipt-token",
+        RFQ_SERVER: {
+          fetch: async (request) => {
+            callbacks.push(request);
+            return Response.json({ ok: true }, { status: 201 });
+          },
+        },
+        SUI_RPC_URL: "https://fullnode.example",
+      },
+      async (input) => {
+        rpcCalls.push(input);
+        return Response.json({ result: { digest: "digest-1" } });
+      },
+    );
+
+    await awaitFinality({
+      kind: "create-maker-vault",
+      orderEndpointUrl: "https://maker.example/orders",
+      ownerAddress: "0xmaker",
+      quoteCoinType: "0xcoin::usdc::USDC",
+      quoteEndpointUrl: "https://maker.example/quotes",
+      signature: "signature",
+      submissionId: "submission-1",
+      transactionBytes: "transaction-bytes",
+    });
+
+    assert.equal(rpcCalls.length, 1);
+    assert.equal(callbacks.length, 1);
+    assert.equal(callbacks[0]?.headers.get("authorization"), "Bearer receipt-token");
   });
 });
