@@ -2,6 +2,12 @@
 
 Aim to build a strong projects that is useful and grounded in real user needs. Show deep product thinking, strive to smooth, continuous, and free of interruptions and flaws UX. Have a clear path for this product to being market-ready, not just technically possible.
 
+## Code Style
+
+- avoid writing files larger then 500-1000 lines, if possible split the logically 
+- typescript specific
+  - avoid using `as <SomeType>` and `any` if this weakens type-safety
+
 ## Git rules
 
 - commits format `<name of the monorepo package>: <explain what changes are in the commit>`
