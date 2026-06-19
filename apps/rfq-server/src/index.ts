@@ -1,24 +1,12 @@
+import {
+  insertVault,
+  listVaults,
+  readVault,
+  softDeleteVault,
+  updateVaultEndpoints,
+} from "./db/queries";
 import { supportedQuoteCoins } from "./supported-quote-coins";
-
-type D1Result<T> = {
-  results?: T[];
-  success?: boolean;
-  meta?: {
-    changes?: number;
-  };
-};
-
-type D1Statement = {
-  bind(...values: unknown[]): {
-    all<T>(): Promise<D1Result<T>>;
-    first<T>(): Promise<T | null>;
-    run(): Promise<D1Result<never>>;
-  };
-};
-
-type D1Database = {
-  prepare(sql: string): D1Statement;
-};
+import type { D1Database, MakerVaultRow } from "./typedefs";
 
 type TxValidationResult = {
   ownerAddress: string;
@@ -69,19 +57,6 @@ type QuoteState = {
   offerValidUntilUnixMs: number;
   quoteId: string;
   remainingContractsQtyDecimals: string;
-};
-
-type MakerVaultRow = {
-  created_at: string;
-  deleted_at: string | null;
-  enabled: number;
-  order_endpoint_url: string | null;
-  owner_address: string;
-  quote_coin_symbol: string;
-  quote_coin_type: string;
-  quote_endpoint_url: string | null;
-  updated_at: string;
-  vault_id: string;
 };
 
 export type CreateMakerVaultSubmission = {
@@ -168,10 +143,6 @@ function json(data: unknown, status = 200) {
   return Response.json(data, { status });
 }
 
-function nowIsoString() {
-  return new Date().toISOString();
-}
-
 function normalizeUrl(url: unknown) {
   if (typeof url !== "string" || url.trim().length === 0) {
     return null;
@@ -193,82 +164,6 @@ function toMakerVault(row: MakerVaultRow) {
     updatedAt: row.updated_at,
     vaultId: row.vault_id,
   };
-}
-
-function getQuoteCoinSymbol(quoteCoinType: string) {
-  const match = supportedQuoteCoins.find((coin) => coin.coinType === quoteCoinType);
-  return match?.symbol ?? "UNKNOWN";
-}
-
-async function readVault(db: D1Database, vaultId: string) {
-  return db
-    .prepare(
-      `SELECT vault_id, owner_address, quote_coin_type, quote_coin_symbol,
-              enabled, quote_endpoint_url, order_endpoint_url, created_at,
-              updated_at, deleted_at
-         FROM makers_vaults
-        WHERE vault_id = ?`,
-    )
-    .bind(vaultId)
-    .first<MakerVaultRow>();
-}
-
-async function listVaults(db: D1Database, ownerAddress: string) {
-  const result = await db
-    .prepare(
-      `SELECT vault_id, owner_address, quote_coin_type, quote_coin_symbol,
-              enabled, quote_endpoint_url, order_endpoint_url, created_at,
-              updated_at, deleted_at
-         FROM makers_vaults
-        WHERE owner_address = ?
-        ORDER BY created_at ASC`,
-    )
-    .bind(ownerAddress)
-    .all<MakerVaultRow>();
-
-  return result.results ?? [];
-}
-
-async function insertVault(
-  db: D1Database,
-  input: {
-    ownerAddress: string;
-    orderEndpointUrl?: string | null;
-    quoteCoinType: string;
-    quoteEndpointUrl?: string | null;
-    vaultId: string;
-  },
-) {
-  const timestamp = nowIsoString();
-
-  await db
-    .prepare(
-      `INSERT INTO makers_vaults (
-         vault_id,
-         owner_address,
-         quote_coin_type,
-         quote_coin_symbol,
-         enabled,
-         quote_endpoint_url,
-         order_endpoint_url,
-         created_at,
-         updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.vaultId,
-      input.ownerAddress,
-      input.quoteCoinType,
-      getQuoteCoinSymbol(input.quoteCoinType),
-      1,
-      input.quoteEndpointUrl ?? null,
-      input.orderEndpointUrl ?? null,
-      timestamp,
-      timestamp,
-    )
-    .run();
-
-  return readVault(db, input.vaultId);
 }
 
 function isCreateMakerVaultSubmission(
@@ -401,42 +296,6 @@ async function persistCreateVaultReceipt(request: Request, env: Env) {
     quoteEndpointUrl: payload.submission.quoteEndpointUrl,
   });
   return json({ vault: toMakerVault(vault as MakerVaultRow) }, 201);
-}
-
-async function updateVaultEndpoints(
-  db: D1Database,
-  vaultId: string,
-  quoteEndpointUrl: string | null,
-  orderEndpointUrl: string | null,
-) {
-  const result = await db
-    .prepare(
-      `UPDATE makers_vaults
-          SET quote_endpoint_url = ?,
-              order_endpoint_url = ?,
-              updated_at = ?
-        WHERE vault_id = ?`,
-    )
-    .bind(quoteEndpointUrl, orderEndpointUrl, nowIsoString(), vaultId)
-    .run();
-
-  return (result.meta?.changes ?? 0) > 0;
-}
-
-async function softDeleteVault(db: D1Database, vaultId: string) {
-  const timestamp = nowIsoString();
-  const result = await db
-    .prepare(
-      `UPDATE makers_vaults
-          SET enabled = 0,
-              deleted_at = ?,
-              updated_at = ?
-        WHERE vault_id = ?`,
-    )
-    .bind(timestamp, timestamp, vaultId)
-    .run();
-
-  return (result.meta?.changes ?? 0) > 0;
 }
 
 async function registerCreatedVault(request: Request, env: Env) {
