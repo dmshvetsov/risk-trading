@@ -302,13 +302,36 @@ describe("rfq worker foundation", () => {
 });
 
 describe("maker vault APIs", () => {
+  it("responds to CORS preflight for maker APIs", async () => {
+    const response = await worker.fetch(
+      new Request("https://example.com/api/maker/vaults", {
+        headers: {
+          "access-control-request-method": "POST",
+          origin: "http://localhost:5173",
+        },
+        method: "OPTIONS",
+      }),
+      createEnv(),
+    );
+
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get("access-control-allow-origin"), "*");
+    assert.match(
+      String(response.headers.get("access-control-allow-methods")),
+      /POST/i,
+    );
+  });
+
   it("returns supported quote coins from server config", async () => {
     const response = await worker.fetch(
-      new Request("https://example.com/api/maker/supported-coins"),
+      new Request("https://example.com/api/maker/supported-coins", {
+        headers: { origin: "http://localhost:5173" },
+      }),
       createEnv(),
     );
 
     assert.equal(response.status, 200);
+    assert.equal(response.headers.get("access-control-allow-origin"), "*");
     assert.deepEqual(await response.json(), {
       supportedCoins: [
         {

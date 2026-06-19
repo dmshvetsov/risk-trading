@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import {
   insertVault,
   listVaults,
@@ -439,6 +440,15 @@ async function handleVaultClose(request: Request, env: Env, vaultId: string) {
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.use(
+  "/api/*",
+  cors({
+    allowHeaders: ["authorization", "content-type"],
+    allowMethods: ["GET", "POST", "PATCH", "OPTIONS"],
+    origin: "*",
+  }),
+);
 
 app.get(HEALTH_PATH, (c) => Response.json({ status: "ok" }));
 
