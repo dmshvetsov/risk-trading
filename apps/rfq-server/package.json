@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "pnpm exec wrangler dev",
     "test": "pnpm exec vitest run",
+    "db:migrate": "pnpm exec wrangler d1 migrations apply rfq-server-db",
     "typecheck": "pnpm exec tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

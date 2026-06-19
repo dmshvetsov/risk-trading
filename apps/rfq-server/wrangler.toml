@@ -2,6 +2,10 @@ name = "rfq-server"
 main = "src/index.ts"
 compatibility_date = "2026-06-10"
 
+#
+# = preoduction env
+#
+
 [[d1_databases]]
 binding = "DB"
 database_name = "rfq-server-db"
@@ -16,9 +20,9 @@ class_name = "QuoteStore"
 binding = "BROADCAST_QUEUE"
 queue = "broadcast-server-submissions"
 
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["QuoteStore"]
+#
+# = development env
+#
 
 [[env.development.d1_databases]]
 binding = "DB"
@@ -38,6 +42,10 @@ queue = "broadcast-server-submissions-development"
 tag = "v1"
 new_sqlite_classes = ["QuoteStore"]
 
+#
+# = staging env
+#
+
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "rfq-server-db-staging"
@@ -55,3 +63,12 @@ queue = "broadcast-server-submissions-staging"
 [[env.staging.migrations]]
 tag = "v1"
 new_sqlite_classes = ["QuoteStore"]
+
+#
+# = migrations
+#
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuoteStore"]
+
