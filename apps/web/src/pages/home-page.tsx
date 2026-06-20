@@ -387,7 +387,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
                 <p className="text-2xl font-semibold tracking-tight text-foreground sm:text-4xl">
                   {premium ? `${formatUsdc(premium)} USDC` : isLoading ? "Loading..." : "-"}
                 </p>
-                <p className="flex items-center gap-1 font-semibold text-foreground lg:justify-end">
+                <p className="flex items-center gap-1 text-foreground lg:justify-end">
                   <span>{apr ? `${apr.toFixed(2)}% APR` : "APR unavailable"}</span>
                   <TooltipProvider>
                     <Tooltip>
@@ -406,12 +406,6 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
                     </Tooltip>
                   </TooltipProvider>
                 </p>
-                {/** TODO: remove this we do not show quote expiration time to user and create a p3 task to create a quote refresh mechanics on this page when quote is no longer valid */}
-                {quote ? (
-                  <p className="text-sm text-muted-foreground">
-                    Quote expires in {offerSecondsLeft} seconds
-                  </p>
-                ) : null}
               </div>
             </div>
 

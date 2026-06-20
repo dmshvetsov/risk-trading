@@ -6,8 +6,7 @@ export function MakerShellIndexPage() {
       title="Maker dashboard tabs"
       items={[
         { label: "Vaults", value: "Open /maker/vaults for balances and endpoint actions" },
-        { label: "Positions", value: "Open /maker/positions for readiness and history" },
-        { label: "Access", value: "Keep this dashboard hidden from the main navigation" },
+        { label: "Positions", value: "Open /maker/positions active position and history of positions" },
       ]}
     />
   );

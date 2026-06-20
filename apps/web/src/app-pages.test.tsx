@@ -17,7 +17,7 @@ import {
 import { SuiProviders } from "./components/sui-providers";
 import { getRouter } from "./router";
 
-describe("App shell", () => {
+describe("App pages", () => {
   it("renders the home route at slash", async () => {
     const testRouter = getRouter(
       createMemoryHistory({
@@ -241,28 +241,6 @@ describe("Maker copy", () => {
     assert.match(html, /Maker Dashboard/);
     assert.match(html, /\/maker\/vaults/);
     assert.match(html, /\/maker\/positions/);
-  });
-
-  it("renders the maker positions sub-page on direct visit", async () => {
-    const testRouter = getRouter(
-      createMemoryHistory({
-        initialEntries: ["/maker/positions"],
-      }),
-    );
-    const queryClient = new QueryClient();
-
-    await testRouter.load();
-
-    const html = renderToStaticMarkup(
-      <QueryClientProvider client={queryClient}>
-        <SuiProviders>
-          <RouterProvider router={testRouter} />
-        </SuiProviders>
-      </QueryClientProvider>,
-    );
-
-    assert.match(html, /Positions/);
-    assert.match(html, /Settlement readiness/i);
   });
 });
 

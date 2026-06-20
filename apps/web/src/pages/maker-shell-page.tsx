@@ -35,7 +35,7 @@ export function MakerShellPage({ children }: PropsWithChildren) {
           <MetricCard
             label="Positions"
             value="ITM / OTM"
-            hint="Settlement readiness and history stay on the same hidden route."
+            hint="open positions and history of position."
           />
         </StatusStrip>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -48,7 +48,7 @@ export function MakerShellPage({ children }: PropsWithChildren) {
             {
               href: "/maker/positions",
               label: "Positions",
-              summary: "Open exposure, moneyness, settlement readiness, and history",
+              summary: "Open exposure, moneyness, active positions, and history of positions",
             },
           ].map((item) => {
             const isActive = currentPath === item.href;

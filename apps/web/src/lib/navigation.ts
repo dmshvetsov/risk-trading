@@ -13,6 +13,6 @@ export const navigationItems: NavigationItem[] = [
   {
     href: "/maker",
     label: "Dashboard",
-    summary: "Manage maker readiness screens",
+    summary: "Makers dashboard",
   },
 ];
