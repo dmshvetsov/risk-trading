@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Info } from "lucide-react";
+import { ChevronDown, Info } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { appConfig } from "@/lib/config";
 import {
   decimalAmount,
@@ -41,6 +46,15 @@ const strikeOptions = [
 ];
 
 const defaultSize = 0.05;
+const minSize = 0.005;
+const maxSize = 1;
+const sizeStep = 0.005;
+const sizePresetRows = [
+  ["0.005"],
+  ["0.01", "0.03", "0.05", "0.07", "0.09"],
+  ["0.1", "0.3", "0.5",  "0.7", "0.9"],
+  ["1"],
+];
 const defaultExpiryLabel = "Jul 31";
 const defaultStrikeLabel = "$68,000";
 const btcSpotPrice = 63_489;
@@ -50,6 +64,19 @@ function formatUsdc(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function clampSize(value: number) {
+  if (!Number.isFinite(value)) {
+    return minSize;
+  }
+
+  const clamped = Math.min(maxSize, Math.max(minSize, value));
+  return Math.round(clamped / sizeStep) * sizeStep;
+}
+
+function formatSize(value: number) {
+  return value.toString();
 }
 
 function formatDate(expiryUnixMs: number) {
@@ -120,6 +147,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const [selectedStrategy, setSelectedStrategy] = useState("Covered call");
   const [selectedExpiry, setSelectedExpiry] = useState(defaultExpiryLabel);
   const [selectedStrike, setSelectedStrike] = useState(defaultStrikeLabel);
+  const [size, setSize] = useState(defaultSize);
   const [quote, setQuote] = useState<DisplayQuote | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -162,7 +190,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
           strategy,
           {
             expiryUnixMs: expiry.expiryUnixMs,
-            size: defaultSize,
+            size,
             strike: strike.strike,
           },
         );
@@ -186,17 +214,20 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [expiry.expiryUnixMs, selectedStrategy, strike.strike]);
+  }, [expiry.expiryUnixMs, selectedStrategy, size, strike.strike]);
 
   const strategy: QuoteStrategy = selectedStrategy === "Covered call"
     ? "covered-call"
     : "cash-secured-put";
+  const effectiveSize = quote
+    ? decimalAmount(quote.contractsQtyDecimals, 8)
+    : size;
   const premium = quote
     ? decimalAmount(quote.cashPremiumPerContract, quote.cashTokenDecimals) *
-      defaultSize
+      effectiveSize
     : null;
   const strikePrice = quote ? decimalAmount(quote.strikePriceDecimals, 6) : strike.strike;
-  const terms = quoteTerms(strategy, defaultSize, strikePrice);
+  const terms = quoteTerms(strategy, effectiveSize, strikePrice);
   const expiryUnixMs = quote?.expiryUnixMs ?? expiry.expiryUnixMs;
   const offerSecondsLeft = quote
     ? secondsUntilExpiry(quote.offerValidUntilUnixMs, nowUnixMs)
@@ -205,7 +236,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const daysToExpiry = daysUntil(expiryUnixMs, nowUnixMs);
   const apr = aprFromPremium(
     premium,
-    strategy === "covered-call" ? defaultSize : terms.collateralAmount / strikePrice,
+    strategy === "covered-call" ? effectiveSize : terms.collateralAmount / strikePrice,
     strikePrice,
     daysToExpiry,
   );
@@ -256,12 +287,82 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
         />
 
         <Card>
-          <CardContent className="flex flex-wrap items-center gap-5 px-6 py-5 sm:px-5 sm:py-2">
-            <span className="text-l font-semibold">MAX</span>
-            <span className="text-l font-semibold">-</span>
-            <span className="text-2xl font-semibold tracking-tight">{defaultSize}</span>
-            <span className="text-l font-semibold">+</span>
-            <span className="ml-auto text-2xl font-semibold">{strategy === "covered-call" ? "WBTC" : "BTC"}</span>
+          <CardContent className="flex flex-wrap items-center px-6 py-5 sm:px-5 sm:py-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className="px-2 text-base font-semibold"
+              onClick={() => setSize(maxSize)}
+            >
+              MAX
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className="text-base font-semibold"
+              onClick={() => setSize((current) => clampSize(current - sizeStep))}
+            >
+              -
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  className="h-auto gap-2 text-2xl font-semibold tracking-tight w-[100px]"
+                >
+                  <span>{formatSize(size)}</span>
+                  <ChevronDown className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="center"
+                className="w-auto min-w-0"
+              >
+                <div className="grid">
+                  {sizePresetRows.map((row) => (
+                    <div
+                      key={row.join("-")}
+                      className="flex flex-wrap justify-center"
+                    >
+                      {row.map((preset) => {
+                        const presetValue = Number(preset);
+                        const isSelected = size === presetValue;
+
+                        return (
+                          <Button
+                            key={preset}
+                            variant="ghost"
+                            className={cn(
+                              "w-[75px]",
+                              isSelected
+                                ? "bg-foreground text-background"
+                                : "bg-background text-foreground hover:bg-accent",
+                            )}
+                            onClick={() => setSize(presetValue)}
+                          >
+                            {preset}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className="text-base font-semibold"
+              onClick={() => setSize((current) => clampSize(current + sizeStep))}
+            >
+              +
+            </Button>
+            <span className="ml-auto text-2xl font-semibold">WBTC</span>
           </CardContent>
         </Card>
 
@@ -305,6 +406,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
                     </Tooltip>
                   </TooltipProvider>
                 </p>
+                {/** TODO: remove this we do not show quote expiration time to user and create a p3 task to create a quote refresh mechanics on this page when quote is no longer valid */}
                 {quote ? (
                   <p className="text-sm text-muted-foreground">
                     Quote expires in {offerSecondsLeft} seconds

@@ -9,6 +9,7 @@ import { HomePage } from "./pages/home-page";
 import { MakerVaultCardView, MakerVaultsView } from "./pages/maker-vaults-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
 import {
+  quantityToContractsQtyDecimals,
   quoteTerms,
   requestQuote,
   secondsUntilExpiry,
@@ -123,7 +124,13 @@ describe("Taker copy", () => {
     assert.equal(body?.request.call_put_marker, 2);
     assert.equal(body?.request.collateral_token_address, "0x0::usdc::USDC");
     assert.equal(body?.request.collateral_token_decimals, 6);
-    assert.equal(body?.request.contracts_qty_decimals, "3400000000");
+    assert.equal(body?.request.contracts_qty_decimals, "5000000");
+  });
+
+  it("encodes contracts quantity in base coin decimals", () => {
+    assert.equal(quantityToContractsQtyDecimals(0.005), "500000");
+    assert.equal(quantityToContractsQtyDecimals(0.05), "5000000");
+    assert.equal(quantityToContractsQtyDecimals(1), "100000000");
   });
 
   it("calculates put cash collateral and above/below-strike outcomes", () => {

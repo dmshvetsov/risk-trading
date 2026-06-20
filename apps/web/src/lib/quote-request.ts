@@ -41,6 +41,10 @@ export function secondsUntilExpiry(expiryUnixMs: number, nowUnixMs: number) {
   return Math.max(0, Math.ceil((expiryUnixMs - nowUnixMs) / 1_000));
 }
 
+export function quantityToContractsQtyDecimals(size: number) {
+  return String(Math.round(size * 10 ** 8));
+}
+
 export async function requestQuote(
   rfqApiUrl: string,
   cashTokenAddress: string,
@@ -49,7 +53,6 @@ export async function requestQuote(
   request: typeof fetch = fetch,
 ) {
   const isPut = strategy === "cash-secured-put";
-  const collateralAmount = isPut ? inputs.size * inputs.strike : inputs.size;
   const response = await request(`${rfqApiUrl}/api/quotes`, {
     body: JSON.stringify({
       request: {
@@ -67,9 +70,7 @@ export async function requestQuote(
         long_short_marker: 2,
         strike_price_decimals: String(Math.round(inputs.strike * 1_000_000)),
         expiry_unix_ms: inputs.expiryUnixMs,
-        contracts_qty_decimals: String(
-          Math.round(collateralAmount * 10 ** (isPut ? 6 : 8)),
-        ),
+        contracts_qty_decimals: quantityToContractsQtyDecimals(inputs.size),
       },
     }),
     headers: { "content-type": "application/json" },
