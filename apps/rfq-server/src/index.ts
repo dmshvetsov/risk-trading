@@ -183,27 +183,6 @@ function isCoveredCallQuoteRequest(value: unknown): value is CoveredCallQuoteReq
 }
 
 async function requestCoveredCallQuote(request: Request, env: Env) {
-  if (!env.BROADCAST_SERVER) {
-    return jsonResponse({ error: "broadcast readiness is unavailable" }, 503);
-  }
-  const readinessResponse = await env.BROADCAST_SERVER.fetch(
-    new Request(
-      `https://broadcast-server/api/markets/${COVERED_CALL_MARKET_ID}/readiness`,
-    ),
-  );
-  if (!readinessResponse.ok) {
-    return jsonResponse({ error: "market is not ready for transactions" }, 409);
-  }
-  const readiness: unknown = await readinessResponse.json();
-  if (
-    !readiness ||
-    typeof readiness !== "object" ||
-    !("ready" in readiness) ||
-    readiness.ready !== true
-  ) {
-    return jsonResponse({ error: "market is not ready for transactions" }, 409);
-  }
-
   const payload = (await request.json()) as { request?: unknown };
   if (!isCoveredCallQuoteRequest(payload.request)) {
     return jsonResponse({ error: "invalid covered call quote request" }, 400);
@@ -227,7 +206,7 @@ async function requestCoveredCallQuote(request: Request, env: Env) {
   }
 
   return jsonResponse(
-    { broadcastReadiness: readiness, quote },
+    { quote },
     201,
   );
 }

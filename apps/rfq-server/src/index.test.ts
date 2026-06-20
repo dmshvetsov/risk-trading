@@ -360,32 +360,12 @@ describe("covered call quote request", () => {
     const second = (await secondResponse.json()) as {
       quote: Record<string, unknown>;
     };
-    assert.equal(first.broadcastReadiness.ready, true);
     assert.equal(first.quote.domain, "otp:makerquote:v1");
     assert.notEqual(
       first.quote.cash_premium_per_contract,
       second.quote.cash_premium_per_contract,
     );
     assert.equal(stored.length, 2);
-  });
-
-  it("rejects a quote when broadcast reports the market is not ready", async () => {
-    const env = createEnv() as ReturnType<typeof createEnv> & {
-      BROADCAST_SERVER: { fetch(request: Request): Promise<Response> };
-    };
-    env.BROADCAST_SERVER = {
-      fetch: async () => Response.json({ marketId: "BTC-USDC-WBTC", ready: false }),
-    };
-
-    const response = await worker.fetch(
-      new Request("https://example.com/api/quotes", {
-        body: JSON.stringify({ request: {} }),
-        method: "POST",
-      }),
-      env,
-    );
-
-    assert.equal(response.status, 409);
   });
 
   it("does not return a quote when durable storage fails", async () => {
