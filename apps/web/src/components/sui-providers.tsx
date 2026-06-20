@@ -8,20 +8,9 @@ import { getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 
 import { appConfig } from "../lib/config";
 
-const { networkConfig } = createNetworkConfig({
-  testnet: {
-    network: "testnet",
-    url: getJsonRpcFullnodeUrl("testnet"),
-  },
-  mainnet: {
-    network: "mainnet",
-    url: getJsonRpcFullnodeUrl("mainnet"),
-  },
-});
-
 export function SuiProviders({ children }: PropsWithChildren) {
   return (
-    <SuiClientProvider networks={networkConfig} defaultNetwork={appConfig.network}>
+    <SuiClientProvider networks={appConfig.networkConfig}>
       <WalletProvider autoConnect>{children}</WalletProvider>
     </SuiClientProvider>
   );

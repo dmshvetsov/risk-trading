@@ -11,3 +11,6 @@ packages/*/build/
 .beads/proxieddb/
 
 .wrangler
+
+.env
+.env.*

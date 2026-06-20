@@ -1,15 +1,46 @@
-export type AppNetwork = "mainnet" | "testnet";
+import { createNetworkConfig } from "@mysten/dapp-kit";
+import { getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 
-function getDefaultNetworkName(): AppNetwork {
-  return import.meta.env.VITE_SUI_NETWORK === "mainnet" ? "mainnet" : "testnet";
+type SuiNetwork = "mainnet" | "testnet" | "localnet";
+
+const network = envVar("VITE_SUI_NETWORK") as SuiNetwork;
+const networkConfig =
+  network === "mainnet"
+    ? createNetworkConfig({
+        mainnet: {
+          network: "mainnet",
+          url: getJsonRpcFullnodeUrl("mainnet"),
+        },
+      })
+    : network === "testnet"
+      ? createNetworkConfig({
+          testnet: {
+            network: "testnet",
+            url: getJsonRpcFullnodeUrl("testnet"),
+          },
+        })
+      : network === "localnet"
+        ? createNetworkConfig({
+            localnet: {
+              network: "localnet",
+              url: getJsonRpcFullnodeUrl("localnet"),
+            },
+          })
+        : undefined;
+
+if (!network) {
+  throw new Error("Invalid network configuration");
 }
 
 export const appConfig = {
-  network: getDefaultNetworkName(),
-  otpPackageId: import.meta.env.VITE_OTP_PACKAGE_ID ?? "",
-  rfqApiUrl: import.meta.env.VITE_RFQ_API_URL ?? "http://localhost:8787",
-  broadcastApiUrl:
-    import.meta.env.VITE_BROADCAST_API_URL ?? "http://localhost:8788",
+  networkConfig,
+  network,
+  otpPackageId: envVar("VITE_OTP_PACKAGE_ID"),
+  rfqApiUrl: envVar("VITE_RFQ_API_URL"),
+  broadcastApiUrl: envVarOptional(
+    "VITE_BROADCAST_API_URL",
+    "http://localhost:8788",
+  ),
   supportedAssets: [
     {
       symbol: "BTC / USDC",
@@ -19,3 +50,19 @@ export const appConfig = {
     },
   ],
 };
+
+function envVar(key: string): string {
+  const val = import.meta.env[key];
+  if (!val) {
+    throw new Error("Configuration error");
+  }
+  return val;
+}
+
+function envVarOptional(key: string, defaultVal: string): string {
+  const val = import.meta.env[key];
+  if (!val) {
+    return defaultVal;
+  }
+  return val;
+}
