@@ -432,7 +432,7 @@ describe("cash-secured put quote request", () => {
           call_put_marker: 2, cash_token_address: "0x0::usdc::USDC",
           cash_token_decimals: 6, collateral_token_address: "0x0::usdc::USDC",
           collateral_token_decimals: 6,
-          contracts_qty_decimals: String(BigInt(strikePriceDecimals) / 20n),
+          contracts_qty_decimals: "500000",
           expiry_unix_ms: Date.now() + 30 * 86_400_000, long_short_marker: 2,
           oracle_base_symbol: "BTC",
           oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
@@ -453,7 +453,7 @@ describe("cash-secured put quote request", () => {
     vi.unstubAllGlobals();
   });
 
-  it("rejects put collateral below the strike-derived 0.05 BTC minimum", async () => {
+  it("rejects put quantity below the 0.005 BTC minimum", async () => {
     const response = await worker.fetch(new Request("https://example.com/api/quotes", {
       body: JSON.stringify({ request: {
         call_put_marker: 2, cash_token_address: "0x0::usdc::USDC",
@@ -464,6 +464,28 @@ describe("cash-secured put quote request", () => {
         oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
         oracle_quote_symbol: "USDC", strike_price_decimals: "68000000000",
       }}), method: "POST",
+    }), createEnv());
+
+    assert.equal(response.status, 400);
+  });
+
+  it("rejects quantities that are not aligned to the 0.005 BTC step", async () => {
+    const response = await worker.fetch(new Request("https://example.com/api/quotes", {
+      body: JSON.stringify({ request: {
+        call_put_marker: 1,
+        cash_token_address: "0x0::usdc::USDC",
+        cash_token_decimals: 6,
+        collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+        collateral_token_decimals: 8,
+        contracts_qty_decimals: "750000",
+        expiry_unix_ms: Date.now() + 30 * 86_400_000,
+        long_short_marker: 2,
+        oracle_base_symbol: "BTC",
+        oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+        oracle_quote_symbol: "USDC",
+        strike_price_decimals: "68000000000",
+      }}),
+      method: "POST",
     }), createEnv());
 
     assert.equal(response.status, 400);

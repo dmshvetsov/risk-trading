@@ -137,6 +137,7 @@ type QuoteRequest = {
     strike_price_decimals: string // uses configured Pyth oracle exponent
     expiry_unix_ms: number
     contracts_qty_decimals: string // uses collateralTokenDecimals
+    contracts_qty_decimals: string // uses collateralTokenDecimals, always measured in BaseCoin size
   }
 }
 ```
@@ -176,6 +177,7 @@ type ExecutionRequest = {
   quote: QuoteResponse['quote']
 	signature: string // signature of canonical QuoteV1 BCS bytes
   contracts_qty_decimals: string // uses collateralTokenDecimals
+  contracts_qty_decimals: string // uses collateralTokenDecimals, always measured in BaseCoin size
   taker_address: string
 }
 ```
@@ -190,7 +192,7 @@ type MakerOrderV1 = {
   side_marker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
   strike_price_decimals: string // uses configured Pyth oracle exponent, must match quote request and derived vault
   expiry_unix_ms: number // unix milliseconds
-  contracts_qty_decimals: string // uses collateralTokenDecimals
+  contracts_qty_decimals: string // uses collateralTokenDecimals, always measured in BaseCoin size
   cash_premium_per_contract: string // premium per 1 option contract in premium token decimals
   good_till_unix_ms: number // unix milliseconds
   maker_vault_id: string // uniq maker vault id created in the protocol
@@ -264,7 +266,8 @@ List of supported BaseCoin / QuoteCoin pairs and their oracles:
   - Sui contracts (collateral address) `0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC` with `WBTC` ticker, for reference https://www.coingecko.com/en/coins/wrapped-bitcoin
   - Pyth oracle: `Crypto.BTC/USD` symbol and price feed id `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`
   - 1 option contract = 1 BTC, partial contracts for example 0.05, 0.1, 0.95 are allowed
-  - min position size purchase is 0.05 BTC option contract, step 0.05 BTC means next min purchase will be 0.1 BTC, then 0.15 BTC, purchases must be multiplies of 0.05
+  - min position size purchase is 0.005 BTC option contract, step 0.005 BTC means that next higher min purchase will be 0.01 BTC, then 0.015 BTC, purchases must be multiplies of 0.05
+  - max position size 1 BTC
 
 ## Premium
 

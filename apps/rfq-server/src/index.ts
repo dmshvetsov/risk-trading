@@ -166,22 +166,21 @@ function isQuoteRequest(value: unknown): value is QuoteRequest {
     /^\d+$/.test(request.strike_price_decimals)
     ? BigInt(request.strike_price_decimals)
     : null;
-  const putCollateralStep = strike && strike % 20n === 0n ? strike / 20n : null;
+  const contractsStep = 500_000n;
   const isCoveredCall =
     request.call_put_marker === 1 &&
     request.collateral_token_address === WBTC_TYPE &&
     request.collateral_token_decimals === 8 &&
     quantity !== null &&
-    quantity >= 5_000_000n &&
-    quantity % 5_000_000n === 0n;
+    quantity >= contractsStep &&
+    quantity % contractsStep === 0n;
   const isCashSecuredPut =
     request.call_put_marker === 2 &&
     request.collateral_token_address === request.cash_token_address &&
     request.collateral_token_decimals === 6 &&
     quantity !== null &&
-    putCollateralStep !== null &&
-    quantity >= putCollateralStep &&
-    quantity % putCollateralStep === 0n;
+    quantity >= contractsStep &&
+    quantity % contractsStep === 0n;
   return (
     (isCoveredCall || isCashSecuredPut) &&
     request.long_short_marker === 2 &&
