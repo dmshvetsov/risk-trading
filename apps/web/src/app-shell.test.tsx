@@ -9,7 +9,8 @@ import { HomePage } from "./pages/home-page";
 import { MakerVaultCardView, MakerVaultsView } from "./pages/maker-vaults-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
 import {
-  requestCoveredCallQuote,
+  quoteTerms,
+  requestQuote,
   secondsUntilExpiry,
 } from "./lib/quote-request";
 import { SuiProviders } from "./components/sui-providers";
@@ -75,9 +76,10 @@ describe("Taker copy", () => {
 
   it("sends the supported market request to RFQ and maps its quote", async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
-    const quote = await requestCoveredCallQuote(
+    const quote = await requestQuote(
       "https://rfq.example",
       "0x0::usdc::USDC",
+      "covered-call",
       { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 },
       async (input, init) => {
         requests.push({ input, init });
@@ -97,6 +99,42 @@ describe("Taker copy", () => {
     assert.equal(body.request.collateral_token_address.includes("::wbtc::WBTC"), true);
     assert.equal(body.request.contracts_qty_decimals, "5000000");
     assert.equal(quote.cashPremiumPerContract, "1263800000");
+  });
+
+  it("uses the shared request path with cash collateral for puts", async () => {
+    let body: { request: Record<string, unknown> } | undefined;
+    await requestQuote(
+      "https://rfq.example",
+      "0x0::usdc::USDC",
+      "cash-secured-put",
+      { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 },
+      async (_input, init) => {
+        body = JSON.parse(String(init?.body));
+        return Response.json({ quote: {
+          cash_premium_per_contract: "1000000000", cash_token_decimals: 6,
+          collateral_token_decimals: 6, expiry_unix_ms: 1_800_000_000_000,
+          offer_valid_until_total_contracts_qty_decimals: "3400000000",
+          offer_valid_until_unix_ms: 1_799_000_000_000,
+          strike_price_decimals: "68000000000",
+        }});
+      },
+    );
+
+    assert.equal(body?.request.call_put_marker, 2);
+    assert.equal(body?.request.collateral_token_address, "0x0::usdc::USDC");
+    assert.equal(body?.request.collateral_token_decimals, 6);
+    assert.equal(body?.request.contracts_qty_decimals, "3400000000");
+  });
+
+  it("calculates put cash collateral and above/below-strike outcomes", () => {
+    assert.deepEqual(quoteTerms("cash-secured-put", 0.05, 68_000), {
+      collateralAmount: 3_400,
+      collateralSymbol: "USDC",
+      downsideAmount: 0.05,
+      downsideSymbol: "WBTC",
+      upsideAmount: 3_400,
+      upsideSymbol: "USDC",
+    });
   });
 
   it("renders not found for the removed taker route", async () => {

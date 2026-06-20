@@ -9,8 +9,8 @@ import {
 } from "./db/queries";
 import { supportedQuoteCoins } from "./supported-quote-coins";
 import {
-  createStubCoveredCallQuote,
-  type CoveredCallQuoteRequest,
+  createStubQuote,
+  type QuoteRequest,
 } from "./stub-quote-provider";
 import type { D1Database, MakerVaultRow } from "./typedefs";
 
@@ -100,7 +100,6 @@ const MAKER_VAULTS_PATH = "/api/maker/vaults";
 const MAKER_VAULT_SUBMISSIONS_PATH = "/api/maker/vaults/submissions";
 const MAKER_VAULT_RECEIPTS_PATH = "/api/internal/maker/vaults/receipts";
 const QUOTES_PATH = "/api/quotes";
-const COVERED_CALL_MARKET_ID = "BTC-USDC-WBTC";
 const BTC_USD_FEED_ID =
   "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
 const WBTC_TYPE =
@@ -156,39 +155,58 @@ export function buildHealthPayload(env: Env) {
   };
 }
 
-function isCoveredCallQuoteRequest(value: unknown): value is CoveredCallQuoteRequest {
+function isQuoteRequest(value: unknown): value is QuoteRequest {
   if (!value || typeof value !== "object") return false;
-  const request = value as Partial<Record<keyof CoveredCallQuoteRequest, unknown>>;
-  return (
+  const request = value as Partial<Record<keyof QuoteRequest, unknown>>;
+  const quantity = typeof request.contracts_qty_decimals === "string" &&
+    /^\d+$/.test(request.contracts_qty_decimals)
+    ? BigInt(request.contracts_qty_decimals)
+    : null;
+  const strike = typeof request.strike_price_decimals === "string" &&
+    /^\d+$/.test(request.strike_price_decimals)
+    ? BigInt(request.strike_price_decimals)
+    : null;
+  const putCollateralStep = strike && strike % 20n === 0n ? strike / 20n : null;
+  const isCoveredCall =
     request.call_put_marker === 1 &&
+    request.collateral_token_address === WBTC_TYPE &&
+    request.collateral_token_decimals === 8 &&
+    quantity !== null &&
+    quantity >= 5_000_000n &&
+    quantity % 5_000_000n === 0n;
+  const isCashSecuredPut =
+    request.call_put_marker === 2 &&
+    request.collateral_token_address === request.cash_token_address &&
+    request.collateral_token_decimals === 6 &&
+    quantity !== null &&
+    putCollateralStep !== null &&
+    quantity >= putCollateralStep &&
+    quantity % putCollateralStep === 0n;
+  return (
+    (isCoveredCall || isCashSecuredPut) &&
     request.long_short_marker === 2 &&
     request.oracle_base_symbol === "BTC" &&
     request.oracle_quote_symbol === "USDC" &&
     request.oracle_feed_id === BTC_USD_FEED_ID &&
-    request.collateral_token_address === WBTC_TYPE &&
-    request.collateral_token_decimals === 8 &&
     typeof request.cash_token_address === "string" &&
     supportedQuoteCoins.some(
       (coin) => coin.coinType === request.cash_token_address,
     ) &&
     request.cash_token_decimals === 6 &&
-    typeof request.strike_price_decimals === "string" &&
-    Number(request.strike_price_decimals) > 0 &&
-    typeof request.contracts_qty_decimals === "string" &&
-    Number(request.contracts_qty_decimals) >= 5_000_000 &&
-    Number(request.contracts_qty_decimals) % 5_000_000 === 0 &&
+    strike !== null &&
+    strike > 0n &&
     typeof request.expiry_unix_ms === "number" &&
     request.expiry_unix_ms > Date.now()
   );
 }
 
-async function requestCoveredCallQuote(request: Request, env: Env) {
+async function requestQuote(request: Request, env: Env) {
   const payload = (await request.json()) as { request?: unknown };
-  if (!isCoveredCallQuoteRequest(payload.request)) {
-    return jsonResponse({ error: "invalid covered call quote request" }, 400);
+  if (!isQuoteRequest(payload.request)) {
+    return jsonResponse({ error: "invalid quote request" }, 400);
   }
 
-  const quote = createStubCoveredCallQuote(payload.request);
+  const quote = createStubQuote(payload.request);
   const store = getQuoteStore(env.QUOTES, quote.quote_id);
   const storeResponse = await store.fetch(
     new Request("https://quote-store.internal/state", {
@@ -529,7 +547,7 @@ app.use(
 
 app.get(HEALTH_PATH, (c) => Response.json(buildHealthPayload(c.env)));
 
-app.post(QUOTES_PATH, (c) => requestCoveredCallQuote(c.req.raw, c.env));
+app.post(QUOTES_PATH, (c) => requestQuote(c.req.raw, c.env));
 app.all(QUOTES_PATH, () => new Response("Method not allowed", { status: 405 }));
 
 app.get(MAKER_SUPPORTED_COINS_PATH, () =>

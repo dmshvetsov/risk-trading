@@ -1,5 +1,5 @@
-export type CoveredCallQuoteRequest = {
-  call_put_marker: 1;
+export type QuoteRequest = {
+  call_put_marker: 1 | 2;
   cash_token_address: string;
   cash_token_decimals: number;
   collateral_token_address: string;
@@ -45,13 +45,23 @@ function blackScholesCall(spot: number, strike: number, years: number) {
   );
 }
 
-export function createStubCoveredCallQuote(
-  request: CoveredCallQuoteRequest,
+function blackScholesPut(spot: number, strike: number, years: number) {
+  return (
+    blackScholesCall(spot, strike, years) -
+    spot +
+    strike * Math.exp(-RISK_FREE_RATE * years)
+  );
+}
+
+export function createStubQuote(
+  request: QuoteRequest,
   now = Date.now(),
 ) {
   const strike = Number(request.strike_price_decimals) / 1_000_000;
   const years = Math.max((request.expiry_unix_ms - now) / 31_536_000_000, 1 / 365);
-  const premium = blackScholesCall(BTC_SPOT_USDC, strike, years);
+  const premium = request.call_put_marker === 1
+    ? blackScholesCall(BTC_SPOT_USDC, strike, years)
+    : blackScholesPut(BTC_SPOT_USDC, strike, years);
   const offerValidUntilUnixMs = Math.min(request.expiry_unix_ms, now + 30_000);
 
   return {

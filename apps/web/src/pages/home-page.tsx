@@ -6,9 +6,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { appConfig } from "@/lib/config";
 import {
   decimalAmount,
-  requestCoveredCallQuote,
+  quoteTerms,
+  requestQuote,
   secondsUntilExpiry,
   type DisplayQuote,
+  type QuoteStrategy,
 } from "@/lib/quote-request";
 import {
   Tooltip,
@@ -151,9 +153,13 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
       setIsLoading(true);
       setLoadError(null);
       try {
-        const nextQuote = await requestCoveredCallQuote(
+        const strategy: QuoteStrategy = selectedStrategy === "Covered call"
+          ? "covered-call"
+          : "cash-secured-put";
+        const nextQuote = await requestQuote(
           appConfig.rfqApiUrl,
           appConfig.cashTokenAddress,
+          strategy,
           {
             expiryUnixMs: expiry.expiryUnixMs,
             size: defaultSize,
@@ -175,33 +181,34 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
       }
     }
 
-    if (selectedStrategy === "Covered call") {
-      void loadQuote();
-    } else {
-      setQuote(null);
-      setLoadError("Cash secured put is not wired yet.");
-    }
+    void loadQuote();
 
     return () => {
       cancelled = true;
     };
   }, [expiry.expiryUnixMs, selectedStrategy, strike.strike]);
 
-  const collateral = quote
-    ? decimalAmount(quote.contractsQtyDecimals, quote.collateralTokenDecimals)
-    : defaultSize;
+  const strategy: QuoteStrategy = selectedStrategy === "Covered call"
+    ? "covered-call"
+    : "cash-secured-put";
   const premium = quote
     ? decimalAmount(quote.cashPremiumPerContract, quote.cashTokenDecimals) *
-      collateral
+      defaultSize
     : null;
   const strikePrice = quote ? decimalAmount(quote.strikePriceDecimals, 6) : strike.strike;
+  const terms = quoteTerms(strategy, defaultSize, strikePrice);
   const expiryUnixMs = quote?.expiryUnixMs ?? expiry.expiryUnixMs;
   const offerSecondsLeft = quote
     ? secondsUntilExpiry(quote.offerValidUntilUnixMs, nowUnixMs)
     : 0;
   const expiryLabel = formatDate(expiryUnixMs);
   const daysToExpiry = daysUntil(expiryUnixMs, nowUnixMs);
-  const apr = aprFromPremium(premium, collateral, strikePrice, daysToExpiry);
+  const apr = aprFromPremium(
+    premium,
+    strategy === "covered-call" ? defaultSize : terms.collateralAmount / strikePrice,
+    strikePrice,
+    daysToExpiry,
+  );
   const ctaLabel = isLoading
     ? "LOADING QUOTE..."
     : premium
@@ -230,7 +237,6 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
           buttonSize="xl"
           selected={selectedStrategy}
           onSelect={setSelectedStrategy}
-          disabledOption="Cash Secured Put"
         />
 
         <SelectorRow
@@ -255,12 +261,12 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
             <span className="text-l font-semibold">-</span>
             <span className="text-2xl font-semibold tracking-tight">{defaultSize}</span>
             <span className="text-l font-semibold">+</span>
-            <span className="ml-auto text-2xl font-semibold">WBTC</span>
+            <span className="ml-auto text-2xl font-semibold">{strategy === "covered-call" ? "WBTC" : "BTC"}</span>
           </CardContent>
         </Card>
 
         <p className="text-center text-sm text-muted-foreground sm:text-sm">
-          Price and Amount at which you are happy to sell uBTC on {expiryLabel} in {daysToExpiry} days
+          Price and Amount at which you are happy to {strategy === "covered-call" ? "sell" : "buy"} BTC on {expiryLabel} in {daysToExpiry} days
         </p>
 
         <Card>
@@ -272,7 +278,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
                   <span>Now</span>
                 </div>
                 <p className="text-foreground text-bold">
-                  deposit {collateral.toFixed(2)} WBTC as collateral
+                  deposit {formatUsdc(terms.collateralAmount)} {terms.collateralSymbol} as collateral
                 </p>
               </div>
               <div className="grid text-left lg:text-right">
@@ -317,7 +323,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
               </div>
               <div className="grid border-r-2">
                 <p className="font-semibold text-foreground">
-                  Get {collateral.toFixed(2)} WBTC back
+                  {strategy === "covered-call" ? "Get" : "Receive"} {terms.downsideAmount.toFixed(2)} {terms.downsideSymbol}{strategy === "covered-call" ? " back" : ""}
                 </p>
                 <p className="text-foreground text-sm">
                   If BTC below or at ${strikePrice.toLocaleString()}
@@ -325,7 +331,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
               </div>
               <div className="grid lg:justify-self-end">
                 <p className="font-semibold text-foreground">
-                  Receive {formatUsdc(collateral * strikePrice)} USDC
+                  {strategy === "covered-call" ? "Receive" : "Get"} {formatUsdc(terms.upsideAmount)} {terms.upsideSymbol}{strategy === "cash-secured-put" ? " back" : ""}
                 </p>
                 <p className="text-foreground text-sm">
                   If BTC above ${strikePrice.toLocaleString()}

@@ -9,6 +9,29 @@ export type DisplayQuote = {
 };
 
 type QuoteInputs = { expiryUnixMs: number; size: number; strike: number };
+export type QuoteStrategy = "covered-call" | "cash-secured-put";
+
+export function quoteTerms(strategy: QuoteStrategy, size: number, strike: number) {
+  if (strategy === "cash-secured-put") {
+    return {
+      collateralAmount: size * strike,
+      collateralSymbol: "USDC" as const,
+      downsideAmount: size,
+      downsideSymbol: "WBTC" as const,
+      upsideAmount: size * strike,
+      upsideSymbol: "USDC" as const,
+    };
+  }
+
+  return {
+    collateralAmount: size,
+    collateralSymbol: "WBTC" as const,
+    downsideAmount: size,
+    downsideSymbol: "WBTC" as const,
+    upsideAmount: size * strike,
+    upsideSymbol: "USDC" as const,
+  };
+}
 
 export function decimalAmount(value: string, decimals: number) {
   return Number(value) / 10 ** decimals;
@@ -18,12 +41,15 @@ export function secondsUntilExpiry(expiryUnixMs: number, nowUnixMs: number) {
   return Math.max(0, Math.ceil((expiryUnixMs - nowUnixMs) / 1_000));
 }
 
-export async function requestCoveredCallQuote(
+export async function requestQuote(
   rfqApiUrl: string,
   cashTokenAddress: string,
+  strategy: QuoteStrategy,
   inputs: QuoteInputs,
   request: typeof fetch = fetch,
 ) {
+  const isPut = strategy === "cash-secured-put";
+  const collateralAmount = isPut ? inputs.size * inputs.strike : inputs.size;
   const response = await request(`${rfqApiUrl}/api/quotes`, {
     body: JSON.stringify({
       request: {
@@ -31,16 +57,19 @@ export async function requestCoveredCallQuote(
         oracle_quote_symbol: "USDC",
         oracle_feed_id:
           "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-        collateral_token_address:
-          "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
-        collateral_token_decimals: 8,
+        collateral_token_address: isPut
+          ? cashTokenAddress
+          : "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+        collateral_token_decimals: isPut ? 6 : 8,
         cash_token_address: cashTokenAddress,
         cash_token_decimals: 6,
-        call_put_marker: 1,
+        call_put_marker: isPut ? 2 : 1,
         long_short_marker: 2,
         strike_price_decimals: String(Math.round(inputs.strike * 1_000_000)),
         expiry_unix_ms: inputs.expiryUnixMs,
-        contracts_qty_decimals: String(Math.round(inputs.size * 100_000_000)),
+        contracts_qty_decimals: String(
+          Math.round(collateralAmount * 10 ** (isPut ? 6 : 8)),
+        ),
       },
     }),
     headers: { "content-type": "application/json" },

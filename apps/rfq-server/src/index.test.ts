@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 
 import worker, {
   QuoteStore,
@@ -301,7 +301,7 @@ describe("rfq worker foundation", () => {
   });
 });
 
-describe("covered call quote request", () => {
+describe("shared quote request path", () => {
   it("generates and stores an actionable input-dependent stub quote", async () => {
     const stored: unknown[] = [];
     const env = createEnv() as ReturnType<typeof createEnv> & {
@@ -401,6 +401,72 @@ describe("covered call quote request", () => {
     );
 
     assert.equal(response.status, 503);
+  });
+});
+
+describe("cash-secured put quote request", () => {
+  it("uses the shared local provider and storage path with input-dependent premiums", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => {
+      throw new Error("quote path must not call maker HTTP endpoints");
+    }));
+    const stored: unknown[] = [];
+    const env = createEnv() as ReturnType<typeof createEnv> & {
+      QUOTES: {
+        get(id: string): { fetch(request: Request): Promise<Response> };
+        idFromName(name: string): string;
+      };
+    };
+    env.QUOTES = {
+      idFromName: (name) => name,
+      get: () => ({
+        fetch: async (request) => {
+          stored.push(await request.json());
+          return new Response(null, { status: 202 });
+        },
+      }),
+    };
+
+    const requestQuote = (strikePriceDecimals: string) =>
+      worker.fetch(new Request("https://example.com/api/quotes", {
+        body: JSON.stringify({ request: {
+          call_put_marker: 2, cash_token_address: "0x0::usdc::USDC",
+          cash_token_decimals: 6, collateral_token_address: "0x0::usdc::USDC",
+          collateral_token_decimals: 6,
+          contracts_qty_decimals: String(BigInt(strikePriceDecimals) / 20n),
+          expiry_unix_ms: Date.now() + 30 * 86_400_000, long_short_marker: 2,
+          oracle_base_symbol: "BTC",
+          oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+          oracle_quote_symbol: "USDC", strike_price_decimals: strikePriceDecimals,
+        }}), method: "POST",
+      }), env);
+
+    const firstResponse = await requestQuote("68000000000");
+    const secondResponse = await requestQuote("75000000000");
+    assert.equal(firstResponse.status, 201);
+    assert.equal(secondResponse.status, 201);
+    const first = (await firstResponse.json()) as { quote: Record<string, unknown> };
+    const second = (await secondResponse.json()) as { quote: Record<string, unknown> };
+    assert.equal(first.quote.call_put_marker, 2);
+    assert.notEqual(first.quote.cash_premium_per_contract, second.quote.cash_premium_per_contract);
+    assert.equal(stored.length, 2);
+    assert.equal(vi.mocked(fetch).mock.calls.length, 0);
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects put collateral below the strike-derived 0.05 BTC minimum", async () => {
+    const response = await worker.fetch(new Request("https://example.com/api/quotes", {
+      body: JSON.stringify({ request: {
+        call_put_marker: 2, cash_token_address: "0x0::usdc::USDC",
+        cash_token_decimals: 6, collateral_token_address: "0x0::usdc::USDC",
+        collateral_token_decimals: 6, contracts_qty_decimals: "1",
+        expiry_unix_ms: Date.now() + 30 * 86_400_000, long_short_marker: 2,
+        oracle_base_symbol: "BTC",
+        oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+        oracle_quote_symbol: "USDC", strike_price_decimals: "68000000000",
+      }}), method: "POST",
+    }), createEnv());
+
+    assert.equal(response.status, 400);
   });
 });
 
