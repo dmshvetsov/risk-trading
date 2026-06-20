@@ -7,17 +7,12 @@ export type NavigationItem = {
 export const navigationItems: NavigationItem[] = [
   {
     href: "/",
-    label: "Home",
-    summary: "See supported assets and payout basics",
+    label: "Earn",
+    summary: "Static earning flow preview",
   },
   {
     href: "/taker",
-    label: "Taker shell",
-    summary: "Future seller flows mount here",
-  },
-  {
-    href: "/states",
-    label: "Shared states",
-    summary: "Loading and error patterns live here",
+    label: "Dashboard",
+    summary: "Preview the buyer-side shell",
   },
 ];

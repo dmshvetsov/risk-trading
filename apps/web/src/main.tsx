@@ -1,4 +1,5 @@
 import "@fontsource-variable/inter/index.css";
+import "@fontsource/space-grotesk/700.css";
 import "@mysten/dapp-kit/dist/index.css";
 import "./styles.css";
 

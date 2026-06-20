@@ -4,33 +4,7 @@ import { getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 type SuiNetwork = "mainnet" | "testnet" | "localnet";
 
 const network = envVar("VITE_SUI_NETWORK") as SuiNetwork;
-const networkConfig =
-  network === "mainnet"
-    ? createNetworkConfig({
-        mainnet: {
-          network: "mainnet",
-          url: getJsonRpcFullnodeUrl("mainnet"),
-        },
-      })
-    : network === "testnet"
-      ? createNetworkConfig({
-          testnet: {
-            network: "testnet",
-            url: getJsonRpcFullnodeUrl("testnet"),
-          },
-        })
-      : network === "localnet"
-        ? createNetworkConfig({
-            localnet: {
-              network: "localnet",
-              url: getJsonRpcFullnodeUrl("localnet"),
-            },
-          })
-        : undefined;
-
-if (!network) {
-  throw new Error("Invalid network configuration");
-}
+const networkConfig = getNetworkConfig(network);
 
 export const appConfig = {
   networkConfig,
@@ -65,4 +39,30 @@ function envVarOptional(key: string, defaultVal: string): string {
     return defaultVal;
   }
   return val;
+}
+
+function getNetworkConfig(networkName: SuiNetwork) {
+  switch (networkName) {
+    case "mainnet":
+      return createNetworkConfig({
+        mainnet: {
+          network: "mainnet",
+          url: getJsonRpcFullnodeUrl("mainnet"),
+        },
+      }).networkConfig;
+    case "testnet":
+      return createNetworkConfig({
+        testnet: {
+          network: "testnet",
+          url: getJsonRpcFullnodeUrl("testnet"),
+        },
+      }).networkConfig;
+    case "localnet":
+      return createNetworkConfig({
+        localnet: {
+          network: "localnet",
+          url: getJsonRpcFullnodeUrl("localnet"),
+        },
+      }).networkConfig;
+  }
 }

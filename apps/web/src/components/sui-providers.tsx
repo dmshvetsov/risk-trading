@@ -1,10 +1,5 @@
 import type { PropsWithChildren } from "react";
-import {
-  SuiClientProvider,
-  WalletProvider,
-  createNetworkConfig,
-} from "@mysten/dapp-kit";
-import { getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiClientProvider, WalletProvider } from "@mysten/dapp-kit";
 
 import { appConfig } from "../lib/config";
 

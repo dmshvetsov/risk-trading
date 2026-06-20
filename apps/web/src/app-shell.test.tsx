@@ -31,14 +31,14 @@ describe("App shell", () => {
       </QueryClientProvider>,
     );
 
-    assert.match(html, /Earn cash upfront/i);
-    assert.match(html, /Open the taker shell/i);
+    assert.match(html, /Earn Upfront Yield With Win In Any Case Outcomes/i);
+    assert.match(html, /EARN 63\.19 USDC NOW/i);
   });
 
-  it("shows mobile-first navigation and wallet session messaging", () => {
+  it("shows global marketing navigation and auth button copy", () => {
     const html = renderToStaticMarkup(
       <AppChrome
-        currentPath="/quote-builder"
+        currentPath="/taker"
         walletLabel="Wallet not connected"
         showWalletButton={false}
         usePlainLinks
@@ -47,10 +47,10 @@ describe("App shell", () => {
       </AppChrome>,
     );
 
-    assert.match(html, /Taker shell/);
-    assert.match(html, /Shared states/);
-    assert.doesNotMatch(html, /Maker shell|Maker dashboard/);
-    assert.match(html, /Wallet not connected/);
+    assert.match(html, /Earn/);
+    assert.match(html, /Dashboard/);
+    assert.doesNotMatch(html, /Maker shell|Maker dashboard|Shared states/);
+    assert.match(html, /Docs/);
     assert.match(html, /Route content/);
   });
 });
@@ -60,7 +60,7 @@ describe("Taker copy", () => {
     const html = renderToStaticMarkup(<HomePage usePlainLink />);
 
     assert.doesNotMatch(html, /option|derivative/i);
-    assert.match(html, /Earn cash upfront/i);
+    assert.match(html, /deposit 0\.05 WBTC as collateral/i);
   });
 
   it("keeps the taker shell simple and setup-focused", () => {
