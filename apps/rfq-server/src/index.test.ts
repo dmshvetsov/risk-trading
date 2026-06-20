@@ -301,6 +301,129 @@ describe("rfq worker foundation", () => {
   });
 });
 
+describe("covered call quote request", () => {
+  it("generates and stores an actionable input-dependent stub quote", async () => {
+    const stored: unknown[] = [];
+    const env = createEnv() as ReturnType<typeof createEnv> & {
+      BROADCAST_SERVER: { fetch(request: Request): Promise<Response> };
+      QUOTES: {
+        get(id: string): { fetch(request: Request): Promise<Response> };
+        idFromName(name: string): string;
+      };
+    };
+    env.BROADCAST_SERVER = {
+      fetch: async () => Response.json({ marketId: "BTC-USDC-WBTC", ready: true }),
+    };
+    env.QUOTES = {
+      idFromName: (name) => name,
+      get: () => ({
+        fetch: async (request) => {
+          stored.push(await request.json());
+          return new Response(null, { status: 202 });
+        },
+      }),
+    };
+
+    const requestQuote = (strikePriceDecimals: string) =>
+      worker.fetch(
+        new Request("https://example.com/api/quotes", {
+          body: JSON.stringify({
+            request: {
+              call_put_marker: 1,
+              cash_token_address: "0x0::usdc::USDC",
+              cash_token_decimals: 6,
+              collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+              collateral_token_decimals: 8,
+              contracts_qty_decimals: "5000000",
+              expiry_unix_ms: Date.now() + 30 * 86_400_000,
+              long_short_marker: 2,
+              oracle_base_symbol: "BTC",
+              oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+              oracle_quote_symbol: "USDC",
+              strike_price_decimals: strikePriceDecimals,
+            },
+          }),
+          method: "POST",
+        }),
+        env,
+      );
+
+    const firstResponse = await requestQuote("68000000000");
+    const secondResponse = await requestQuote("75000000000");
+    assert.equal(firstResponse.status, 201);
+    assert.equal(secondResponse.status, 201);
+
+    const first = (await firstResponse.json()) as {
+      broadcastReadiness: { ready: boolean };
+      quote: Record<string, unknown>;
+    };
+    const second = (await secondResponse.json()) as {
+      quote: Record<string, unknown>;
+    };
+    assert.equal(first.broadcastReadiness.ready, true);
+    assert.equal(first.quote.domain, "otp:makerquote:v1");
+    assert.notEqual(
+      first.quote.cash_premium_per_contract,
+      second.quote.cash_premium_per_contract,
+    );
+    assert.equal(stored.length, 2);
+  });
+
+  it("rejects a quote when broadcast reports the market is not ready", async () => {
+    const env = createEnv() as ReturnType<typeof createEnv> & {
+      BROADCAST_SERVER: { fetch(request: Request): Promise<Response> };
+    };
+    env.BROADCAST_SERVER = {
+      fetch: async () => Response.json({ marketId: "BTC-USDC-WBTC", ready: false }),
+    };
+
+    const response = await worker.fetch(
+      new Request("https://example.com/api/quotes", {
+        body: JSON.stringify({ request: {} }),
+        method: "POST",
+      }),
+      env,
+    );
+
+    assert.equal(response.status, 409);
+  });
+
+  it("does not return a quote when durable storage fails", async () => {
+    const env = createEnv() as ReturnType<typeof createEnv> & {
+      BROADCAST_SERVER: { fetch(request: Request): Promise<Response> };
+      QUOTES: {
+        get(id: string): { fetch(request: Request): Promise<Response> };
+        idFromName(name: string): string;
+      };
+    };
+    env.BROADCAST_SERVER = {
+      fetch: async () => Response.json({ marketId: "BTC-USDC-WBTC", ready: true }),
+    };
+    env.QUOTES = {
+      idFromName: (name) => name,
+      get: () => ({ fetch: async () => new Response(null, { status: 500 }) }),
+    };
+
+    const response = await worker.fetch(
+      new Request("https://example.com/api/quotes", {
+        body: JSON.stringify({ request: {
+          call_put_marker: 1, cash_token_address: "0x0::usdc::USDC",
+          cash_token_decimals: 6,
+          collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+          collateral_token_decimals: 8, contracts_qty_decimals: "5000000",
+          expiry_unix_ms: Date.now() + 86_400_000, long_short_marker: 2,
+          oracle_base_symbol: "BTC",
+          oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+          oracle_quote_symbol: "USDC", strike_price_decimals: "68000000000",
+        }}), method: "POST",
+      }),
+      env,
+    );
+
+    assert.equal(response.status, 503);
+  });
+});
+
 describe("maker vault APIs", () => {
   it("responds to CORS preflight for maker APIs", async () => {
     const response = await worker.fetch(

@@ -8,6 +8,10 @@ import {
   updateVaultEndpoints,
 } from "./db/queries";
 import { supportedQuoteCoins } from "./supported-quote-coins";
+import {
+  createStubCoveredCallQuote,
+  type CoveredCallQuoteRequest,
+} from "./stub-quote-provider";
 import type { D1Database, MakerVaultRow } from "./typedefs";
 
 type TxValidationResult = {
@@ -23,6 +27,7 @@ type VaultConfigProof = {
 };
 
 export interface Env {
+  BROADCAST_SERVER?: { fetch(request: Request): Promise<Response> };
   BROADCAST_RECEIPT_TOKEN?: string;
   BROADCAST_QUEUE: {
     send(message: unknown): Promise<void>;
@@ -94,6 +99,12 @@ const MAKER_SUPPORTED_COINS_PATH = "/api/maker/supported-coins";
 const MAKER_VAULTS_PATH = "/api/maker/vaults";
 const MAKER_VAULT_SUBMISSIONS_PATH = "/api/maker/vaults/submissions";
 const MAKER_VAULT_RECEIPTS_PATH = "/api/internal/maker/vaults/receipts";
+const QUOTES_PATH = "/api/quotes";
+const COVERED_CALL_MARKET_ID = "BTC-USDC-WBTC";
+const BTC_USD_FEED_ID =
+  "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
+const WBTC_TYPE =
+  "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC";
 
 export function quoteStoreNameFromRequest(requestId: string) {
   return `quote-request:${requestId}`;
@@ -132,6 +143,93 @@ export class QuoteStore {
 
 function jsonResponse(data: unknown, status = 200) {
   return Response.json(data, { status });
+}
+
+export function buildHealthPayload(env: Env) {
+  return {
+    durableObjectBinding: env.QUOTES ? "configured" : "missing",
+    d1Binding: env.DB ? "configured" : "missing",
+    queueBinding: env.BROADCAST_QUEUE ? "configured" : "missing",
+    service: "rfq-server",
+    status: "ok",
+    supportedCoins: [...new Set(supportedQuoteCoins.map((coin) => coin.symbol))],
+  };
+}
+
+function isCoveredCallQuoteRequest(value: unknown): value is CoveredCallQuoteRequest {
+  if (!value || typeof value !== "object") return false;
+  const request = value as Partial<Record<keyof CoveredCallQuoteRequest, unknown>>;
+  return (
+    request.call_put_marker === 1 &&
+    request.long_short_marker === 2 &&
+    request.oracle_base_symbol === "BTC" &&
+    request.oracle_quote_symbol === "USDC" &&
+    request.oracle_feed_id === BTC_USD_FEED_ID &&
+    request.collateral_token_address === WBTC_TYPE &&
+    request.collateral_token_decimals === 8 &&
+    typeof request.cash_token_address === "string" &&
+    supportedQuoteCoins.some(
+      (coin) => coin.coinType === request.cash_token_address,
+    ) &&
+    request.cash_token_decimals === 6 &&
+    typeof request.strike_price_decimals === "string" &&
+    Number(request.strike_price_decimals) > 0 &&
+    typeof request.contracts_qty_decimals === "string" &&
+    Number(request.contracts_qty_decimals) >= 5_000_000 &&
+    Number(request.contracts_qty_decimals) % 5_000_000 === 0 &&
+    typeof request.expiry_unix_ms === "number" &&
+    request.expiry_unix_ms > Date.now()
+  );
+}
+
+async function requestCoveredCallQuote(request: Request, env: Env) {
+  if (!env.BROADCAST_SERVER) {
+    return jsonResponse({ error: "broadcast readiness is unavailable" }, 503);
+  }
+  const readinessResponse = await env.BROADCAST_SERVER.fetch(
+    new Request(
+      `https://broadcast-server/api/markets/${COVERED_CALL_MARKET_ID}/readiness`,
+    ),
+  );
+  if (!readinessResponse.ok) {
+    return jsonResponse({ error: "market is not ready for transactions" }, 409);
+  }
+  const readiness: unknown = await readinessResponse.json();
+  if (
+    !readiness ||
+    typeof readiness !== "object" ||
+    !("ready" in readiness) ||
+    readiness.ready !== true
+  ) {
+    return jsonResponse({ error: "market is not ready for transactions" }, 409);
+  }
+
+  const payload = (await request.json()) as { request?: unknown };
+  if (!isCoveredCallQuoteRequest(payload.request)) {
+    return jsonResponse({ error: "invalid covered call quote request" }, 400);
+  }
+
+  const quote = createStubCoveredCallQuote(payload.request);
+  const store = getQuoteStore(env.QUOTES, quote.quote_id);
+  const storeResponse = await store.fetch(
+    new Request("https://quote-store.internal/state", {
+      body: JSON.stringify({
+        offerValidUntilUnixMs: quote.offer_valid_until_unix_ms,
+        quoteId: quote.quote_id,
+        remainingContractsQtyDecimals:
+          quote.offer_valid_until_total_contracts_qty_decimals,
+      }),
+      method: "PUT",
+    }),
+  );
+  if (!storeResponse.ok) {
+    return jsonResponse({ error: "quote could not be stored" }, 503);
+  }
+
+  return jsonResponse(
+    { broadcastReadiness: readiness, quote },
+    201,
+  );
 }
 
 function normalizeUrl(url: unknown) {
@@ -450,7 +548,10 @@ app.use(
   }),
 );
 
-app.get(HEALTH_PATH, (c) => Response.json({ status: "ok" }));
+app.get(HEALTH_PATH, (c) => Response.json(buildHealthPayload(c.env)));
+
+app.post(QUOTES_PATH, (c) => requestCoveredCallQuote(c.req.raw, c.env));
+app.all(QUOTES_PATH, () => new Response("Method not allowed", { status: 405 }));
 
 app.get(MAKER_SUPPORTED_COINS_PATH, () =>
   jsonResponse({ supportedCoins: supportedQuoteCoins }),

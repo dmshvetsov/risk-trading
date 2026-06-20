@@ -9,6 +9,31 @@ import worker, {
 } from "./index";
 
 describe("broadcast worker foundation", () => {
+  it("reports the configured BTC-USDC-WBTC market as ready", async () => {
+    const response = await worker.fetch(
+      new Request(
+        "https://example.com/api/markets/BTC-USDC-WBTC/readiness",
+      ),
+      {} as never,
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      marketId: "BTC-USDC-WBTC",
+      ready: true,
+      submissionPath: "queue",
+    });
+  });
+
+  it("rejects readiness checks for unsupported markets", async () => {
+    const response = await worker.fetch(
+      new Request("https://example.com/api/markets/ETH-USDC-WETH/readiness"),
+      {} as never,
+    );
+
+    assert.equal(response.status, 404);
+  });
+
   it("returns a health payload that advertises sequential queue processing", async () => {
     const response = await worker.fetch(
       new Request("https://example.com/health"),

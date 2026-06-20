@@ -20,6 +20,10 @@ class_name = "QuoteStore"
 binding = "BROADCAST_QUEUE"
 queue = "broadcast-server-submissions"
 
+[[services]]
+binding = "BROADCAST_SERVER"
+service = "broadcast-server"
+
 #
 # = development env
 #
@@ -37,6 +41,11 @@ class_name = "QuoteStore"
 [[env.development.queues.producers]]
 binding = "BROADCAST_QUEUE"
 queue = "broadcast-server-submissions-development"
+
+[[env.development.services]]
+binding = "BROADCAST_SERVER"
+service = "broadcast-server"
+environment = "development"
 
 [[env.development.migrations]]
 tag = "v1"
@@ -60,6 +69,11 @@ class_name = "QuoteStore"
 binding = "BROADCAST_QUEUE"
 queue = "broadcast-server-submissions-staging"
 
+[[env.staging.services]]
+binding = "BROADCAST_SERVER"
+service = "broadcast-server"
+environment = "staging"
+
 [[env.staging.migrations]]
 tag = "v1"
 new_sqlite_classes = ["QuoteStore"]
@@ -71,4 +85,3 @@ new_sqlite_classes = ["QuoteStore"]
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["QuoteStore"]
-

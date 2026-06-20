@@ -9,6 +9,11 @@ import { HomePage } from "./pages/home-page";
 import { MakerVaultCardView, MakerVaultsView } from "./pages/maker-vaults-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
 import { TakerShellPage } from "./pages/taker-shell-page";
+import {
+  QuoteBuilderView,
+  requestCoveredCallQuote,
+  secondsUntilExpiry,
+} from "./pages/quote-builder-page";
 import { SuiProviders } from "./components/sui-providers";
 import { getRouter } from "./router";
 
@@ -73,6 +78,62 @@ describe("Taker copy", () => {
     assert.doesNotMatch(html, /option|derivative/i);
     assert.match(html, /Wallet-gated seller routes mount here/i);
     assert.match(html, /Nested child slot/i);
+  });
+
+  it("shows a covered-call quote with collateral, timer, and both outcomes", () => {
+    const html = renderToStaticMarkup(
+      <QuoteBuilderView
+        isLoading={false}
+        quote={{
+          cashPremiumPerContract: "1263800000",
+          cashTokenDecimals: 6,
+          contractsQtyDecimals: "5000000",
+          collateralTokenDecimals: 8,
+          expiryUnixMs: Date.now() + 30_000,
+          offerValidUntilUnixMs: Date.now() + 30_000,
+          strikePriceDecimals: "68000000000",
+        }}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    assert.match(html, /0\.05 WBTC/);
+    assert.match(html, /63\.19 USDC/);
+    assert.match(html, /Quote expires in/i);
+    assert.match(html, /BTC stays at or below/i);
+    assert.match(html, /BTC finishes above/i);
+  });
+
+  it("reduces the quote countdown as time passes", () => {
+    assert.equal(secondsUntilExpiry(31_000, 1_000), 30);
+    assert.equal(secondsUntilExpiry(31_000, 11_000), 20);
+    assert.equal(secondsUntilExpiry(31_000, 41_000), 0);
+  });
+
+  it("sends the supported market request to RFQ and maps its quote", async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const quote = await requestCoveredCallQuote(
+      "https://rfq.example",
+      "0x0::usdc::USDC",
+      { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 },
+      async (input, init) => {
+        requests.push({ input, init });
+        return Response.json({ quote: {
+          cash_premium_per_contract: "1263800000", cash_token_decimals: 6,
+          collateral_token_decimals: 8, expiry_unix_ms: 1_800_000_000_000,
+          offer_valid_until_total_contracts_qty_decimals: "5000000",
+          offer_valid_until_unix_ms: 1_799_000_000_000,
+          strike_price_decimals: "68000000000",
+        }});
+      },
+    );
+
+    assert.equal(requests[0]?.input, "https://rfq.example/api/quotes");
+    const body = JSON.parse(String(requests[0]?.init?.body));
+    assert.equal(body.request.cash_token_address, "0x0::usdc::USDC");
+    assert.equal(body.request.collateral_token_address.includes("::wbtc::WBTC"), true);
+    assert.equal(body.request.contracts_qty_decimals, "5000000");
+    assert.equal(quote.cashPremiumPerContract, "1263800000");
   });
 });
 

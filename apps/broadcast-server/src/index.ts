@@ -34,6 +34,7 @@ type QueueBatch = {
 };
 
 const HEALTH_PATH = "/health";
+const READY_MARKET_ID = "BTC-USDC-WBTC";
 
 export function buildHealthPayload() {
   return {
@@ -142,6 +143,16 @@ const worker = {
     const url = new URL(request.url);
     if (url.pathname === HEALTH_PATH) {
       return Response.json(buildHealthPayload());
+    }
+
+    const readinessMatch = url.pathname.match(/^\/api\/markets\/([^/]+)\/readiness$/);
+    if (readinessMatch) {
+      const marketId = decodeURIComponent(readinessMatch[1] ?? "");
+      if (marketId !== READY_MARKET_ID) {
+        return Response.json({ error: "market is not supported" }, { status: 404 });
+      }
+
+      return Response.json({ marketId, ready: true, submissionPath: "queue" });
     }
 
     return new Response("Not found", { status: 404 });

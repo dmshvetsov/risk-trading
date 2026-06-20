@@ -17,7 +17,7 @@ import { getWalletLabel } from "./lib/wallet";
 import HomePage from "./pages/home-page";
 import TakerShellPage from "./pages/taker-shell-page";
 import MakerShellPage from "./pages/maker-shell-page";
-import TakerShellIndexPage from "./pages/taker-shell-index-page";
+import QuoteBuilderPage from "./pages/quote-builder-page";
 import MakerShellIndexPage from "./pages/maker-shell-index-page";
 import MakerVaultsPage from "./pages/maker-vaults-page";
 import MakerPositionsPage from "./pages/maker-positions-page";
@@ -100,7 +100,7 @@ const sharedStatesRoute = createRoute({
 const takerShellIndexRoute = createRoute({
   getParentRoute: () => takerShellRoute,
   path: "/",
-  component: TakerShellIndexPage,
+  component: QuoteBuilderPage,
 });
 
 const makerShellIndexRoute = createRoute({
