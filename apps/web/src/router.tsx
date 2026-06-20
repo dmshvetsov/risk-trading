@@ -15,9 +15,7 @@ import { ErrorPanel } from "./components/error-panel";
 import { LoadingPanel } from "./components/loading-panel";
 import { getWalletLabel } from "./lib/wallet";
 import HomePage from "./pages/home-page";
-import TakerShellPage from "./pages/taker-shell-page";
 import MakerShellPage from "./pages/maker-shell-page";
-import QuoteBuilderPage from "./pages/quote-builder-page";
 import MakerShellIndexPage from "./pages/maker-shell-index-page";
 import MakerVaultsPage from "./pages/maker-vaults-page";
 import MakerPositionsPage from "./pages/maker-positions-page";
@@ -71,16 +69,6 @@ const indexRoute = createRoute({
   component: HomePage,
 });
 
-const takerShellRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/taker",
-  component: () => (
-    <TakerShellPage>
-      <Outlet />
-    </TakerShellPage>
-  ),
-});
-
 const makerShellRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/maker",
@@ -95,12 +83,6 @@ const sharedStatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/states",
   component: SharedStatesPage,
-});
-
-const takerShellIndexRoute = createRoute({
-  getParentRoute: () => takerShellRoute,
-  path: "/",
-  component: QuoteBuilderPage,
 });
 
 const makerShellIndexRoute = createRoute({
@@ -123,7 +105,6 @@ const makerPositionsRoute = createRoute({
 
 export const routeTree = rootRoute.addChildren([
   indexRoute,
-  takerShellRoute.addChildren([takerShellIndexRoute]),
   makerShellRoute.addChildren([
     makerShellIndexRoute,
     makerVaultsRoute,

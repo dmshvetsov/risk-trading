@@ -11,10 +11,10 @@ describe("navigationItems", () => {
     assert.equal(new Set(paths).size, paths.length);
   });
 
-  it("keeps the maker dashboard hidden from visible navigation", () => {
+  it("keeps the maker dashboard available on a distinct route", () => {
     assert.equal(
       navigationItems.some((item) => item.href === "/maker"),
-      false,
+      true,
     );
   });
 });

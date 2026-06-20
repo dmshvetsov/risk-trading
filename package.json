@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "apps/web/node_modules/.bin/vite --config apps/web/vite.config.ts",
     "build": "apps/web/node_modules/.bin/tsc --noEmit -p apps/web/tsconfig.json && apps/web/node_modules/.bin/vite build --config apps/web/vite.config.ts",
-    "test:web": "apps/web/node_modules/.bin/vitest run apps/web/src/app-shell.test.tsx apps/web/src/lib/navigation.test.ts"
+    "test:rfq": "pnpm -F rfq-server run test",
+    "test:broadcast": "pnpm -F broadcast-server run test",
+    "test:web": "pnpm -F web run test"
   },
   "keywords": [],
   "author": "Dmitry Shvetsov <https://dmitryshvetsov.com>",

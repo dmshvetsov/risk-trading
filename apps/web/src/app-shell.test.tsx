@@ -8,12 +8,10 @@ import { AppChrome } from "./components/app-shell";
 import { HomePage } from "./pages/home-page";
 import { MakerVaultCardView, MakerVaultsView } from "./pages/maker-vaults-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
-import { TakerShellPage } from "./pages/taker-shell-page";
 import {
-  QuoteBuilderView,
   requestCoveredCallQuote,
   secondsUntilExpiry,
-} from "./pages/quote-builder-page";
+} from "./lib/quote-request";
 import { SuiProviders } from "./components/sui-providers";
 import { getRouter } from "./router";
 
@@ -37,13 +35,14 @@ describe("App shell", () => {
     );
 
     assert.match(html, /Earn Upfront Yield/i);
-    assert.match(html, /EARN 63\.19 USDC NOW/i);
+    assert.match(html, /deposit 0\.05 WBTC as collateral/i);
+    assert.match(html, /QUOTE UNAVAILABLE/i);
   });
 
   it("shows global marketing navigation and auth button copy", () => {
     const html = renderToStaticMarkup(
       <AppChrome
-        currentPath="/taker"
+        currentPath="/maker"
         walletLabel="Wallet not connected"
         showWalletButton={false}
         usePlainLinks
@@ -66,42 +65,6 @@ describe("Taker copy", () => {
 
     assert.doesNotMatch(html, /option|derivative/i);
     assert.match(html, /deposit 0\.05 WBTC as collateral/i);
-  });
-
-  it("keeps the taker shell simple and setup-focused", () => {
-    const html = renderToStaticMarkup(
-      <TakerShellPage>
-        <div>Nested child slot</div>
-      </TakerShellPage>,
-    );
-
-    assert.doesNotMatch(html, /option|derivative/i);
-    assert.match(html, /Wallet-gated seller routes mount here/i);
-    assert.match(html, /Nested child slot/i);
-  });
-
-  it("shows a covered-call quote with collateral, timer, and both outcomes", () => {
-    const html = renderToStaticMarkup(
-      <QuoteBuilderView
-        isLoading={false}
-        quote={{
-          cashPremiumPerContract: "1263800000",
-          cashTokenDecimals: 6,
-          contractsQtyDecimals: "5000000",
-          collateralTokenDecimals: 8,
-          expiryUnixMs: Date.now() + 30_000,
-          offerValidUntilUnixMs: Date.now() + 30_000,
-          strikePriceDecimals: "68000000000",
-        }}
-        onSubmit={() => undefined}
-      />,
-    );
-
-    assert.match(html, /0\.05 WBTC/);
-    assert.match(html, /63\.19 USDC/);
-    assert.match(html, /Quote expires in/i);
-    assert.match(html, /BTC stays at or below/i);
-    assert.match(html, /BTC finishes above/i);
   });
 
   it("reduces the quote countdown as time passes", () => {
@@ -134,6 +97,27 @@ describe("Taker copy", () => {
     assert.equal(body.request.collateral_token_address.includes("::wbtc::WBTC"), true);
     assert.equal(body.request.contracts_qty_decimals, "5000000");
     assert.equal(quote.cashPremiumPerContract, "1263800000");
+  });
+
+  it("renders not found for the removed taker route", async () => {
+    const testRouter = getRouter(
+      createMemoryHistory({
+        initialEntries: ["/taker"],
+      }),
+    );
+    const queryClient = new QueryClient();
+
+    await testRouter.load();
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <SuiProviders>
+          <RouterProvider router={testRouter} />
+        </SuiProviders>
+      </QueryClientProvider>,
+    );
+
+    assert.match(html, /Page not found/);
   });
 });
 
