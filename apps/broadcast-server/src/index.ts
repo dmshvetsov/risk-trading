@@ -145,16 +145,6 @@ const worker = {
       return Response.json(buildHealthPayload());
     }
 
-    const readinessMatch = url.pathname.match(/^\/api\/markets\/([^/]+)\/readiness$/);
-    if (readinessMatch) {
-      const marketId = decodeURIComponent(readinessMatch[1] ?? "");
-      if (marketId !== READY_MARKET_ID) {
-        return Response.json({ error: "market is not supported" }, { status: 404 });
-      }
-
-      return Response.json({ marketId, ready: true, submissionPath: "queue" });
-    }
-
     return new Response("Not found", { status: 404 });
   },
 
