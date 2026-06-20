@@ -142,7 +142,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
               </div>
             </div>
 
-            <div className="grid px-5 py-5 lg:grid-cols-[1fr_1fr_auto_1fr] lg:items-center">
+            <div className="grid px-5 py-5 lg:grid-cols-[1fr_1fr_1fr] lg:items-center">
               <div>
                 <div className="flex items-center gap-3 text-muted-foreground">
                   <span aria-hidden="true" className="size-3 shrink-0 bg-primary" />
@@ -150,11 +150,10 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
                 </div>
                 <p className="font-normal text-foreground text-sm">one of the two outcomes</p>
               </div>
-              <div className="grid">
+              <div className="grid border-r-2">
                 <p className="font-semibold text-foreground">Get 0.05 WBTC back</p>
                 <p className="text-foreground text-sm">If BTC below or at $68,000</p>
               </div>
-              <p className="text-center text-muted-foreground">or</p>
               <div className="grid lg:justify-self-end">
                 <p className="font-semibold text-foreground">Receive 3,400.00 USDC</p>
                 <p className="text-foreground text-sm">If BTC above $68,000</p>
