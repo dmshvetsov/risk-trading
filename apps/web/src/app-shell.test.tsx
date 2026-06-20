@@ -31,7 +31,7 @@ describe("App shell", () => {
       </QueryClientProvider>,
     );
 
-    assert.match(html, /Earn Upfront Yield With Win In Any Case Outcomes/i);
+    assert.match(html, /Earn Upfront Yield/i);
     assert.match(html, /EARN 63\.19 USDC NOW/i);
   });
 

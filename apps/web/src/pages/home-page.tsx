@@ -1,5 +1,13 @@
+import { Info } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const strategyOptions = [
@@ -112,9 +120,24 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
                 <p className="text-2xl font-semibold tracking-tight text-foreground sm:text-4xl">
                   63.19 USDC
                 </p>
-                <p className="font-semibold text-foreground">17.74% APR</p>
-                <p className="text-sm text-muted-foreground sm:text-xs">
-                  anual % rate based on 41 days yield
+                <p className="flex items-center gap-1 font-semibold text-foreground lg:justify-end">
+                  <span>17.74% APR</span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex size-4 items-center justify-center rounded-full border border-border text-muted-foreground"
+                          aria-label="annual percentage rate based on 41 days yield"
+                        >
+                          <Info className="size-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={6}>
+                        anual % rate based on 41 days yield
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </p>
               </div>
             </div>
