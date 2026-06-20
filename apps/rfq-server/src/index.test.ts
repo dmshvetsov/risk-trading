@@ -311,9 +311,6 @@ describe("shared quote request path", () => {
         idFromName(name: string): string;
       };
     };
-    env.BROADCAST_SERVER = {
-      fetch: async () => Response.json({ marketId: "BTC-USDC-WBTC", ready: true }),
-    };
     env.QUOTES = {
       idFromName: (name) => name,
       get: () => ({
@@ -354,7 +351,6 @@ describe("shared quote request path", () => {
     assert.equal(secondResponse.status, 201);
 
     const first = (await firstResponse.json()) as {
-      broadcastReadiness: { ready: boolean };
       quote: Record<string, unknown>;
     };
     const second = (await secondResponse.json()) as {
@@ -375,9 +371,6 @@ describe("shared quote request path", () => {
         get(id: string): { fetch(request: Request): Promise<Response> };
         idFromName(name: string): string;
       };
-    };
-    env.BROADCAST_SERVER = {
-      fetch: async () => Response.json({ marketId: "BTC-USDC-WBTC", ready: true }),
     };
     env.QUOTES = {
       idFromName: (name) => name,
