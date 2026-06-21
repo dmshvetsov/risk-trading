@@ -32,6 +32,10 @@ export interface Env {
   };
   DB: D1Database;
   MAKER_STUB_PRIVATE_KEY?: string;
+  /** fee that is taken by the application to fund business operation in basis points, e.g. 258 = 2.58% */
+  OPERATION_FEE_BPS?: string;
+  /** sui address that receives operational fees */
+  OPERATION_FEE_TREASURY?: string;
   OTP_PACKAGE_ID?: string;
   QUOTES: DurableObjectNamespace<QuoteStoreStub>;
   SUI_RPC_URL?: string;
