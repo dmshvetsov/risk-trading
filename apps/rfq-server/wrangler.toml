@@ -3,12 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2026-06-10"
 
 #
-# = preoduction env
+# = development env
 #
 
 [[d1_databases]]
 binding = "DB"
-database_name = "rfq-server-db"
+database_name = "rfq-server-db-development"
 database_id = "local-rfq-server-db"
 migrations_dir = "migrations"
 
@@ -18,47 +18,45 @@ class_name = "QuoteStore"
 
 [[queues.producers]]
 binding = "BROADCAST_QUEUE"
-queue = "broadcast-server-submissions"
+queue = "broadcast-server-submissions-development"
 
 [vars]
-SUI_RPC_URL = "https://fullnode.mainnet.sui.io:443"
+SUI_RPC_URL = "http://127.0.0.1:9000"
+OTP_PACKAGE_ID="TBD"
 
 [[queues.consumers]]
-queue = "broadcast-server-submissions"
+queue = "broadcast-server-submissions-development"
 max_batch_size = 1
 max_batch_timeout = 1
 max_concurrency = 1
 
 #
-# = development env
+# = production env
 #
 
-[[env.development.d1_databases]]
+[[env.production.d1_databases]]
 binding = "DB"
-database_name = "rfq-server-db-development"
-database_id = "local-rfq-server-db"
+database_name = "rfq-server-db"
+database_id = "TBD from wrangler d1 create"
 migrations_dir = "migrations"
 
-[[env.development.durable_objects.bindings]]
+[[env.production.durable_objects.bindings]]
 name = "QUOTES"
 class_name = "QuoteStore"
 
-[[env.development.queues.producers]]
+[[env.production.queues.producers]]
 binding = "BROADCAST_QUEUE"
-queue = "broadcast-server-submissions-development"
+queue = "broadcast-server-submissions"
 
-[env.development.vars]
-SUI_RPC_URL = "http://127.0.0.1:9000"
+[env.production.vars]
+SUI_RPC_URL = "https://fullnode.mainnet.sui.io:443"
+OTP_PACKAGE_ID="TBD"
 
-[[env.development.queues.consumers]]
-queue = "broadcast-server-submissions-development"
+[[env.production.queues.consumers]]
+queue = "broadcast-server-submissions"
 max_batch_size = 1
 max_batch_timeout = 1
 max_concurrency = 1
-
-[[env.development.migrations]]
-tag = "v1"
-new_sqlite_classes = ["QuoteStore"]
 
 #
 # = staging env
@@ -67,7 +65,7 @@ new_sqlite_classes = ["QuoteStore"]
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "rfq-server-db-staging"
-database_id = "staging-rfq-server-db"
+database_id = "TBD from wrangler d1 create"
 migrations_dir = "migrations"
 
 [[env.staging.durable_objects.bindings]]
@@ -80,6 +78,7 @@ queue = "broadcast-server-submissions-staging"
 
 [env.staging.vars]
 SUI_RPC_URL = "https://fullnode.testnet.sui.io:443"
+OTP_PACKAGE_ID="TBD"
 
 [[env.staging.queues.consumers]]
 queue = "broadcast-server-submissions-staging"
