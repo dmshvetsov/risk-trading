@@ -20,9 +20,14 @@ class_name = "QuoteStore"
 binding = "BROADCAST_QUEUE"
 queue = "broadcast-server-submissions"
 
-[[services]]
-binding = "BROADCAST_SERVER"
-service = "broadcast-server"
+[vars]
+SUI_RPC_URL = "https://fullnode.mainnet.sui.io:443"
+
+[[queues.consumers]]
+queue = "broadcast-server-submissions"
+max_batch_size = 1
+max_batch_timeout = 1
+max_concurrency = 1
 
 #
 # = development env
@@ -42,10 +47,14 @@ class_name = "QuoteStore"
 binding = "BROADCAST_QUEUE"
 queue = "broadcast-server-submissions-development"
 
-[[env.development.services]]
-binding = "BROADCAST_SERVER"
-service = "broadcast-server"
-environment = "development"
+[env.development.vars]
+SUI_RPC_URL = "http://127.0.0.1:9000"
+
+[[env.development.queues.consumers]]
+queue = "broadcast-server-submissions-development"
+max_batch_size = 1
+max_batch_timeout = 1
+max_concurrency = 1
 
 [[env.development.migrations]]
 tag = "v1"
@@ -69,10 +78,14 @@ class_name = "QuoteStore"
 binding = "BROADCAST_QUEUE"
 queue = "broadcast-server-submissions-staging"
 
-[[env.staging.services]]
-binding = "BROADCAST_SERVER"
-service = "broadcast-server"
-environment = "staging"
+[env.staging.vars]
+SUI_RPC_URL = "https://fullnode.testnet.sui.io:443"
+
+[[env.staging.queues.consumers]]
+queue = "broadcast-server-submissions-staging"
+max_batch_size = 1
+max_batch_timeout = 1
+max_concurrency = 1
 
 [[env.staging.migrations]]
 tag = "v1"

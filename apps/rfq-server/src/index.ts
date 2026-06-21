@@ -27,8 +27,6 @@ type VaultConfigProof = {
 };
 
 export interface Env {
-  BROADCAST_SERVER?: { fetch(request: Request): Promise<Response> };
-  BROADCAST_RECEIPT_TOKEN?: string;
   BROADCAST_QUEUE: {
     send(message: unknown): Promise<void>;
   };
@@ -36,6 +34,7 @@ export interface Env {
   MAKER_STUB_PRIVATE_KEY?: string;
   OTP_PACKAGE_ID?: string;
   QUOTES: DurableObjectNamespace<QuoteStoreStub>;
+  SUI_RPC_URL?: string;
   TX_VALIDATOR?: {
     verifyCloseVaultDigest(
       digest: string,
@@ -94,12 +93,20 @@ type TransactionReceipt = {
   }>;
 };
 
+type QueueMessage = {
+  ack(): void;
+  body: unknown;
+};
+
+type QueueBatch = {
+  messages: QueueMessage[];
+};
+
 const HEALTH_PATH = "/health";
 const STATE_KEY = "quote-state";
 const MAKER_SUPPORTED_COINS_PATH = "/api/maker/supported-coins";
 const MAKER_VAULTS_PATH = "/api/maker/vaults";
 const MAKER_VAULT_SUBMISSIONS_PATH = "/api/maker/vaults/submissions";
-const MAKER_VAULT_RECEIPTS_PATH = "/api/internal/maker/vaults/receipts";
 const QUOTES_PATH = "/api/quotes";
 const BTC_USD_FEED_ID =
   "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
@@ -352,50 +359,77 @@ function parseCreatedVault(
   return createdObject ? { ownerAddress, quoteCoinType, vaultId } : null;
 }
 
-async function persistCreateVaultReceipt(request: Request, env: Env) {
-  if (
-    !env.BROADCAST_RECEIPT_TOKEN ||
-    request.headers.get("authorization") !==
-      `Bearer ${env.BROADCAST_RECEIPT_TOKEN}`
-  ) {
-    return jsonResponse({ error: "unauthorized receipt callback" }, 401);
+async function persistCreateVaultReceipt(
+  receipt: TransactionReceipt,
+  submission: CreateMakerVaultSubmission,
+  env: Env,
+) {
+  if (!env.OTP_PACKAGE_ID) {
+    throw new Error("OTP_PACKAGE_ID is not configured");
   }
-
-  const payload = (await request.json()) as {
-    receipt?: TransactionReceipt;
-    submission?: unknown;
-  };
-  if (
-    !payload.receipt ||
-    !isCreateMakerVaultSubmission(payload.submission) ||
-    !env.OTP_PACKAGE_ID
-  ) {
-    return jsonResponse({ error: "invalid create vault receipt" }, 400);
-  }
-
   const verified = parseCreatedVault(
-    payload.receipt,
-    payload.submission,
+    receipt,
+    submission,
     env.OTP_PACKAGE_ID,
   );
   if (!verified) {
-    return jsonResponse(
-      { error: "receipt does not contain the expected BuyerVault" },
-      400,
-    );
+    throw new Error("Receipt does not contain the expected BuyerVault");
   }
 
   const existing = await readVault(env.DB, verified.vaultId);
   if (existing) {
-    return jsonResponse({ vault: toMakerVault(existing) });
+    return existing;
   }
 
-  const vault = await insertVault(env.DB, {
+  return insertVault(env.DB, {
     ...verified,
-    orderEndpointUrl: payload.submission.orderEndpointUrl,
-    quoteEndpointUrl: payload.submission.quoteEndpointUrl,
+    orderEndpointUrl: submission.orderEndpointUrl,
+    quoteEndpointUrl: submission.quoteEndpointUrl,
   });
-  return jsonResponse({ vault: toMakerVault(vault as MakerVaultRow) }, 201);
+}
+
+export async function drainBatch(
+  batch: QueueBatch,
+  env: Env,
+  request: typeof fetch = fetch,
+) {
+  if (!env.SUI_RPC_URL) {
+    throw new Error("SUI_RPC_URL is not configured");
+  }
+
+  for (const message of batch.messages) {
+    if (!isCreateMakerVaultSubmission(message.body)) {
+      throw new Error("Invalid broadcast submission message");
+    }
+
+    const response = await request(env.SUI_RPC_URL, {
+      body: JSON.stringify({
+        id: message.body.submissionId,
+        jsonrpc: "2.0",
+        method: "sui_executeTransactionBlock",
+        params: [
+          message.body.transactionBytes,
+          [message.body.signature],
+          { showEffects: true, showEvents: true, showObjectChanges: true },
+          "WaitForLocalExecution",
+        ],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const payload = (await response.json()) as {
+      error?: { message?: string };
+      result?: TransactionReceipt;
+    };
+    if (!response.ok || !payload.result) {
+      throw new Error(
+        payload.error?.message ?? "Sui transaction execution failed",
+      );
+    }
+
+    await persistCreateVaultReceipt(payload.result, message.body, env);
+    message.ack();
+  }
 }
 
 async function registerCreatedVault(request: Request, env: Env) {
@@ -578,14 +612,6 @@ app.all(
   () => new Response("Method not allowed", { status: 405 }),
 );
 
-app.post(MAKER_VAULT_RECEIPTS_PATH, (c) =>
-  persistCreateVaultReceipt(c.req.raw, c.env),
-);
-app.all(
-  MAKER_VAULT_RECEIPTS_PATH,
-  () => new Response("Method not allowed", { status: 405 }),
-);
-
 app.patch("/api/maker/vaults/:vaultId", (c) =>
   handleVaultUpdate(c.req.raw, c.env, c.req.param("vaultId")),
 );
@@ -602,4 +628,9 @@ app.all(
   () => new Response("Method not allowed", { status: 405 }),
 );
 
-export default app;
+const worker = {
+  fetch: app.fetch,
+  queue: drainBatch,
+};
+
+export default worker;

@@ -262,14 +262,14 @@ type SignedMakerOrderV1Response = {
 #### Environment variables
 
 - `OTP_PACKAGE_ID` protocol package id, MUST be used to derive addresses to read and write (send transactions) on-chain data
-- `BROADCAST_SERVER_BASE_URL` URL to call broadcast server methods
+- `SUI_RPC_URL` fullnode JSON-RPC URL used by the RFQ server queue consumer to execute transactions
 - `MAKER_STUB_PRIVATE_KEY` private key used by the development maker stub to sign orders; configure it as a Worker secret and never commit its value
 
 #### Broadcasting transactions on-chain
 
 MUST implement Cloudflare queues for transaction submission where sequential processing is required by shared on-chain object access. All transactions that require sequential broadcasting MUST use broadcast queue to submit transaction on-chain. Transaction that do not require strict sequential order MAY NOT use broadcast queue but free to use it anyway if it simplifies the application design and maintainability.
 
-Broadcast server runs one in-flight transaction per configured queue partition and waits for finality before next transaction.
+RFQ server runs one in-flight transaction per configured queue partition, waits for finality, and persists receipt-driven state before acknowledging the message.
 
 ## 2.4 Web App (Off-chain decentralized application with UI)
 

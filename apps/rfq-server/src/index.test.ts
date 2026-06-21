@@ -6,6 +6,7 @@ import { describe, it, vi } from "vitest";
 import worker, {
   QuoteStore,
   buildHealthPayload,
+  drainBatch,
   getQuoteStore,
   quoteStoreNameFromRequest,
 } from "./index";
@@ -143,7 +144,6 @@ class FakeD1Database {
 function createEnv(db = new FakeD1Database()) {
   return {
     BROADCAST_QUEUE: { send: async () => undefined },
-    BROADCAST_RECEIPT_TOKEN: "receipt-token",
     DB: db,
     OTP_PACKAGE_ID: "0xotp",
     QUOTES: {
@@ -305,7 +305,6 @@ describe("shared quote request path", () => {
   it("generates and stores an actionable input-dependent stub quote", async () => {
     const stored: unknown[] = [];
     const env = createEnv() as ReturnType<typeof createEnv> & {
-      BROADCAST_SERVER: { fetch(request: Request): Promise<Response> };
       QUOTES: {
         get(id: string): { fetch(request: Request): Promise<Response> };
         idFromName(name: string): string;
@@ -366,7 +365,6 @@ describe("shared quote request path", () => {
 
   it("does not return a quote when durable storage fails", async () => {
     const env = createEnv() as ReturnType<typeof createEnv> & {
-      BROADCAST_SERVER: { fetch(request: Request): Promise<Response> };
       QUOTES: {
         get(id: string): { fetch(request: Request): Promise<Response> };
         idFromName(name: string): string;
@@ -566,7 +564,7 @@ describe("maker vault APIs", () => {
     assert.match(String(payload.vault.updatedAt), /^\d{4}-\d{2}-\d{2}T/);
   });
 
-  it("queues a signed create transaction and persists verified endpoints from its receipt", async () => {
+  it("queues a signed create transaction and persists it after Sui finality", async () => {
     const db = new FakeD1Database();
     const queued: unknown[] = [];
     const env = createEnv(db) as ReturnType<typeof createEnv> & {
@@ -593,45 +591,52 @@ describe("maker vault APIs", () => {
     assert.equal(submitResponse.status, 202);
     assert.equal(queued.length, 1);
 
-    const receiptResponse = await worker.fetch(
-      new Request("https://example.com/api/internal/maker/vaults/receipts", {
-        body: JSON.stringify({
-          receipt: createdVaultReceipt(),
-          submission: queued[0],
-        }),
-        method: "POST",
-        headers: { authorization: "Bearer receipt-token" },
-      }),
-      env,
+    const steps: string[] = [];
+    await drainBatch(
+      {
+        messages: [{
+          ack: () => void steps.push("ack"),
+          body: queued[0],
+        }],
+      },
+      { ...env, SUI_RPC_URL: "https://fullnode.example" },
+      async () => {
+        steps.push("execute");
+        return Response.json({ result: createdVaultReceipt() });
+      },
     );
 
-    assert.equal(receiptResponse.status, 201);
+    assert.deepEqual(steps, ["execute", "ack"]);
     assert.equal(db.rows.get("0xvault-1")?.quote_endpoint_url, "https://maker.example/quotes");
     assert.equal(db.rows.get("0xvault-1")?.order_endpoint_url, "https://maker.example/orders");
   });
 
-  it("rejects a BuyerVault receipt created by another package", async () => {
-    const response = await worker.fetch(
-      new Request("https://example.com/api/internal/maker/vaults/receipts", {
-        body: JSON.stringify({
-          receipt: createdVaultReceipt("0xattacker"),
-          submission: {
+  it("does not acknowledge a receipt created by another package", async () => {
+    let acked = false;
+    await assert.rejects(() =>
+      drainBatch(
+        {
+          messages: [{
+            ack: () => { acked = true; },
+            body: {
             kind: "create-maker-vault",
             ownerAddress: "0xmaker",
+            orderEndpointUrl: "https://maker.example/orders",
             quoteCoinType:
               "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+            quoteEndpointUrl: "https://maker.example/quotes",
             signature: "wallet-signature",
             submissionId: "submission-1",
             transactionBytes: "signed-transaction-bytes",
           },
-        }),
-        method: "POST",
-        headers: { authorization: "Bearer receipt-token" },
-      }),
-      createEnv(),
+          }],
+        },
+        { ...createEnv(), SUI_RPC_URL: "https://fullnode.example" },
+        async () => Response.json({ result: createdVaultReceipt("0xattacker") }),
+      ),
+      /expected BuyerVault/,
     );
-
-    assert.equal(response.status, 400);
+    assert.equal(acked, false);
   });
 
   it("lists maker vaults from the database for one owner", async () => {
@@ -762,5 +767,16 @@ describe("makers_vaults migration", () => {
     assert.match(sql, /quote_endpoint_url TEXT/i);
     assert.match(sql, /order_endpoint_url TEXT/i);
     assert.match(sql, /deleted_at TEXT/i);
+  });
+});
+
+describe("queue configuration", () => {
+  it("limits every queue consumer to one in-flight transaction", () => {
+    const config = readFileSync(
+      resolve(import.meta.dirname, "../wrangler.toml"),
+      "utf8",
+    );
+
+    assert.equal(config.match(/max_concurrency = 1/g)?.length, 3);
   });
 });
