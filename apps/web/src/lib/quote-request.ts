@@ -70,10 +70,26 @@ export function quantityToContractsQtyDecimals(size: number) {
   return String(Math.round(size * 10 ** 8));
 }
 
+export function strikeToPriceDecimals(strike: number, strikeScale: number) {
+  return String(Math.round(strike * strikeScale));
+}
+
+export function quotePremiumTotal(
+  cashPremiumPerContract: string,
+  contractsQtyDecimals: string,
+  cashTokenDecimals: number,
+) {
+  return decimalAmount(
+    String(BigInt(cashPremiumPerContract) * BigInt(contractsQtyDecimals)),
+    cashTokenDecimals,
+  );
+}
+
 export async function requestQuote(
   rfqApiUrl: string,
   cashTokenAddress: string,
   baseCoinType: string,
+  strikeScale: number,
   strategy: QuoteStrategy,
   inputs: QuoteInputs,
   request: typeof fetch = fetch,
@@ -92,7 +108,7 @@ export async function requestQuote(
         cash_token_decimals: 6,
         call_put_marker: isPut ? 2 : 1,
         long_short_marker: 2,
-        strike_price_decimals: String(Math.round(inputs.strike * 1_000_000)),
+        strike_price_decimals: strikeToPriceDecimals(inputs.strike, strikeScale),
         expiry_unix_ms: inputs.expiryUnixMs,
         contracts_qty_decimals: quantityToContractsQtyDecimals(inputs.size),
       },
@@ -128,6 +144,7 @@ export function quoteQueryOptions(
   rfqApiUrl: string,
   cashTokenAddress: string,
   baseCoinType: string,
+  strikeScale: number,
   strategy: QuoteStrategy,
   inputs: QuoteInputs,
   request: typeof fetch = fetch,
@@ -138,6 +155,7 @@ export function quoteQueryOptions(
       rfqApiUrl,
       cashTokenAddress,
       baseCoinType,
+      strikeScale,
       strategy,
       inputs.expiryUnixMs,
       inputs.size,
@@ -147,6 +165,7 @@ export function quoteQueryOptions(
       rfqApiUrl,
       cashTokenAddress,
       baseCoinType,
+      strikeScale,
       strategy,
       inputs,
       request,

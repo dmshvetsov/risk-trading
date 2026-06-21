@@ -106,7 +106,7 @@ export function AppChrome({
         </header>
         <main className="flex-1 py-3 sm:py-6">{children}</main>
         <footer className="flex flex-col gap-3 border-t border-transparent px-1 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <span className="order-2 sm:order-1">©2026 Company Name</span>
+          <span className="order-2 sm:order-1">©2026 Faven</span>
           <a className="order-1 underline underline-offset-4 sm:order-2" href="/docs">
             Docs
           </a>

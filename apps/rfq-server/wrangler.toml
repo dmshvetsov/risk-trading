@@ -22,7 +22,7 @@ queue = "broadcast-server-submissions-development"
 
 [vars]
 SUI_RPC_URL = "https://fullnode.testnet.sui.io:443"
-OTP_PACKAGE_ID="0xcab07792581d56a4194e776cf1dad9ba2e1c55b6775c094c335b2a8ce2a719ba"
+OTP_PACKAGE_ID="0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4"
 OPERATION_FEE_BPS = "500"
 
 [[queues.consumers]]
@@ -51,7 +51,7 @@ queue = "broadcast-server-submissions"
 
 [env.production.vars]
 SUI_RPC_URL = "https://fullnode.mainnet.sui.io:443"
-OTP_PACKAGE_ID="TBD"
+OTP_PACKAGE_ID="0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4"
 OPERATION_FEE_BPS = "500"
 
 [[env.production.queues.consumers]]
@@ -80,7 +80,7 @@ queue = "broadcast-server-submissions-staging"
 
 [env.staging.vars]
 SUI_RPC_URL = "https://fullnode.testnet.sui.io:443"
-OTP_PACKAGE_ID="TBD"
+OTP_PACKAGE_ID="0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4"
 OPERATION_FEE_BPS = "500"
 
 [[env.staging.queues.consumers]]

@@ -30,7 +30,7 @@ const quote = {
   oracle_quote_symbol: "USDC" as const,
   quote_id: "quote-1",
   signer: keypair.toSuiAddress(),
-  strike_price_decimals: "66000000000",
+  strike_price_decimals: "6600000000000",
 };
 const quoteSignature = (await keypair.signPersonalMessage(serializeQuote(quote))).signature;
 
@@ -41,6 +41,8 @@ const chain: UnderwriteChainConfig = {
   marketId: `0x${"22".repeat(32)}`,
   quoteCoinType: quote.cash_token_address,
   seriesId: `0x${"33".repeat(32)}`,
+  strikePrice: quote.strike_price_decimals,
+  strikeScale: 100_000_000,
 };
 
 function env(overrides: Record<string, unknown> = {}) {
@@ -129,8 +131,10 @@ describe("prepareUnderwrite", () => {
 
   it("rejects unsupported, expired, and over-capacity quotes", async () => {
     const unsupported = await prepareUnderwrite(
-      request({ quote: { ...quote, strike_price_decimals: "67000000000" } }),
-      env().value, store(), chain,
+      request({ quote: { ...quote, strike_price_decimals: "6700000000000" } }),
+      env().value,
+      store(),
+      chain,
     );
     assert.equal(unsupported.status, 400);
 

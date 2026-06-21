@@ -10,6 +10,7 @@ import { MakerVaultCardView, MakerVaultsView } from "./pages/maker-vaults-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
 import {
   quantityToContractsQtyDecimals,
+  quotePremiumTotal,
   quoteQueryOptions,
   quoteTerms,
   requestQuote,
@@ -94,6 +95,7 @@ describe("Taker copy", () => {
       "https://rfq.example",
       "0x0::usdc::USDC",
       "0x0::test_btc::TEST_BTC",
+      100_000_000,
       "covered-call",
       { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 },
       async (input, init) => {
@@ -103,7 +105,7 @@ describe("Taker copy", () => {
           collateral_token_decimals: 8, expiry_unix_ms: 1_800_000_000_000,
           offer_valid_until_total_contracts_qty_decimals: "5000000",
           offer_valid_until_unix_ms: 1_799_000_000_000,
-          strike_price_decimals: "68000000000",
+          strike_price_decimals: "6800000000000",
         }});
       },
     );
@@ -113,6 +115,7 @@ describe("Taker copy", () => {
     assert.equal(body.request.cash_token_address, "0x0::usdc::USDC");
     assert.equal(body.request.collateral_token_address, "0x0::test_btc::TEST_BTC");
     assert.equal(body.request.contracts_qty_decimals, "5000000");
+    assert.equal(body.request.strike_price_decimals, "6800000000000");
     assert.equal(quote.cashPremiumPerContract, "1263800000");
     assert.equal(quote.quoteSignature, "quote-signature");
   });
@@ -123,6 +126,7 @@ describe("Taker copy", () => {
       "https://rfq.example",
       "0x0::usdc::USDC",
       "0x0::test_btc::TEST_BTC",
+      100_000_000,
       "cash-secured-put",
       { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 },
       async (_input, init) => {
@@ -132,7 +136,7 @@ describe("Taker copy", () => {
           collateral_token_decimals: 6, expiry_unix_ms: 1_800_000_000_000,
           offer_valid_until_total_contracts_qty_decimals: "3400000000",
           offer_valid_until_unix_ms: 1_799_000_000_000,
-          strike_price_decimals: "68000000000",
+          strike_price_decimals: "6800000000000",
         }});
       },
     );
@@ -157,6 +161,7 @@ describe("Taker copy", () => {
       "https://rfq.example",
       "0x0::usdc::USDC",
       "0x0::test_btc::TEST_BTC",
+      100_000_000,
       "covered-call",
       inputs,
       request,
@@ -167,6 +172,7 @@ describe("Taker copy", () => {
       "https://rfq.example",
       "0x0::usdc::USDC",
       "0x0::test_btc::TEST_BTC",
+      100_000_000,
       "cash-secured-put",
       inputs,
       request,
@@ -181,6 +187,10 @@ describe("Taker copy", () => {
     assert.equal(quantityToContractsQtyDecimals(0.005), "500000");
     assert.equal(quantityToContractsQtyDecimals(0.05), "5000000");
     assert.equal(quantityToContractsQtyDecimals(1), "100000000");
+  });
+
+  it("calculates total premium from per-contract quote units", () => {
+    assert.equal(quotePremiumTotal("122", "5000000", 6), 610);
   });
 
   it("calculates put cash collateral and above/below-strike outcomes", () => {

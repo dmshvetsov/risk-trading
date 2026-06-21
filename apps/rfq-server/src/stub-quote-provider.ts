@@ -16,6 +16,7 @@ export type QuoteRequest = {
 const BTC_SPOT_USDC = 63_489;
 const RISK_FREE_RATE = 0.04;
 const BTC_VOLATILITY = 0.55;
+const BTC_USDC_STRIKE_SCALE = 1_000_000;
 
 function normalCdf(value: number) {
   const sign = value < 0 ? -1 : 1;
@@ -58,11 +59,12 @@ export function createStubQuote(
   now = Date.now(),
   signer = "stub-provider",
 ) {
-  const strike = Number(request.strike_price_decimals) / 1_000_000;
+  const strike = Number(request.strike_price_decimals) / BTC_USDC_STRIKE_SCALE;
   const years = Math.max((request.expiry_unix_ms - now) / 31_536_000_000, 1 / 365);
-  const premium = request.call_put_marker === 1
+  const premiumPerBaseCoin = request.call_put_marker === 1
     ? blackScholesCall(BTC_SPOT_USDC, strike, years)
     : blackScholesPut(BTC_SPOT_USDC, strike, years);
+  const premiumPerContract = premiumPerBaseCoin / 10 ** request.collateral_token_decimals;
   const offerValidUntilUnixMs = Math.min(request.expiry_unix_ms, now + 30_000);
 
   return {
@@ -81,7 +83,7 @@ export function createStubQuote(
     expiry_unix_ms: request.expiry_unix_ms,
     signer,
     cash_premium_per_contract: String(
-      Math.max(1, Math.round(premium * 10 ** request.cash_token_decimals)),
+      Math.max(1, Math.round(premiumPerContract * 10 ** request.cash_token_decimals)),
     ),
     offer_valid_until_total_contracts_qty_decimals:
       request.contracts_qty_decimals,

@@ -18,6 +18,7 @@ import { appConfig } from "@/lib/config";
 import {
   decimalAmount,
   quantityToContractsQtyDecimals,
+  quotePremiumTotal,
   quoteQueryOptions,
   quoteTerms,
   secondsUntilExpiry,
@@ -201,6 +202,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     appConfig.rfqApiUrl,
     appConfig.cashTokenAddress,
     appConfig.baseCoinType,
+    appConfig.strikeScale,
     strategy,
     {
       expiryUnixMs: expiry.expiryUnixMs,
@@ -234,10 +236,15 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     ? decimalAmount(quote.contractsQtyDecimals, 8)
     : size;
   const premium = quote
-    ? decimalAmount(quote.cashPremiumPerContract, quote.cashTokenDecimals) *
-      effectiveSize
+    ? quotePremiumTotal(
+      quote.cashPremiumPerContract,
+      quote.contractsQtyDecimals,
+      quote.cashTokenDecimals,
+    )
     : null;
-  const strikePrice = quote ? decimalAmount(quote.strikePriceDecimals, 6) : strike.strike;
+  const strikePrice = quote
+    ? decimalAmount(quote.strikePriceDecimals, Math.log10(appConfig.strikeScale))
+    : strike.strike;
   const terms = quoteTerms(strategy, effectiveSize, strikePrice);
   const expiryUnixMs = quote?.expiryUnixMs ?? expiry.expiryUnixMs;
   const offerSecondsLeft = quote
@@ -300,9 +307,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
             const signed = await signTransactionFeature({
               account,
               chain: `sui:${appConfig.network}`,
-              transaction: {
-                toJSON: async () => transaction.toJSON({ client, supportedIntents: [] }),
-              },
+              transaction,
             });
             return {
               bytes: signed.bytes,

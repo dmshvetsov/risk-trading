@@ -13,6 +13,7 @@ export const appConfig = {
   network,
   otpPackageId: envVar("VITE_OTP_PACKAGE_ID"),
   rfqApiUrl: envVar("VITE_RFQ_API_URL"),
+  strikeScale: Number(envVarOptional("VITE_MARKET_STRIKE_SCALE", "1000000")),
   broadcastApiUrl: envVarOptional(
     "VITE_BROADCAST_API_URL",
     "http://localhost:8788",

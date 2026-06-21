@@ -436,7 +436,7 @@ describe("shared quote request path", () => {
           expiry_unix_ms: Date.now() + 86_400_000, long_short_marker: 2,
           oracle_base_symbol: "BTC",
           oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-          oracle_quote_symbol: "USDC", strike_price_decimals: "68000000000",
+          oracle_quote_symbol: "USDC", strike_price_decimals: "600000000",
         }}), method: "POST",
       }),
       env,
@@ -482,8 +482,8 @@ describe("cash-secured put quote request", () => {
         }}), method: "POST",
       }), env);
 
-    const firstResponse = await requestQuote("68000000000");
-    const secondResponse = await requestQuote("75000000000");
+    const firstResponse = await requestQuote("6800000000000");
+    const secondResponse = await requestQuote("7500000000000");
     assert.equal(firstResponse.status, 201);
     assert.equal(secondResponse.status, 201);
     const first = (await firstResponse.json()) as { quote: Record<string, unknown> };
