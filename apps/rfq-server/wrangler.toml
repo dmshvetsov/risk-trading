@@ -21,7 +21,7 @@ binding = "BROADCAST_QUEUE"
 queue = "broadcast-server-submissions-development"
 
 [vars]
-SUI_RPC_URL = "http://127.0.0.1:9000"
+SUI_RPC_URL = "https://fullnode.testnet.sui.io:443"
 OTP_PACKAGE_ID="TBD"
 
 [[queues.consumers]]

@@ -335,8 +335,8 @@ Administrators must authorize changes in server database with `wrangler d1 execu
 
 Cloudflare server workers must work in following environments
 
-- `development:localnet` environment for development, has no real users data and must be run on Sui localnet network
-- `staging:testnet` testing and demo environment that may contain real users data that is not guaranteed to be preserved over product iterations and Sui tetnet network iterations, this data has lower value in comparison to real production users data
+- `development:testnet` environment for development that may contains real users data that is not guaranteed to be preserved over product iterations and Sui tetnet network iterations, this data has lower value in comparison to real production users data
+- `staging:testnet` testing and demo environment that may contains real users data that is not guaranteed to be preserved over product iterations and Sui tetnet network iterations, this data has lower value in comparison to real production users data
 - `production:mainnet` production environment with real users data in database and Sui mainnet network
 
 Wrangler configuration JSONC file must be configured so: 
