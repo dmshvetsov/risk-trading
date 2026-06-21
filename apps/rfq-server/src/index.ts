@@ -33,6 +33,7 @@ export interface Env {
     send(message: unknown): Promise<void>;
   };
   DB: D1Database;
+  MAKER_STUB_PRIVATE_KEY?: string;
   OTP_PACKAGE_ID?: string;
   QUOTES: DurableObjectNamespace<QuoteStoreStub>;
   TX_VALIDATOR?: {

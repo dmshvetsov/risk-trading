@@ -1,5 +1,10 @@
 import { supportedQuoteCoins } from "../supported-quote-coins";
-import type { D1Database, MakerVaultRow } from "../typedefs";
+import type {
+  D1Database,
+  MakerVaultRow,
+  UnderwriteRow,
+  UnderwriteStatus,
+} from "../typedefs";
 
 function nowIsoString() {
   return new Date().toISOString();
@@ -115,4 +120,121 @@ export async function softDeleteVault(db: D1Database, vaultId: string) {
     .run();
 
   return (result.meta?.changes ?? 0) > 0;
+}
+
+export type CreateUnderwriteInput = Omit<
+  UnderwriteRow,
+  | "broadcast_queue_message_id"
+  | "created_at"
+  | "failure_internal_code"
+  | "failure_msg"
+  | "order_hash"
+  | "quote_signature"
+  | "status"
+  | "tx_digest"
+  | "updated_at"
+> &
+  Partial<
+    Pick<
+      UnderwriteRow,
+      "order_hash" | "quote_signature"
+    >
+  >;
+
+export async function createUnderwrite(
+  db: D1Database,
+  input: CreateUnderwriteInput,
+) {
+  const timestamp = nowIsoString();
+  await db
+    .prepare(
+      `INSERT INTO underwrites (
+         underwrite_id, created_at, updated_at, quote_id, taker_address,
+         market_id, series_id, buyer_vault_id, buyer_owner_address,
+         call_put_marker, contracts_qty_decimals, strike_price_decimals,
+         expiry_unix_ms, cash_premium_per_contract, quote_payload_json,
+         quote_signature, order_payload_json, order_signature, order_public_key,
+         order_hash, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      input.underwrite_id,
+      timestamp,
+      timestamp,
+      input.quote_id,
+      input.taker_address,
+      input.market_id,
+      input.series_id,
+      input.buyer_vault_id,
+      input.buyer_owner_address,
+      input.call_put_marker,
+      input.contracts_qty_decimals,
+      input.strike_price_decimals,
+      input.expiry_unix_ms,
+      input.cash_premium_per_contract,
+      input.quote_payload_json,
+      input.quote_signature ?? null,
+      input.order_payload_json,
+      input.order_signature,
+      input.order_public_key,
+      input.order_hash ?? null,
+      "pending",
+    )
+    .run();
+
+  await insertUnderwriteAudit(db, input.underwrite_id, "pending", timestamp);
+}
+
+export async function updateUnderwriteStatus(
+  db: D1Database,
+  underwriteId: string,
+  status: UnderwriteStatus,
+  details: {
+    broadcastQueueMessageId?: string | null;
+    failureInternalCode?: string | null;
+    failureMsg?: string | null;
+    txDigest?: string | null;
+  } = {},
+) {
+  const timestamp = nowIsoString();
+  const result = await db
+    .prepare(
+      `UPDATE underwrites
+          SET status = ?,
+              failure_internal_code = COALESCE(?, failure_internal_code),
+              failure_msg = COALESCE(?, failure_msg),
+              broadcast_queue_message_id = COALESCE(?, broadcast_queue_message_id),
+              tx_digest = COALESCE(?, tx_digest),
+              updated_at = ?
+        WHERE underwrite_id = ?`,
+    )
+    .bind(
+      status,
+      details.failureInternalCode ?? null,
+      details.failureMsg ?? null,
+      details.broadcastQueueMessageId ?? null,
+      details.txDigest ?? null,
+      timestamp,
+      underwriteId,
+    )
+    .run();
+
+  if ((result.meta?.changes ?? 0) === 0) return false;
+  await insertUnderwriteAudit(db, underwriteId, status, timestamp);
+  return true;
+}
+
+function insertUnderwriteAudit(
+  db: D1Database,
+  underwriteId: string,
+  status: UnderwriteStatus,
+  timestamp: string,
+) {
+  return db
+    .prepare(
+      `INSERT INTO underwrite_audit (created_at, underwrite_id, status)
+       VALUES (?, ?, ?)`,
+    )
+    .bind(timestamp, underwriteId, status)
+    .run();
 }

@@ -263,6 +263,7 @@ type SignedMakerOrderV1Response = {
 
 - `OTP_PACKAGE_ID` protocol package id, MUST be used to derive addresses to read and write (send transactions) on-chain data
 - `BROADCAST_SERVER_BASE_URL` URL to call broadcast server methods
+- `MAKER_STUB_PRIVATE_KEY` private key used by the development maker stub to sign orders; configure it as a Worker secret and never commit its value
 
 #### Broadcasting transactions on-chain
 
