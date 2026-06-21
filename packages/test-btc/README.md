@@ -65,7 +65,7 @@ sui client call \
   --package 0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e \
   --module test_btc \
   --function mint_and_transfer \
-  --args 0x44fddd71882a4f35fcb10f90f2b97ee94ede2a6914691445cafddf238ce2744e 100000000 @xa \
+  --args 0x44fddd71882a4f35fcb10f90f2b97ee94ede2a6914691445cafddf238ce2744e 100000000 0xa \
   --gas-budget 10000000
 ```
 
