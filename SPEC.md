@@ -208,7 +208,7 @@ type QuoteRequest = {
 
 ```
 type MakerQuoteV1 = {
-  domain: 'otp:makerquote:v1'
+  domain: 'otp:quote:v1'
   quote_id: string; // 36 chars long max
   oracle_base_symbol: string      // for example eBTC
   oracle_quote_symbol: string     // for example USD

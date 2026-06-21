@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import {
   insertVault,
   listVaults,
@@ -13,6 +14,7 @@ import {
   type QuoteRequest,
 } from "./stub-quote-provider";
 import type { D1Database, MakerVaultRow } from "./typedefs";
+import { prepareUnderwrite, signQuote } from "./underwrite";
 
 type TxValidationResult = {
   ownerAddress: string;
@@ -66,7 +68,9 @@ type QuoteStoreStub = {
 
 type QuoteState = {
   offerValidUntilUnixMs: number;
+  quote: ReturnType<typeof createStubQuote>;
   quoteId: string;
+  quoteSignature: string;
   remainingContractsQtyDecimals: string;
 };
 
@@ -147,6 +151,40 @@ export class QuoteStore {
       return new Response(null, { status: 202 });
     }
 
+    if (request.method === "POST") {
+      const current = await this.state.storage.get(STATE_KEY);
+      const payload = await request.json() as {
+        contractsQtyDecimals?: string;
+        quote?: unknown;
+        quoteId?: string;
+        quoteSignature?: string;
+      };
+      const quantity = typeof payload.contractsQtyDecimals === "string" && /^\d+$/.test(payload.contractsQtyDecimals)
+        ? BigInt(payload.contractsQtyDecimals)
+        : 0n;
+      const remaining = current ? BigInt(current.remainingContractsQtyDecimals) : 0n;
+      if (
+        !current ||
+        current.quoteId !== payload.quoteId ||
+        JSON.stringify(current.quote) !== JSON.stringify(payload.quote) ||
+        current.quoteSignature !== payload.quoteSignature ||
+        current.offerValidUntilUnixMs <= Date.now() ||
+        quantity === 0n ||
+        quantity > remaining
+      ) {
+        return Response.json({ error: "quote unavailable" }, { status: 409 });
+      }
+      if (new URL(request.url).pathname.endsWith("/consume")) {
+        const next = {
+          ...current,
+          remainingContractsQtyDecimals: (remaining - quantity).toString(),
+        };
+        await this.state.storage.put(STATE_KEY, next);
+        return Response.json(next);
+      }
+      return Response.json(current);
+    }
+
     const payload = await this.state.storage.get(STATE_KEY);
     return Response.json(payload ?? null);
   }
@@ -217,13 +255,26 @@ async function requestQuote(request: Request, env: Env) {
     return jsonResponse({ error: "invalid quote request" }, 400);
   }
 
-  const quote = createStubQuote(payload.request);
+  if (!env.MAKER_STUB_PRIVATE_KEY) {
+    return jsonResponse({ error: "maker quote signing is unavailable" }, 503);
+  }
+  let quote: ReturnType<typeof createStubQuote>;
+  let quoteSignature: string;
+  try {
+    const keypair = Ed25519Keypair.fromSecretKey(env.MAKER_STUB_PRIVATE_KEY);
+    quote = createStubQuote(payload.request, Date.now(), keypair.toSuiAddress());
+    quoteSignature = (await signQuote(quote, env.MAKER_STUB_PRIVATE_KEY)).signature;
+  } catch {
+    return jsonResponse({ error: "maker quote signing is unavailable" }, 503);
+  }
   const store = getQuoteStore(env.QUOTES, quote.quote_id);
   const storeResponse = await store.fetch(
     new Request("https://quote-store.internal/state", {
       body: JSON.stringify({
         offerValidUntilUnixMs: quote.offer_valid_until_unix_ms,
+        quote,
         quoteId: quote.quote_id,
+        quoteSignature,
         remainingContractsQtyDecimals:
           quote.offer_valid_until_total_contracts_qty_decimals,
       }),
@@ -235,7 +286,7 @@ async function requestQuote(request: Request, env: Env) {
   }
 
   return jsonResponse(
-    { quote },
+    { quote, quote_signature: quoteSignature },
     201,
   );
 }
@@ -582,11 +633,34 @@ app.use(
     origin: "*",
   }),
 );
+app.use(
+  "/underwrites/*",
+  cors({
+    allowHeaders: ["authorization", "content-type"],
+    allowMethods: ["POST", "OPTIONS"],
+    origin: "*",
+  }),
+);
 
 app.get(HEALTH_PATH, (c) => Response.json(buildHealthPayload(c.env)));
 
 app.post(QUOTES_PATH, (c) => requestQuote(c.req.raw, c.env));
 app.all(QUOTES_PATH, () => new Response("Method not allowed", { status: 405 }));
+
+app.post("/underwrites/prepare", async (c) => {
+  let quoteId = "";
+  try {
+    const payload = await c.req.raw.clone().json() as { quote?: { quote_id?: unknown } };
+    quoteId = typeof payload.quote?.quote_id === "string" ? payload.quote.quote_id : "";
+  } catch {
+    // The handler below returns the public validation error.
+  }
+  return prepareUnderwrite(
+    c.req.raw,
+    c.env,
+    getQuoteStore(c.env.QUOTES, quoteId),
+  );
+});
 
 app.get(MAKER_SUPPORTED_COINS_PATH, () =>
   jsonResponse({ supportedCoins: supportedQuoteCoins }),

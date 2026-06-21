@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, vi } from "vitest";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 
 import worker, {
   QuoteStore,
@@ -142,9 +143,11 @@ class FakeD1Database {
 }
 
 function createEnv(db = new FakeD1Database()) {
+  const makerKey = Ed25519Keypair.fromSecretKey(new Uint8Array(32).fill(9));
   return {
     BROADCAST_QUEUE: { send: async () => undefined },
     DB: db,
+    MAKER_STUB_PRIVATE_KEY: makerKey.getSecretKey(),
     OTP_PACKAGE_ID: "0xotp",
     QUOTES: {
       get: () => ({ fetch: async () => new Response(null) }),
@@ -355,7 +358,7 @@ describe("shared quote request path", () => {
     const second = (await secondResponse.json()) as {
       quote: Record<string, unknown>;
     };
-    assert.equal(first.quote.domain, "otp:makerquote:v1");
+    assert.equal(first.quote.domain, "otp:quote:v1");
     assert.notEqual(
       first.quote.cash_premium_per_contract,
       second.quote.cash_premium_per_contract,
@@ -480,6 +483,46 @@ describe("cash-secured put quote request", () => {
     }), createEnv());
 
     assert.equal(response.status, 400);
+  });
+});
+
+describe("quote capacity consumption", () => {
+  it("decrements capacity atomically and rejects excess consumption", async () => {
+    const values = new Map<string, unknown>();
+    const object = new QuoteStore({
+      storage: {
+        get: async (key) => values.get(key) as never,
+        put: async (key, value) => void values.set(key, value),
+      },
+    }, createEnv());
+    const storedQuote = {
+      quote_id: "quote-capacity",
+      offer_valid_until_unix_ms: Date.now() + 10_000,
+    };
+    await object.fetch(new Request("https://internal/state", {
+      body: JSON.stringify({
+        offerValidUntilUnixMs: storedQuote.offer_valid_until_unix_ms,
+        quote: storedQuote,
+        quoteId: storedQuote.quote_id,
+        quoteSignature: "quote-signature",
+        remainingContractsQtyDecimals: "10",
+      }),
+      method: "PUT",
+    }));
+
+    const consume = (quantity: string) => object.fetch(new Request("https://internal/consume", {
+      body: JSON.stringify({
+        contractsQtyDecimals: quantity,
+        quote: storedQuote,
+        quoteId: storedQuote.quote_id,
+        quoteSignature: "quote-signature",
+      }),
+      method: "POST",
+    }));
+    const accepted = await consume("6");
+    assert.equal(accepted.status, 200);
+    assert.equal((await accepted.json()).remainingContractsQtyDecimals, "4");
+    assert.equal((await consume("5")).status, 409);
   });
 });
 

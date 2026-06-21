@@ -56,6 +56,7 @@ function blackScholesPut(spot: number, strike: number, years: number) {
 export function createStubQuote(
   request: QuoteRequest,
   now = Date.now(),
+  signer = "stub-provider",
 ) {
   const strike = Number(request.strike_price_decimals) / 1_000_000;
   const years = Math.max((request.expiry_unix_ms - now) / 31_536_000_000, 1 / 365);
@@ -65,7 +66,7 @@ export function createStubQuote(
   const offerValidUntilUnixMs = Math.min(request.expiry_unix_ms, now + 30_000);
 
   return {
-    domain: "otp:makerquote:v1" as const,
+    domain: "otp:quote:v1" as const,
     quote_id: crypto.randomUUID(),
     oracle_base_symbol: request.oracle_base_symbol,
     oracle_quote_symbol: request.oracle_quote_symbol,
@@ -78,7 +79,7 @@ export function createStubQuote(
     long_short_marker: request.long_short_marker,
     strike_price_decimals: request.strike_price_decimals,
     expiry_unix_ms: request.expiry_unix_ms,
-    signer: "stub-provider",
+    signer,
     cash_premium_per_contract: String(
       Math.max(1, Math.round(premium * 10 ** request.cash_token_decimals)),
     ),
