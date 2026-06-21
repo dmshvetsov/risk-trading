@@ -23,6 +23,7 @@ const seller = sellerKeypair.toSuiAddress();
 const prepared: PreparedUnderwrite = {
   baseCoinType: "0x3::test_btc::TEST_BTC",
   buyerVaultId: `0x${"22".repeat(32)}`,
+  collateralAmount: "5000000",
   feeRecipient: `0x${"33".repeat(32)}`,
   marketId: `0x${"44".repeat(32)}`,
   operationalFee: "25",
@@ -33,6 +34,13 @@ const prepared: PreparedUnderwrite = {
   status: "pending",
   target: `0x${"55".repeat(32)}::underwriting::underwrite_call`,
   underwriteId: "underwrite-1",
+};
+const preparedPut: PreparedUnderwrite = {
+  ...prepared,
+  collateralAmount: "3400000000",
+  seriesId: `0x${"aa".repeat(32)}`,
+  target: `0x${"55".repeat(32)}::underwriting::underwrite_put`,
+  underwriteId: "underwrite-put-1",
 };
 
 describe("underwrite flow", () => {
@@ -61,6 +69,17 @@ describe("underwrite flow", () => {
     assert.deepEqual(
       underwriteAvailability([{ balance: "4", coinObjectId: "0x1" }], 5n),
       { enabled: false, label: "NOT ENOUGH TEST_BTC" },
+    );
+  });
+
+  it("shows TEST_USDC-specific availability labels for cash-secured puts", () => {
+    assert.deepEqual(underwriteAvailability([], 5n, "TEST_USDC"), {
+      enabled: false,
+      label: "TEST_USDC NOT FOUND",
+    });
+    assert.deepEqual(
+      underwriteAvailability([{ balance: "4", coinObjectId: "0x1" }], 5n, "TEST_USDC"),
+      { enabled: false, label: "NOT ENOUGH TEST_USDC" },
     );
   });
 
@@ -95,6 +114,23 @@ describe("underwrite flow", () => {
     assert.equal(inputs[7]?.Pure?.bytes, "GQAAAAAAAAA=");
     assert.equal(inputs[8]?.Pure?.bytes, "MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM=");
     assert.equal(inputs[9]?.Object?.SharedObject?.objectId.endsWith("06"), true);
+  });
+
+  it("builds underwrite_put with exact TEST_USDC collateral", () => {
+    const transaction = buildUnderwriteTransaction({
+      coins: [
+        { balance: "1700000000", coinObjectId: `0x${"11".repeat(32)}` },
+        { balance: "1700000000", coinObjectId: `0x${"22".repeat(32)}` },
+      ],
+      collateralAmount: 3_400_000_000n,
+      prepared: preparedPut,
+      seller,
+    });
+
+    const moveCall = transaction.getData().commands[2]?.MoveCall;
+    assert.equal(moveCall?.function, "underwrite_put");
+    assert.deepEqual(moveCall?.typeArguments, [preparedPut.quoteCoinType, preparedPut.baseCoinType]);
+    assert.equal(transaction.getData().inputs[2]?.Pure?.bytes, "AOKnygAAAAA=");
   });
 
   it("sends prepare and submit payloads", async () => {
@@ -181,6 +217,39 @@ describe("underwrite flow", () => {
 
     assert.equal(signedTransactionTarget, prepared.target);
     assert.deepEqual(statuses, ["queued", "confirmed"]);
+  });
+
+  it("uses the prepared collateral amount instead of raw contracts quantity", async () => {
+    const signed = await createSignedTransaction(sellerKeypair);
+    let splitAmountBytes = "";
+    const request = async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/prepare")) return Response.json(preparedPut, { status: 201 });
+      if (path.endsWith("/submit")) {
+        return Response.json({ status: "queued", underwriteId: preparedPut.underwriteId }, { status: 202 });
+      }
+      return Response.json({ status: "confirmed", txDigest: "digest" });
+    };
+
+    await executeUnderwrite({
+      coins: [{ balance: "3400000000", coinObjectId: `0x${"77".repeat(32)}` }],
+      contractsQtyDecimals: "5000000",
+      onStatus: () => undefined,
+      quote: { quote_id: "quote-1" },
+      quoteSignature: "quote-signature",
+      request,
+      rfqApiUrl: "https://rfq.test",
+      seller,
+      signTransaction: async (transaction) => {
+        splitAmountBytes = transaction.getData().inputs
+          .map((input) => input.Pure?.bytes)
+          .find((bytes) => typeof bytes === "string" && bytes !== "AwECAw==") ?? "";
+        return signed;
+      },
+      wait: async () => undefined,
+    });
+
+    assert.equal(splitAmountBytes, "AOKnygAAAAA=");
   });
 
   it("verifies the signed transaction bytes before submit", async () => {

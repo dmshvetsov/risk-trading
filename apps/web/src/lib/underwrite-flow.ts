@@ -21,6 +21,7 @@ type CoinClient = {
 export type PreparedUnderwrite = {
   baseCoinType: string;
   buyerVaultId: string;
+  collateralAmount: string;
   feeRecipient: string;
   marketId: string;
   operationalFee: string;
@@ -42,10 +43,11 @@ export type UnderwriteReceipt = {
 export function underwriteAvailability(
   coins: OwnedCoin[] | undefined,
   requiredBalance: bigint,
+  coinSymbol = "TEST_BTC",
 ) {
-  if (!coins?.length) return { enabled: false, label: "TEST_BTC NOT FOUND" } as const;
+  if (!coins?.length) return { enabled: false, label: `${coinSymbol} NOT FOUND` } as const;
   if (totalCoinBalance(coins) < requiredBalance) {
-    return { enabled: false, label: "NOT ENOUGH TEST_BTC" } as const;
+    return { enabled: false, label: `NOT ENOUGH ${coinSymbol}` } as const;
   }
   return { enabled: true, label: null } as const;
 }
@@ -83,7 +85,7 @@ export function buildUnderwriteTransaction({
   seller: string;
 }) {
   if (coins.length === 0 || totalCoinBalance(coins) < collateralAmount) {
-    throw new Error("Not enough TEST_BTC");
+    throw new Error("Not enough collateral");
   }
 
   const transaction = new Transaction();
@@ -200,7 +202,7 @@ export async function executeUnderwrite({
   );
   const transaction = buildUnderwriteTransaction({
     coins,
-    collateralAmount: BigInt(contractsQtyDecimals),
+    collateralAmount: BigInt(prepared.collateralAmount),
     prepared,
     seller,
   });

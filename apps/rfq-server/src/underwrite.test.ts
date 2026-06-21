@@ -33,16 +33,34 @@ const quote = {
   strike_price_decimals: "6600000000000",
 };
 const quoteSignature = (await keypair.signPersonalMessage(serializeQuote(quote))).signature;
+const putQuote = {
+  ...quote,
+  call_put_marker: 2 as const,
+  collateral_token_address: quote.cash_token_address,
+  collateral_token_decimals: 6,
+  strike_price_decimals: "6100000000000",
+};
+const putQuoteSignature = (await keypair.signPersonalMessage(serializeQuote(putQuote))).signature;
 
 const chain: UnderwriteChainConfig = {
   baseCoinType: quote.collateral_token_address,
   buyerOwnerAddress: keypair.toSuiAddress(),
   buyerVaultId: `0x${"44".repeat(32)}`,
+  callPutMarker: 1,
   marketId: `0x${"22".repeat(32)}`,
   quoteCoinType: quote.cash_token_address,
   seriesId: `0x${"33".repeat(32)}`,
   strikePrice: quote.strike_price_decimals,
   strikeScale: 100_000_000,
+  targetFunction: "underwrite_call",
+};
+
+const putChain: UnderwriteChainConfig = {
+  ...chain,
+  callPutMarker: 2,
+  seriesId: `0x${"99".repeat(32)}`,
+  strikePrice: putQuote.strike_price_decimals,
+  targetFunction: "underwrite_put",
 };
 
 function env(overrides: Record<string, unknown> = {}) {
@@ -100,6 +118,19 @@ function request(body: Record<string, unknown> = {}) {
   });
 }
 
+function putRequest(body: Record<string, unknown> = {}) {
+  return new Request("https://rfq.test/api/underwrites/prepare", {
+    body: JSON.stringify({
+      contractsQtyDecimals: "500000",
+      quote: putQuote,
+      quoteSignature: putQuoteSignature,
+      takerAddress: `0x${"66".repeat(32)}`,
+      ...body,
+    }),
+    method: "POST",
+  });
+}
+
 describe("prepareUnderwrite", () => {
   it("consumes capacity, signs canonical OrderV1, persists pending, and returns PTB inputs", async () => {
     const testEnv = env();
@@ -113,6 +144,7 @@ describe("prepareUnderwrite", () => {
     assert.equal(result.buyerVaultId, chain.buyerVaultId);
     assert.equal(result.quoteCoinType, chain.quoteCoinType);
     assert.equal(result.baseCoinType, chain.baseCoinType);
+    assert.equal(result.collateralAmount, "500000");
     assert.equal(result.feeRecipient, testEnv.value.OPERATION_FEE_TREASURY);
     assert.equal(result.packageId, testEnv.value.OTP_PACKAGE_ID);
     assert.equal(result.target, `${testEnv.value.OTP_PACKAGE_ID}::underwriting::underwrite_call`);
@@ -127,6 +159,21 @@ describe("prepareUnderwrite", () => {
     assert.equal(testEnv.writes.length, 2);
     assert.match(testEnv.writes[0].sql, /INSERT INTO underwrites/);
     assert.match(testEnv.writes[1].sql, /INSERT INTO underwrite_audit/);
+  });
+
+  it("prepares approved cash-secured puts with the put series and exact USDC collateral", async () => {
+    const testEnv = env();
+    const response = await prepareUnderwrite(putRequest(), testEnv.value, store({
+      quote: putQuote,
+      quoteSignature: putQuoteSignature,
+      remainingContractsQtyDecimals: "500000",
+    }), putChain);
+    assert.equal(response.status, 201);
+    const result = await response.json() as Record<string, unknown>;
+    assert.equal(result.seriesId, putChain.seriesId);
+    assert.equal(result.baseCoinType, putChain.baseCoinType);
+    assert.equal(result.collateralAmount, "305000000");
+    assert.equal(result.target, `${testEnv.value.OTP_PACKAGE_ID}::underwriting::underwrite_put`);
   });
 
   it("rejects unsupported, expired, and over-capacity quotes", async () => {

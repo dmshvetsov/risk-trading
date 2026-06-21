@@ -129,8 +129,7 @@ export async function requestQuote(
   return {
     cashPremiumPerContract: payload.quote.cash_premium_per_contract,
     cashTokenDecimals: payload.quote.cash_token_decimals,
-    contractsQtyDecimals:
-      payload.quote.offer_valid_until_total_contracts_qty_decimals,
+    contractsQtyDecimals: quantityToContractsQtyDecimals(inputs.size),
     collateralTokenDecimals: payload.quote.collateral_token_decimals,
     expiryUnixMs: payload.quote.expiry_unix_ms,
     offerValidUntilUnixMs: payload.quote.offer_valid_until_unix_ms,

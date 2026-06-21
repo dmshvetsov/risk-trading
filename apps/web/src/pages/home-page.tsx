@@ -49,12 +49,19 @@ const expiryOptions = [
   { label: "Jul 31", expiryUnixMs: Date.UTC(2026, 6, 31) },
 ];
 
-const strikeOptions = [
+const coveredCallStrikeOptions = [
   { label: "$66,000", strike: 66_000 },
   { label: "$67,000", strike: 67_000 },
   { label: "$68,000", strike: 68_000 },
   { label: "$71,000", strike: 71_000 },
   { label: "$75,000", strike: 75_000 },
+];
+const cashSecuredPutStrikeOptions = [
+  { label: "$61,000", strike: 61_000 },
+  { label: "$60,000", strike: 60_000 },
+  { label: "$59,000", strike: 59_000 },
+  { label: "$55,000", strike: 55_000 },
+  { label: "$51,000", strike: 51_000 },
 ];
 
 const defaultSize = 0.05;
@@ -70,6 +77,7 @@ const sizePresetRows = [
 const defaultExpiryLabel = "Jul 31";
 const defaultStrikeLabel = "$66,000";
 const btcSpotPrice = 63_489;
+const btcQuantityDecimals = 8n;
 
 export function UnderwriteProgress({ status }: {
   status: "idle" | "preparing" | "queued" | "confirmed" | "failed";
@@ -114,6 +122,54 @@ function formatDate(expiryUnixMs: number) {
 
 function daysUntil(expiryUnixMs: number, nowUnixMs: number) {
   return Math.max(0, Math.ceil((expiryUnixMs - nowUnixMs) / 86_400_000));
+}
+
+function supportedStrikeOptions(strategy: QuoteStrategy) {
+  return strategy === "covered-call"
+    ? coveredCallStrikeOptions
+    : cashSecuredPutStrikeOptions;
+}
+
+function collateralCoinSymbol(strategy: QuoteStrategy) {
+  return strategy === "covered-call" ? "TEST_BTC" : "TEST_USDC";
+}
+
+function collateralCoinType(strategy: QuoteStrategy) {
+  return strategy === "covered-call"
+    ? appConfig.baseCoinType
+    : appConfig.cashTokenAddress;
+}
+
+function isSupportedUnderwriteSelection(
+  network: string,
+  strategy: QuoteStrategy,
+  expiryLabel: string,
+  strikeLabel: string,
+) {
+  return network === "testnet" &&
+    expiryLabel === "Jul 31" &&
+    supportedStrikeOptions(strategy).some((option) => option.label === strikeLabel);
+}
+
+function quoteCollateralAmount(
+  strategy: QuoteStrategy,
+  quote: {
+    cashTokenDecimals: number;
+    contractsQtyDecimals: string;
+    strikePriceDecimals: string;
+  } | null,
+) {
+  if (!quote) {
+    return null;
+  }
+  if (strategy === "covered-call") {
+    return BigInt(quote.contractsQtyDecimals);
+  }
+
+  const quoteScale = 10n ** BigInt(quote.cashTokenDecimals);
+  const denominator = (10n ** btcQuantityDecimals) * BigInt(appConfig.strikeScale);
+  return BigInt(quote.contractsQtyDecimals) * BigInt(quote.strikePriceDecimals) * quoteScale /
+    denominator;
 }
 
 function aprFromPremium(
@@ -181,6 +237,17 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const account = useCurrentAccount();
   const client = useSuiClient();
   const wallet = useCurrentWallet();
+  const strategy: QuoteStrategy = selectedStrategy === "Covered call"
+    ? "covered-call"
+    : "cash-secured-put";
+  const strikeOptions = supportedStrikeOptions(strategy);
+
+  useEffect(() => {
+    if (strikeOptions.some((option) => option.label === selectedStrike)) {
+      return;
+    }
+    setSelectedStrike(strikeOptions[0]?.label ?? defaultStrikeLabel);
+  }, [selectedStrike, strikeOptions]);
 
   const expiry = useMemo(
     () =>
@@ -192,12 +259,8 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     () =>
       strikeOptions.find((option) => option.label === selectedStrike) ??
       strikeOptions[0],
-    [selectedStrike],
+    [selectedStrike, strikeOptions],
   );
-
-  const strategy: QuoteStrategy = selectedStrategy === "Covered call"
-    ? "covered-call"
-    : "cash-secured-put";
   const quoteQuery = useQuery(quoteQueryOptions(
     appConfig.rfqApiUrl,
     appConfig.cashTokenAddress,
@@ -210,17 +273,25 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
       strike: strike.strike,
     },
   ));
-  const isSupportedUnderwrite = appConfig.network === "testnet" &&
-    strategy === "covered-call" && selectedExpiry === "Jul 31" &&
-    selectedStrike === "$66,000";
-  const collateralAmount = BigInt(quantityToContractsQtyDecimals(size));
+  const isSupportedUnderwrite = isSupportedUnderwriteSelection(
+    appConfig.network,
+    strategy,
+    selectedExpiry,
+    selectedStrike,
+  );
   const coinsQuery = useQuery({
     enabled: Boolean(account && isSupportedUnderwrite),
-    queryFn: () => fetchAllCoins(client, account!.address, appConfig.baseCoinType),
-    queryKey: ["underwrite-coins", account?.address, appConfig.baseCoinType],
+    queryFn: () => fetchAllCoins(client, account!.address, collateralCoinType(strategy)),
+    queryKey: ["underwrite-coins", account?.address, strategy, collateralCoinType(strategy)],
   });
-  const availability = underwriteAvailability(coinsQuery.data, collateralAmount);
   const quote = quoteQuery.isError ? null : quoteQuery.data ?? null;
+  const collateralAmount = quoteCollateralAmount(strategy, quote) ??
+    BigInt(quantityToContractsQtyDecimals(size));
+  const availability = underwriteAvailability(
+    coinsQuery.data,
+    collateralAmount,
+    collateralCoinSymbol(strategy),
+  );
   const isLoading = quoteQuery.isFetching;
   const loadError = quoteQuery.isError ? "Quote unavailable right now." : null;
 
@@ -269,9 +340,9 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const earnLabel = !account
     ? "CONNECT WALLET TO EARN"
     : !isSupportedUnderwrite
-      ? "AVAILABLE FOR JUL 31 AT $66,000"
+      ? "AVAILABLE FOR JUL 31 SUPPORTED PRICES"
       : coinsQuery.isFetching
-        ? "CHECKING TEST_BTC..."
+        ? `CHECKING ${collateralCoinSymbol(strategy)}...`
         : !availability.enabled
           ? availability.label
           : underwriteStatus === "preparing"

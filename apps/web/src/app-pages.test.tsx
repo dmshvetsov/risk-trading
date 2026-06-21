@@ -103,7 +103,7 @@ describe("Taker copy", () => {
         return Response.json({ quote_signature: "quote-signature", quote: {
           cash_premium_per_contract: "1263800000", cash_token_decimals: 6,
           collateral_token_decimals: 8, expiry_unix_ms: 1_800_000_000_000,
-          offer_valid_until_total_contracts_qty_decimals: "5000000",
+          offer_valid_until_total_contracts_qty_decimals: "99000000",
           offer_valid_until_unix_ms: 1_799_000_000_000,
           strike_price_decimals: "6800000000000",
         }});
@@ -116,6 +116,7 @@ describe("Taker copy", () => {
     assert.equal(body.request.collateral_token_address, "0x0::test_btc::TEST_BTC");
     assert.equal(body.request.contracts_qty_decimals, "5000000");
     assert.equal(body.request.strike_price_decimals, "6800000000000");
+    assert.equal(quote.contractsQtyDecimals, "5000000");
     assert.equal(quote.cashPremiumPerContract, "1263800000");
     assert.equal(quote.quoteSignature, "quote-signature");
   });
