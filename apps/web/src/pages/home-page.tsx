@@ -167,6 +167,7 @@ function SelectorRow({
 export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   void usePlainLink;
 
+  const [isSizeMenuOpen, setIsSizeMenuOpen] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState("Covered call");
   const [selectedExpiry, setSelectedExpiry] = useState(defaultExpiryLabel);
   const [selectedStrike, setSelectedStrike] = useState(defaultStrikeLabel);
@@ -358,7 +359,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
             >
               -
             </Button>
-            <DropdownMenu>
+            <DropdownMenu open={isSizeMenuOpen} onOpenChange={setIsSizeMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
@@ -394,7 +395,10 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
                                 ? "bg-foreground text-background"
                                 : "bg-background text-foreground hover:bg-accent",
                             )}
-                            onClick={() => setSize(presetValue)}
+                            onClick={() => {
+                              setSize(presetValue);
+                              setIsSizeMenuOpen(false);
+                            }}
                           >
                             {preset}
                           </Button>
