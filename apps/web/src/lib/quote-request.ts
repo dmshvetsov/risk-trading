@@ -8,6 +8,29 @@ export type DisplayQuote = {
   expiryUnixMs: number;
   offerValidUntilUnixMs: number;
   strikePriceDecimals: string;
+  quote: QuotePayload;
+  quoteSignature: string;
+};
+
+export type QuotePayload = {
+  call_put_marker: 1 | 2;
+  cash_premium_per_contract: string;
+  cash_token_address: string;
+  cash_token_decimals: number;
+  collateral_token_address: string;
+  collateral_token_decimals: number;
+  domain: string;
+  expiry_unix_ms: number;
+  long_short_marker: 1 | 2;
+  maker_id: string;
+  offer_valid_until_total_contracts_qty_decimals: string;
+  offer_valid_until_unix_ms: number;
+  oracle_base_symbol: string;
+  oracle_feed_id: string;
+  oracle_quote_symbol: string;
+  quote_id: string;
+  signer: string;
+  strike_price_decimals: string;
 };
 
 type QuoteInputs = { expiryUnixMs: number; size: number; strike: number };
@@ -50,6 +73,7 @@ export function quantityToContractsQtyDecimals(size: number) {
 export async function requestQuote(
   rfqApiUrl: string,
   cashTokenAddress: string,
+  baseCoinType: string,
   strategy: QuoteStrategy,
   inputs: QuoteInputs,
   request: typeof fetch = fetch,
@@ -62,9 +86,7 @@ export async function requestQuote(
         oracle_quote_symbol: "USDC",
         oracle_feed_id:
           "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-        collateral_token_address: isPut
-          ? cashTokenAddress
-          : "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+        collateral_token_address: isPut ? cashTokenAddress : baseCoinType,
         collateral_token_decimals: isPut ? 6 : 8,
         cash_token_address: cashTokenAddress,
         cash_token_decimals: 6,
@@ -84,15 +106,8 @@ export async function requestQuote(
   }
 
   const payload = (await response.json()) as {
-    quote: {
-      cash_premium_per_contract: string;
-      cash_token_decimals: number;
-      collateral_token_decimals: number;
-      expiry_unix_ms: number;
-      offer_valid_until_total_contracts_qty_decimals: string;
-      offer_valid_until_unix_ms: number;
-      strike_price_decimals: string;
-    };
+    quote: QuotePayload;
+    quote_signature: string;
   };
 
   return {
@@ -104,12 +119,15 @@ export async function requestQuote(
     expiryUnixMs: payload.quote.expiry_unix_ms,
     offerValidUntilUnixMs: payload.quote.offer_valid_until_unix_ms,
     strikePriceDecimals: payload.quote.strike_price_decimals,
+    quote: payload.quote,
+    quoteSignature: payload.quote_signature,
   } satisfies DisplayQuote;
 }
 
 export function quoteQueryOptions(
   rfqApiUrl: string,
   cashTokenAddress: string,
+  baseCoinType: string,
   strategy: QuoteStrategy,
   inputs: QuoteInputs,
   request: typeof fetch = fetch,
@@ -119,6 +137,7 @@ export function quoteQueryOptions(
       "quote",
       rfqApiUrl,
       cashTokenAddress,
+      baseCoinType,
       strategy,
       inputs.expiryUnixMs,
       inputs.size,
@@ -127,6 +146,7 @@ export function quoteQueryOptions(
     queryFn: () => requestQuote(
       rfqApiUrl,
       cashTokenAddress,
+      baseCoinType,
       strategy,
       inputs,
       request,

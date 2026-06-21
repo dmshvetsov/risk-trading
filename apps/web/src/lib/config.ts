@@ -7,6 +7,7 @@ const network = envVar("VITE_SUI_NETWORK") as SuiNetwork;
 const networkConfig = getNetworkConfig(network);
 
 export const appConfig = {
+  baseCoinType: getBaseCoinType(network),
   cashTokenAddress: getUsdcCoinType(network),
   networkConfig,
   network,
@@ -31,9 +32,20 @@ function getUsdcCoinType(networkName: SuiNetwork) {
     case "localnet":
       return "0x0::usdc::USDC";
     case "testnet":
-      return "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC";
+      return "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC";
     case "mainnet":
       return "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
+  }
+}
+
+function getBaseCoinType(networkName: SuiNetwork) {
+  switch (networkName) {
+    case "localnet":
+      return "0x0::test_btc::TEST_BTC";
+    case "testnet":
+      return "0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC";
+    case "mainnet":
+      return "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC";
   }
 }
 

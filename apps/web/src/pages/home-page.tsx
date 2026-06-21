@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  useCurrentAccount,
+  useSignTransaction,
+  useSuiClient,
+} from "@mysten/dapp-kit";
 import { ChevronDown, Info } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -12,11 +17,17 @@ import {
 import { appConfig } from "@/lib/config";
 import {
   decimalAmount,
+  quantityToContractsQtyDecimals,
   quoteQueryOptions,
   quoteTerms,
   secondsUntilExpiry,
   type QuoteStrategy,
 } from "@/lib/quote-request";
+import {
+  executeUnderwrite,
+  fetchAllCoins,
+  underwriteAvailability,
+} from "@/lib/underwrite-flow";
 import {
   Tooltip,
   TooltipContent,
@@ -56,8 +67,20 @@ const sizePresetRows = [
   ["1"],
 ];
 const defaultExpiryLabel = "Jul 31";
-const defaultStrikeLabel = "$68,000";
+const defaultStrikeLabel = "$66,000";
 const btcSpotPrice = 63_489;
+
+export function UnderwriteProgress({ status }: {
+  status: "idle" | "preparing" | "queued" | "confirmed" | "failed";
+}) {
+  if (status === "queued") {
+    return <p className="text-center text-sm">Your transaction is pending.</p>;
+  }
+  if (status === "confirmed") {
+    return <p className="text-center text-sm">Your earnings are confirmed.</p>;
+  }
+  return null;
+}
 
 function formatUsdc(value: number) {
   return value.toLocaleString(undefined, {
@@ -149,6 +172,13 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const [selectedStrike, setSelectedStrike] = useState(defaultStrikeLabel);
   const [size, setSize] = useState(defaultSize);
   const [nowUnixMs, setNowUnixMs] = useState(Date.now());
+  const [underwriteStatus, setUnderwriteStatus] = useState<
+    "idle" | "preparing" | "queued" | "confirmed" | "failed"
+  >("idle");
+  const [underwriteError, setUnderwriteError] = useState<string | null>(null);
+  const account = useCurrentAccount();
+  const client = useSuiClient();
+  const signTransaction = useSignTransaction();
 
   const expiry = useMemo(
     () =>
@@ -169,6 +199,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const quoteQuery = useQuery(quoteQueryOptions(
     appConfig.rfqApiUrl,
     appConfig.cashTokenAddress,
+    appConfig.baseCoinType,
     strategy,
     {
       expiryUnixMs: expiry.expiryUnixMs,
@@ -176,6 +207,16 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
       strike: strike.strike,
     },
   ));
+  const isSupportedUnderwrite = appConfig.network === "testnet" &&
+    strategy === "covered-call" && selectedExpiry === "Jul 31" &&
+    selectedStrike === "$66,000";
+  const collateralAmount = BigInt(quantityToContractsQtyDecimals(size));
+  const coinsQuery = useQuery({
+    enabled: Boolean(account && isSupportedUnderwrite),
+    queryFn: () => fetchAllCoins(client, account!.address, appConfig.baseCoinType),
+    queryKey: ["underwrite-coins", account?.address, appConfig.baseCoinType],
+  });
+  const availability = underwriteAvailability(coinsQuery.data, collateralAmount);
   const quote = quoteQuery.isError ? null : quoteQuery.data ?? null;
   const isLoading = quoteQuery.isFetching;
   const loadError = quoteQuery.isError ? "Quote unavailable right now." : null;
@@ -214,6 +255,48 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     : premium
       ? `EARN ${formatUsdc(premium)} USDC NOW`
       : "QUOTE UNAVAILABLE";
+  const isUnderwritePending = underwriteStatus === "preparing" || underwriteStatus === "queued";
+  const earnDisabled = isLoading || !premium || !account || !isSupportedUnderwrite ||
+    coinsQuery.isFetching || !availability.enabled || isUnderwritePending;
+  const earnLabel = !account
+    ? "CONNECT WALLET TO EARN"
+    : !isSupportedUnderwrite
+      ? "AVAILABLE FOR JUL 31 AT $66,000"
+      : coinsQuery.isFetching
+        ? "CHECKING TEST_BTC..."
+        : !availability.enabled
+          ? availability.label
+          : underwriteStatus === "preparing"
+            ? "WAITING FOR WALLET..."
+            : underwriteStatus === "queued"
+              ? "TRANSACTION PENDING..."
+              : underwriteStatus === "confirmed"
+                ? "EARNINGS CONFIRMED"
+                : underwriteStatus === "failed"
+                  ? "TRY AGAIN"
+                  : ctaLabel;
+
+  async function earnNow() {
+    if (!account || !quote || !coinsQuery.data || earnDisabled) return;
+    setUnderwriteError(null);
+    setUnderwriteStatus("preparing");
+    try {
+      const quantity = quantityToContractsQtyDecimals(size);
+      await executeUnderwrite({
+        coins: coinsQuery.data,
+        contractsQtyDecimals: quantity,
+        onStatus: setUnderwriteStatus,
+        quote: quote.quote,
+        quoteSignature: quote.quoteSignature,
+        rfqApiUrl: appConfig.rfqApiUrl,
+        seller: account.address,
+        signTransaction: (transaction) => signTransaction.mutateAsync({ transaction }),
+      });
+    } catch (error) {
+      setUnderwriteError(error instanceof Error ? error.message : "Transaction failed");
+      setUnderwriteStatus("failed");
+    }
+  }
 
   return (
     <div className="mx-auto grid w-full max-w-[680px] gap-8 sm:gap-10">
@@ -409,10 +492,13 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
         <Button
           variant="cta"
           size="xl"
-          disabled={isLoading || !premium}
+          disabled={earnDisabled}
+          onClick={() => void earnNow()}
         >
-          {ctaLabel}
+          {earnLabel}
         </Button>
+        <UnderwriteProgress status={underwriteStatus} />
+        {underwriteError ? <p className="text-center text-sm text-destructive">{underwriteError}</p> : null}
         {loadError ? <p className="text-center text-sm text-destructive">{loadError}</p> : null}
       </section>
     </div>

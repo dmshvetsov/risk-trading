@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 
 import { AppChrome } from "./components/app-shell";
-import { HomePage } from "./pages/home-page";
+import { HomePage, UnderwriteProgress } from "./pages/home-page";
 import { MakerVaultCardView, MakerVaultsView } from "./pages/maker-vaults-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
 import {
@@ -39,7 +39,7 @@ describe("App pages", () => {
 
     assert.match(html, /Earn Upfront Yield/i);
     assert.match(html, /deposit 0\.05 WBTC as collateral/i);
-    assert.match(html, /LOADING QUOTE/i);
+    assert.match(html, /CONNECT WALLET TO EARN/i);
   });
 
   it("shows global marketing navigation and auth button copy", () => {
@@ -63,11 +63,18 @@ describe("App pages", () => {
 });
 
 describe("Taker copy", () => {
+  it("shows pending and confirmed earning states", () => {
+    assert.match(renderToStaticMarkup(<UnderwriteProgress status="queued" />), /transaction is pending/i);
+    assert.match(renderToStaticMarkup(<UnderwriteProgress status="confirmed" />), /earnings are confirmed/i);
+  });
+
   it("keeps the home page free of option jargon", () => {
     const queryClient = new QueryClient();
     const html = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
-        <HomePage usePlainLink />
+        <SuiProviders>
+          <HomePage usePlainLink />
+        </SuiProviders>
       </QueryClientProvider>,
     );
 
@@ -86,11 +93,12 @@ describe("Taker copy", () => {
     const quote = await requestQuote(
       "https://rfq.example",
       "0x0::usdc::USDC",
+      "0x0::test_btc::TEST_BTC",
       "covered-call",
       { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 },
       async (input, init) => {
         requests.push({ input, init });
-        return Response.json({ quote: {
+        return Response.json({ quote_signature: "quote-signature", quote: {
           cash_premium_per_contract: "1263800000", cash_token_decimals: 6,
           collateral_token_decimals: 8, expiry_unix_ms: 1_800_000_000_000,
           offer_valid_until_total_contracts_qty_decimals: "5000000",
@@ -103,9 +111,10 @@ describe("Taker copy", () => {
     assert.equal(requests[0]?.input, "https://rfq.example/api/quotes");
     const body = JSON.parse(String(requests[0]?.init?.body));
     assert.equal(body.request.cash_token_address, "0x0::usdc::USDC");
-    assert.equal(body.request.collateral_token_address.includes("::wbtc::WBTC"), true);
+    assert.equal(body.request.collateral_token_address, "0x0::test_btc::TEST_BTC");
     assert.equal(body.request.contracts_qty_decimals, "5000000");
     assert.equal(quote.cashPremiumPerContract, "1263800000");
+    assert.equal(quote.quoteSignature, "quote-signature");
   });
 
   it("uses the shared request path with cash collateral for puts", async () => {
@@ -113,11 +122,12 @@ describe("Taker copy", () => {
     await requestQuote(
       "https://rfq.example",
       "0x0::usdc::USDC",
+      "0x0::test_btc::TEST_BTC",
       "cash-secured-put",
       { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 },
       async (_input, init) => {
         body = JSON.parse(String(init?.body));
-        return Response.json({ quote: {
+        return Response.json({ quote_signature: "quote-signature", quote: {
           cash_premium_per_contract: "1000000000", cash_token_decimals: 6,
           collateral_token_decimals: 6, expiry_unix_ms: 1_800_000_000_000,
           offer_valid_until_total_contracts_qty_decimals: "3400000000",
@@ -135,7 +145,7 @@ describe("Taker copy", () => {
 
   it("keys and caches quote requests through React Query", async () => {
     const queryClient = new QueryClient();
-    const request = async () => Response.json({ quote: {
+    const request = async () => Response.json({ quote_signature: "quote-signature", quote: {
       cash_premium_per_contract: "1263800000", cash_token_decimals: 6,
       collateral_token_decimals: 8, expiry_unix_ms: 1_800_000_000_000,
       offer_valid_until_total_contracts_qty_decimals: "5000000",
@@ -146,6 +156,7 @@ describe("Taker copy", () => {
     const options = quoteQueryOptions(
       "https://rfq.example",
       "0x0::usdc::USDC",
+      "0x0::test_btc::TEST_BTC",
       "covered-call",
       inputs,
       request,
@@ -155,6 +166,7 @@ describe("Taker copy", () => {
     const putOptions = quoteQueryOptions(
       "https://rfq.example",
       "0x0::usdc::USDC",
+      "0x0::test_btc::TEST_BTC",
       "cash-secured-put",
       inputs,
       request,
