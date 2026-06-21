@@ -34,7 +34,7 @@ sui client switch --env testnet
 2. Publish the package:
 
 ```bash
-sui client publish --build-env testnet --gas-budget 100000000 --json
+sui client publish --json
 ```
 
 3. Save these values from the publish output:
