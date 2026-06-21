@@ -3,6 +3,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import favenLogo from "@/assets/faven-logo.svg";
 import { navigationItems } from "../lib/navigation";
 
 type AppShellProps = PropsWithChildren<{
@@ -43,33 +44,33 @@ export function AppChrome({
       <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-7xl flex-col">
         <header className="bg-card px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-col gap-12 sm:flex-row sm:items-center">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:gap-10">
               {usePlainLinks ? (
                 <a
                   href="/"
-                  className="flex items-center gap-3 text-lg font-semibold tracking-tight"
+                  className="flex h-10 items-center"
                 >
-                  <span
-                    aria-hidden="true"
-                    className="size-9 shrink-0 bg-primary"
+                  <img
+                    alt="Faven"
+                    className="h-8 w-auto shrink-0 sm:h-9"
+                    src={favenLogo}
                   />
-                  <span>LOGO</span>
                 </a>
               ) : (
                 <Link
                   to="/"
-                  className="flex items-center gap-3 text-lg font-semibold tracking-tight"
+                  className="flex h-10 items-center"
                 >
-                  <span
-                    aria-hidden="true"
-                    className="size-9 shrink-0 bg-primary"
+                  <img
+                    alt="Faven"
+                    className="h-8 w-auto shrink-0 sm:h-9"
+                    src={favenLogo}
                   />
-                  <span>LOGO</span>
                 </Link>
               )}
               <nav
                 aria-label="Primary"
-                className="flex flex-wrap items-center gap-x-8 gap-y-3"
+                className="flex flex-wrap items-center gap-x-8 gap-y-2"
               >
                 {navigationItems.map((item) => {
                   const isActive =
@@ -78,7 +79,7 @@ export function AppChrome({
                       : currentPath.startsWith(item.href);
 
                   const linkClassName = cn(
-                    "text-lg font-semibold underline-offset-4 transition-colors hover:text-primary hover:underline",
+                    "inline-flex h-10 items-center text-lg font-semibold underline-offset-4 transition-colors hover:text-primary hover:underline",
                     isActive ? "underline" : "text-foreground",
                   );
 
@@ -94,7 +95,7 @@ export function AppChrome({
                 })}
               </nav>
             </div>
-            <div className="flex justify-start lg:justify-end">
+            <div className="flex items-center justify-start lg:justify-end">
               {showWalletButton ? (
                 <Button className="min-w-32" variant="default">
                   {authLabel}
