@@ -74,6 +74,49 @@ The smart contract design, object model, underwriting, exercise, settlement, and
 - quote_endpoint_url: where RFQ asks this maker for quotes
 - order_endpoint_url: where RFQ asks this maker for orders
 
+#### underwrites table
+
+Stores every underwrite transaction records submitted by sellers.
+
+- `underwrite_id`: primary key UUID
+- `created_at`: when the underwrite row was first created
+- `updated_at`: last server-side change time for status or payload updates
+- `quote_id`: links the accepted underwrite to makers provided quote_id
+- `taker_address`: seller wallet address used in `OrderV1` and UI filtering
+- `market_id`: on-chain market object id used to build and validate the underwrite transaction
+- `series_id`: on-chain series object id used to build and validate the underwrite transaction
+- `buyer_vault_id`: on-chain buyer vault that pays premium
+- `buyer_owner_address`: expected signer address that must match the env-key-derived address
+- `call_put_marker`: tells server whether to build covered call or cash-secured put underwrite path
+- `contracts_qty_decimals`: accepted option size in base units
+- `strike_price_decimals`: strike carried into order build and validation
+- `expiry_unix_ms`: expiry copied into order and checked for staleness
+- `cash_premium_per_contract`: premium used to build `OrderV1` and show UI summary
+- `quote_payload_json`: snapshot of accepted quote for audit and rebuild safety
+- `quote_signature`: stored quote signature if present so server can verify/audit later
+- `order_payload_json`: canonical order fields the server built before signing
+- `order_signature`: signed `OrderV1` signature sent on-chain
+- `order_public_key`: public key paired with the env private key, sent on-chain and used for checks
+- `order_hash`: optional cached hash for app-side tracking/debugging, though on-chain recomputes it
+- `status`: lifecycle state like `pending`, `queued`, `submitted`, `confirmed`, or `failed`
+- `failure_internal_code`: short machine-readable internal RFQ server reason when processing fails
+- `failure_msg`: human-readable error details for logs only (can be external error message or internal RFQ error message)
+- `broadcast_queue_message_id`: lets server correlate the row with the queued broadcast job
+- `tx_digest`: final submitted Sui transaction digest once broadcast succeeds
+
+Must be use together with `underwrite_audit`
+
+#### underwrite_audit table
+
+Stores every underwrite status changes
+
+- `id`: auto-increment row id for ordered history entries
+- `created_at`: when this history event was written by the server
+- `underwrite_id`: links the history event to one underwrite row
+- `status`: lifecycle state written at that step like `pending`, `queued`, `submitted`, `confirmed`, or `failed`
+
+#### 
+
 ### 2.2 RFQ and CRUD API Server
 
 Responsible to handle create, read, update, delete actions on the server database that required to facilitate main activity of the protocol explained in `## What the protocol does`
