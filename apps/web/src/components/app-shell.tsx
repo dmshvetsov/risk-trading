@@ -1,7 +1,14 @@
 import type { PropsWithChildren } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { ConnectButton, useDisconnectWallet } from "@mysten/dapp-kit";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import favenLogo from "@/assets/faven-logo.svg";
 import { navigationItems } from "../lib/navigation";
@@ -36,9 +43,6 @@ export function AppChrome({
   showWalletButton = true,
   usePlainLinks = false,
 }: AppChromeProps) {
-  const authLabel =
-    walletLabel === "Wallet not connected" ? "Login" : walletLabel;
-
   return (
     <div className="min-h-screen bg-background px-4 py-4 sm:px-6 sm:py-5">
       <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-7xl flex-col">
@@ -96,11 +100,7 @@ export function AppChrome({
               </nav>
             </div>
             <div className="flex items-center justify-start lg:justify-end">
-              {showWalletButton ? (
-                <Button className="min-w-32" variant="default">
-                  {authLabel}
-                </Button>
-              ) : null}
+              {showWalletButton ? <WalletAction walletLabel={walletLabel} /> : null}
             </div>
           </div>
         </header>
@@ -113,5 +113,35 @@ export function AppChrome({
         </footer>
       </div>
     </div>
+  );
+}
+
+function WalletAction({ walletLabel }: Pick<AppChromeProps, "walletLabel">) {
+  const isConnected = walletLabel !== "Wallet not connected";
+  const { mutate: disconnectWallet, isPending: isDisconnecting } =
+    useDisconnectWallet();
+
+  if (!isConnected) {
+    return <ConnectButton className="min-w-32" connectText="Login" />;
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button className="min-w-32" variant="default">
+          {walletLabel}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        <DropdownMenuItem
+          disabled={isDisconnecting}
+          onSelect={() => {
+            disconnectWallet();
+          }}
+        >
+          {isDisconnecting ? "Disconnecting..." : "Disconnect"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
