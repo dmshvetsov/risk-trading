@@ -224,6 +224,35 @@ export async function updateUnderwriteStatus(
   return true;
 }
 
+export async function readUnderwrite(db: D1Database, underwriteId: string) {
+  return db
+    .prepare("SELECT * FROM underwrites WHERE underwrite_id = ?")
+    .bind(underwriteId)
+    .first<UnderwriteRow>();
+}
+
+export async function queuePendingUnderwrite(
+  db: D1Database,
+  underwriteId: string,
+  broadcastQueueMessageId: string,
+) {
+  const timestamp = nowIsoString();
+  const result = await db
+    .prepare(
+      `UPDATE underwrites
+          SET status = 'queued',
+              broadcast_queue_message_id = ?,
+              updated_at = ?
+        WHERE underwrite_id = ? AND status = 'pending'`,
+    )
+    .bind(broadcastQueueMessageId, timestamp, underwriteId)
+    .run();
+
+  if ((result.meta?.changes ?? 0) === 0) return false;
+  await insertUnderwriteAudit(db, underwriteId, "queued", timestamp);
+  return true;
+}
+
 function insertUnderwriteAudit(
   db: D1Database,
   underwriteId: string,

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { createUnderwrite, updateUnderwriteStatus } from "./queries";
+import {
+  createUnderwrite,
+  queuePendingUnderwrite,
+  readUnderwrite,
+  updateUnderwriteStatus,
+} from "./queries";
 import type { D1Database, D1Result } from "../typedefs";
 
 describe("underwrite persistence", () => {
@@ -45,6 +50,26 @@ describe("underwrite persistence", () => {
     );
     assert.equal(calls.length, 1);
   });
+
+  it("reads an execution by id", async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = recordingDb(calls);
+
+    await readUnderwrite(db, "underwrite-1");
+
+    assert.match(calls[0].sql, /SELECT \* FROM underwrites/);
+    assert.deepEqual(calls[0].values, ["underwrite-1"]);
+  });
+
+  it("claims only a pending execution before queueing", async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = recordingDb(calls, 1);
+
+    assert.equal(await queuePendingUnderwrite(db, "underwrite-1", "message-1"), true);
+    assert.match(calls[0].sql, /status = 'queued'/);
+    assert.match(calls[0].sql, /status = 'pending'/);
+    assert.deepEqual(calls[1].values.slice(1), ["underwrite-1", "queued"]);
+  });
 });
 
 function recordingDb(
@@ -57,7 +82,10 @@ function recordingDb(
         bind(...values: unknown[]) {
           return {
             all: async <T>() => ({ results: [] as T[] }),
-            first: async <T>() => null as T | null,
+            first: async <T>() => {
+              calls.push({ sql, values });
+              return null as T | null;
+            },
             run: async (): Promise<D1Result<never>> => {
               calls.push({ sql, values });
               return { meta: { changes }, success: true };

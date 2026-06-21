@@ -4,6 +4,7 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import {
   insertVault,
   listVaults,
+  readUnderwrite,
   readVault,
   softDeleteVault,
   updateVaultEndpoints,
@@ -15,6 +16,12 @@ import {
 } from "./stub-quote-provider";
 import type { D1Database, MakerVaultRow } from "./typedefs";
 import { prepareUnderwrite, signQuote } from "./underwrite";
+import {
+  isUnderwriteSubmission,
+  processUnderwriteSubmission,
+  submitUnderwrite,
+  underwriteReceipt,
+} from "./underwrite-submission";
 
 type TxValidationResult = {
   ownerAddress: string;
@@ -453,6 +460,14 @@ export async function drainBatch(
   }
 
   for (const message of batch.messages) {
+    if (isUnderwriteSubmission(message.body)) {
+      await processUnderwriteSubmission(
+        { ack: message.ack, body: message.body },
+        env,
+        request,
+      );
+      continue;
+    }
     if (!isCreateMakerVaultSubmission(message.body)) {
       throw new Error("Invalid broadcast submission message");
     }
@@ -637,7 +652,7 @@ app.use(
   "/underwrites/*",
   cors({
     allowHeaders: ["authorization", "content-type"],
-    allowMethods: ["POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "OPTIONS"],
     origin: "*",
   }),
 );
@@ -661,6 +676,22 @@ app.post("/underwrites/prepare", async (c) => {
     getQuoteStore(c.env.QUOTES, quoteId),
   );
 });
+
+app.post("/underwrites/:underwriteId/submit", async (c) => {
+  const underwriteId = c.req.param("underwriteId");
+  const underwrite = await readUnderwrite(c.env.DB, underwriteId);
+  if (!underwrite) return jsonResponse({ error: "Underwrite not found" }, 404);
+  return submitUnderwrite(
+    c.req.raw,
+    c.env,
+    getQuoteStore(c.env.QUOTES, underwrite.quote_id),
+    underwriteId,
+  );
+});
+
+app.get("/underwrites/:underwriteId/receipt", (c) =>
+  underwriteReceipt(c.env, c.req.param("underwriteId")),
+);
 
 app.get(MAKER_SUPPORTED_COINS_PATH, () =>
   jsonResponse({ supportedCoins: supportedQuoteCoins }),
