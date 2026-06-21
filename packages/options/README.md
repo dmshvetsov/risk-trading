@@ -83,3 +83,19 @@ sui client ptb \
 ```
 
 Note that this command set a max operations fee 5%, in basis points, that will be taken in basis points from a buyer's offered premium to a seller.
+
+### creating an options-series
+
+To star underwrite specific strike, expiry, put/call option it must have a `Series` object for `BTC / tUSDC / tBTC` `Market` object.
+
+```
+sui client ptb \
+  --move-call 0xcab07792581d56a4194e776cf1dad9ba2e1c55b6775c094c335b2a8ce2a719ba::series::create_series \
+  '<0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC, 0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC>' \
+  @<MARKET_ID> \
+  2u8 \
+  5900000000000u64 \
+  1785456000000u64 \
+  @0x6 \
+  --gas-budget 100000000
+```

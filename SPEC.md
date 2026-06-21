@@ -115,7 +115,28 @@ Stores every underwrite status changes
 - `underwrite_id`: links the history event to one underwrite row
 - `status`: lifecycle state written at that step like `pending`, `queued`, `submitted`, `confirmed`, or `failed`
 
-#### 
+#### option_series table
+
+Stores created series data.
+
+- `series_id` On-chain object id of the series. Main primary key.
+- `created_at` When this row was first saved in D1. Used for audit and debugging.
+- `updated_at` Last time this row changed in D1. Used to know if cached data is stale.
+- `market_id` On-chain market object id this series belongs to. Used to list series under one market.
+- `create_tx_digest` Transaction digest that created the series. Useful for audit, support, and linking back to chain activity.
+- `option_type` `1` for call, `2` for put.
+- `strike_price_decimals` Strike price in integer decimal form. Used for display, filtering, sorting, and duplicate checks.
+- `strike_scale` Precision scale for strike price. Helps convert stored integer strike into a user-facing number correctly.
+- `expiry_unix_ms` Expiry time in milliseconds. Used to filter expired vs open series and to validate underwriting is still allowed.
+- `exercise_window_end_ms` End of manual exercise window. Used later for settlement/exercise UX and automation.
+- `exception_window_end_ms` End of exercise-by-exception window. Used to know when final settlement can happen.
+- `quote_coin_type` Full Sui coin type for quote coin. Used by app/server to match supported assets and display market terms.
+- `quote_decimals` Decimal precision of quote coin. Used to format premiums, strike, and payouts.
+- `base_coin_type` Full Sui coin type for base coin. Used to show collateral asset and validate series/market compatibility.
+- `base_decimals` Decimal precision of base coin. Used to format contract size and collateral amounts.
+- `max_operational_fee_bps` Max allowed fee in basis points from the series config. Used by server checks before building orders or underwrites.
+- `expiry_price_decimals` Final expiry price once series is finalized. Used for settlement views and PnL display.
+- `expiry_price_publish_time_ms` Oracle publish time for final expiry price. Used for audit and stale price checks.
 
 ### 2.2 RFQ and CRUD API Server
 
@@ -297,21 +318,27 @@ MUST use Pyth Sui API oracle to submit prices at time of expiration on-chain.
 
 MUST use Pyth Hermess off-chain client to fetch prices for assets.
 
-### Supported Coins
+### Supported Markets
 
 List of supported QuoteCoin:
 - USDC
   - mainnet `0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC`
-  - testnet `0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC` a custom USDC coin MAY be created to simplify testing and own a faucet for testnet users
-  - a custom development USDC coin must be created for localnet
+  - testnet `0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC` a custom testUSDC coin
 
-List of supported BaseCoin / QuoteCoin pairs and their oracles:
-- OracleBase: Bitcoin / QuoteCoin: USDC / BaseCoin WBTC
-  - Sui contracts (collateral address) `0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC` with `WBTC` ticker, for reference https://www.coingecko.com/en/coins/wrapped-bitcoin
+#### testnet
+
+List of supported OracleBase / BaseCoin / QuoteCoin pairs and their oracles:
+- OracleBase: BTC / QuoteCoin: tUSDC / BaseCoin tBTC
+  - base coin  `0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC`
+  - quote coin `0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC`
   - Pyth oracle: `Crypto.BTC/USD` symbol and price feed id `0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`
-  - 1 option contract = 1 BTC, partial contracts for example 0.05, 0.1, 0.95 are allowed
+  - 1 option contract = 1 BTC
   - min position size purchase is 0.005 BTC option contract, step 0.005 BTC means that next higher min purchase will be 0.01 BTC, then 0.015 BTC, purchases must be multiplies of 0.05
   - max position size 1 BTC
+
+#### mainnet
+
+TBD
 
 ## Premium
 
