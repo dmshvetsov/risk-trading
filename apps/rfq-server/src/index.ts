@@ -125,8 +125,21 @@ const MAKER_VAULT_SUBMISSIONS_PATH = "/api/maker/vaults/submissions";
 const QUOTES_PATH = "/api/quotes";
 const BTC_USD_FEED_ID =
   "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
+const LOCAL_USDC_TYPE = "0x0::usdc::USDC";
+const TEST_USDC_TYPE =
+  "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC";
+const MAINNET_USDC_TYPE =
+  "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
 const WBTC_TYPE =
   "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC";
+const TEST_BTC_TYPE =
+  "0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC";
+
+const coveredCallMarkets = new Map([
+  [LOCAL_USDC_TYPE, WBTC_TYPE],
+  [TEST_USDC_TYPE, TEST_BTC_TYPE],
+  [MAINNET_USDC_TYPE, WBTC_TYPE],
+]);
 
 export function quoteStoreNameFromRequest(requestId: string) {
   return `quote-request:${requestId}`;
@@ -226,7 +239,8 @@ function isQuoteRequest(value: unknown): value is QuoteRequest {
   const contractsStep = 500_000n;
   const isCoveredCall =
     request.call_put_marker === 1 &&
-    request.collateral_token_address === WBTC_TYPE &&
+    typeof request.cash_token_address === "string" &&
+    request.collateral_token_address === coveredCallMarkets.get(request.cash_token_address) &&
     request.collateral_token_decimals === 8 &&
     quantity !== null &&
     quantity >= contractsStep &&

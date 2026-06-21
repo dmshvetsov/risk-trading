@@ -157,7 +157,7 @@ function createEnv(db = new FakeD1Database()) {
       verifyCreateVaultDigest: async (_digest: string) => ({
         ownerAddress: "0xmaker",
         quoteCoinType:
-          "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+          "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
         vaultId: "0xvault-1",
       }),
       verifyCloseVaultDigest: async (_digest: string, vaultId: string) => ({
@@ -187,7 +187,7 @@ function createdVaultReceipt(packageId = "0xotp") {
         parsedJson: {
           owner: "0xmaker",
           quote_coin_type: {
-            name: "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+            name: "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
           },
           vault_id: "0xvault-1",
         },
@@ -196,7 +196,7 @@ function createdVaultReceipt(packageId = "0xotp") {
     objectChanges: [
       {
         objectId: "0xvault-1",
-        objectType: `${packageId}::buyer_vault::BuyerVault<0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC>`,
+        objectType: `${packageId}::buyer_vault::BuyerVault<0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC>`,
         type: "created",
       },
     ],
@@ -305,6 +305,32 @@ describe("rfq worker foundation", () => {
 });
 
 describe("shared quote request path", () => {
+  it("accepts the approved testnet TEST_BTC and TEST_USDC market pair", async () => {
+    const env = createEnv();
+    const response = await worker.fetch(
+      new Request("https://example.com/api/quotes", {
+        body: JSON.stringify({ request: {
+          call_put_marker: 1,
+          cash_token_address: "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
+          cash_token_decimals: 6,
+          collateral_token_address: "0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC",
+          collateral_token_decimals: 8,
+          contracts_qty_decimals: "5000000",
+          expiry_unix_ms: Date.now() + 30 * 86_400_000,
+          long_short_marker: 2,
+          oracle_base_symbol: "BTC",
+          oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+          oracle_quote_symbol: "USDC",
+          strike_price_decimals: "66000000000",
+        }}),
+        method: "POST",
+      }),
+      env,
+    );
+
+    assert.equal(response.status, 201);
+  });
+
   it("generates and stores an actionable input-dependent stub quote", async () => {
     const stored: unknown[] = [];
     const env = createEnv() as ReturnType<typeof createEnv> & {
@@ -566,7 +592,7 @@ describe("maker vault APIs", () => {
         },
         {
           coinType:
-            "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+            "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
           network: "testnet",
           symbol: "USDC",
         },
@@ -599,7 +625,7 @@ describe("maker vault APIs", () => {
     assert.equal(payload.vault.quoteCoinSymbol, "USDC");
     assert.equal(
       payload.vault.quoteCoinType,
-      "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+      "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
     );
     assert.equal(payload.vault.quoteEndpointUrl, null);
     assert.equal(payload.vault.vaultId, "0xvault-1");
@@ -621,7 +647,7 @@ describe("maker vault APIs", () => {
           ownerAddress: "0xmaker",
           orderEndpointUrl: "https://maker.example/orders",
           quoteCoinType:
-            "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+            "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
           quoteEndpointUrl: "https://maker.example/quotes",
           signature: "wallet-signature",
           transactionBytes: "signed-transaction-bytes",
@@ -666,7 +692,7 @@ describe("maker vault APIs", () => {
             ownerAddress: "0xmaker",
             orderEndpointUrl: "https://maker.example/orders",
             quoteCoinType:
-              "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+              "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
             quoteEndpointUrl: "https://maker.example/quotes",
             signature: "wallet-signature",
             submissionId: "submission-1",
@@ -692,7 +718,7 @@ describe("maker vault APIs", () => {
       owner_address: "0xmaker",
       quote_coin_symbol: "USDC",
       quote_coin_type:
-        "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+        "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
       quote_endpoint_url: "https://maker.example/quotes",
       updated_at: "2026-06-19T10:00:00.000Z",
       vault_id: "0xvault-1",
@@ -714,7 +740,7 @@ describe("maker vault APIs", () => {
           ownerAddress: "0xmaker",
           quoteCoinSymbol: "USDC",
           quoteCoinType:
-            "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+            "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
           quoteEndpointUrl: "https://maker.example/quotes",
           updatedAt: "2026-06-19T10:00:00.000Z",
           vaultId: "0xvault-1",
@@ -733,7 +759,7 @@ describe("maker vault APIs", () => {
       owner_address: "0xmaker",
       quote_coin_symbol: "USDC",
       quote_coin_type:
-        "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+        "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
       quote_endpoint_url: null,
       updated_at: "2026-06-19T10:00:00.000Z",
       vault_id: "0xvault-1",
@@ -770,7 +796,7 @@ describe("maker vault APIs", () => {
       owner_address: "0xmaker",
       quote_coin_symbol: "USDC",
       quote_coin_type:
-        "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+        "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
       quote_endpoint_url: "https://maker.example/quotes",
       updated_at: "2026-06-19T10:00:00.000Z",
       vault_id: "0xvault-1",

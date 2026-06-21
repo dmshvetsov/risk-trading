@@ -7,7 +7,7 @@ export const supportedQuoteCoins = [
   },
   {
     coinType:
-      "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+      "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
     network: "testnet",
     symbol: "USDC",
   },
