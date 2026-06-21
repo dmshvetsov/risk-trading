@@ -47,6 +47,11 @@ describe("underwrite submission lifecycle", () => {
       fixture.quoteStore,
       "underwrite-1",
     )).status, 400);
+    assert.equal(fixture.row.status, "failed");
+    assert.equal(
+      fixture.row.failure_internal_code,
+      "invalid_seller_transaction_signature",
+    );
     assert.equal(fixture.queued.length, 0);
   });
 
@@ -69,6 +74,31 @@ describe("underwrite submission lifecycle", () => {
     assert.deepEqual(steps, ["submitted", "confirmed", "ack"]);
     assert.equal(fixture.row.tx_digest, "digest-1");
     assert.equal(fixture.row.status, "confirmed");
+  });
+
+  it("stores fullnode error details when execution request is rejected", async () => {
+    const fixture = await createFixture();
+
+    await processUnderwriteSubmission({
+      ack() {},
+      body: {
+        kind: "underwrite",
+        signatures: [fixture.signature],
+        transactionBytes: fixture.transactionBytes,
+        underwriteId: "underwrite-1",
+      },
+    }, fixture.env, async () => Response.json({
+      error: {
+        data: "Invalid value was given to the function",
+        message: "Invalid params",
+      },
+    }));
+
+    assert.equal(fixture.row.status, "failed");
+    assert.equal(
+      fixture.row.failure_msg,
+      "Invalid params: Invalid value was given to the function",
+    );
   });
 
   it("returns safe failure details", async () => {

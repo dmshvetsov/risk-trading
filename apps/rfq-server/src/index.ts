@@ -476,7 +476,7 @@ export async function drainBatch(
   for (const message of batch.messages) {
     if (isUnderwriteSubmission(message.body)) {
       await processUnderwriteSubmission(
-        { ack: message.ack, body: message.body },
+        { ack: () => message.ack(), body: message.body },
         env,
         request,
       );
@@ -495,7 +495,6 @@ export async function drainBatch(
           message.body.transactionBytes,
           [message.body.signature],
           { showEffects: true, showEvents: true, showObjectChanges: true },
-          "WaitForLocalExecution",
         ],
       }),
       headers: { "content-type": "application/json" },
@@ -753,7 +752,9 @@ app.all(
 
 const worker = {
   fetch: app.fetch,
-  queue: drainBatch,
+  queue(batch: QueueBatch, env: Env) {
+    return drainBatch(batch, env);
+  },
 };
 
 export default worker;

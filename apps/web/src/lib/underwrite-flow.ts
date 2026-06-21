@@ -1,5 +1,6 @@
-import { fromBase64 } from "@mysten/sui/utils";
+import { fromBase64, fromHex, toBase64 } from "@mysten/sui/utils";
 import { Transaction } from "@mysten/sui/transactions";
+import { verifyTransactionSignature } from "@mysten/sui/verify";
 
 export type OwnedCoin = { balance: string; coinObjectId: string };
 
@@ -143,7 +144,7 @@ export async function submitUnderwrite(
     headers: { "content-type": "application/json" },
     method: "POST",
   });
-  if (!response.ok) throw new Error("Could not submit this earning transaction");
+  if (!response.ok) throw new Error(await responseError(response, "Could not submit this earning transaction"));
   return response.json() as Promise<{ status: "queued"; underwriteId: string }>;
 }
 
@@ -204,10 +205,12 @@ export async function executeUnderwrite({
     seller,
   });
   const signed = await signTransaction(transaction);
+  const normalizedBytes = normalizeTransactionBytes(signed.bytes);
+  await validateSignedUnderwriteTransaction(normalizedBytes, signed.signature, seller);
   await submitUnderwrite(
     rfqApiUrl,
     prepared.underwriteId,
-    signed.bytes,
+    normalizedBytes,
     signed.signature,
     request,
   );
@@ -221,4 +224,64 @@ export async function executeUnderwrite({
   if (receipt.status === "failed") throw new Error("Transaction failed");
   onStatus("confirmed");
   return receipt;
+}
+
+export async function validateSignedUnderwriteTransaction(
+  transactionBytes: string,
+  signature: string,
+  seller: string,
+) {
+  const bytes = decodeTransactionBytes(transactionBytes);
+  const transaction = Transaction.from(bytes);
+  if (transaction.getData().sender !== seller) {
+    throw new Error("Transaction sender does not match connected wallet");
+  }
+  await verifyTransactionSignature(bytes, signature, { address: seller });
+}
+
+export function normalizeTransactionBytes(transactionBytes: string) {
+  return toBase64(decodeTransactionBytes(transactionBytes));
+}
+
+function decodeTransactionBytes(transactionBytes: string) {
+  const hex = transactionBytes.startsWith("0x") ? transactionBytes.slice(2) : transactionBytes;
+  if (/^[0-9a-fA-F]+$/.test(hex) && hex.length % 2 === 0) {
+    return fromHex(hex);
+  }
+  if (/^\[\s*\d+(?:\s*,\s*\d+)*\s*\]$/.test(transactionBytes)) {
+    return byteArrayFromNumbers(JSON.parse(transactionBytes) as number[]);
+  }
+  if (/^\d+(?:,\d+)*$/.test(transactionBytes)) {
+    return byteArrayFromNumbers(transactionBytes.split(",").map((value) => Number(value)));
+  }
+  try {
+    return fromBase64(transactionBytes);
+  } catch {
+    // Some wallets return URL-safe base64 without padding.
+    const base64Url = transactionBytes.replace(/-/g, "+").replace(/_/g, "/");
+    const padding = base64Url.length % 4 === 0 ? "" : "=".repeat(4 - (base64Url.length % 4));
+    try {
+      return fromBase64(base64Url + padding);
+    } catch {
+      throw new Error("Wallet returned transaction bytes in an unsupported format");
+    }
+  }
+}
+
+function byteArrayFromNumbers(values: number[]) {
+  if (!values.every((value) => Number.isInteger(value) && value >= 0 && value <= 255)) {
+    throw new Error("Wallet returned transaction bytes in an unsupported format");
+  }
+  return Uint8Array.from(values);
+}
+
+async function responseError(response: Response, fallback: string) {
+  try {
+    const payload = await response.json() as { error?: unknown };
+    return typeof payload.error === "string" && payload.error.length > 0
+      ? payload.error
+      : fallback;
+  } catch {
+    return fallback;
+  }
 }

@@ -53,7 +53,13 @@ export async function submitUnderwrite(
   try {
     payload = await request.json();
   } catch {
-    return publicError("Invalid signed transaction", 400);
+    return failPendingUnderwrite(
+      env.DB,
+      underwriteId,
+      "invalid_signed_transaction",
+      "Invalid signed transaction",
+      400,
+    );
   }
   if (
     typeof payload.transactionBytes !== "string" ||
@@ -61,15 +67,26 @@ export async function submitUnderwrite(
     payload.signatures.length === 0 ||
     !payload.signatures.every((signature) => typeof signature === "string")
   ) {
-    return publicError("Invalid signed transaction", 400);
+    return failPendingUnderwrite(
+      env.DB,
+      underwriteId,
+      "invalid_signed_transaction",
+      "Invalid signed transaction",
+      400,
+    );
   }
 
-  let transactionBytes: Uint8Array;
   try {
-    transactionBytes = fromBase64(payload.transactionBytes);
+    const transactionBytes = fromBase64(payload.transactionBytes);
     const transaction = Transaction.from(transactionBytes);
     if (transaction.getData().sender !== underwrite.taker_address) {
-      return publicError("Transaction sender does not match seller", 400);
+      return failPendingUnderwrite(
+        env.DB,
+        underwriteId,
+        "transaction_sender_mismatch",
+        "Transaction sender does not match seller",
+        400,
+      );
     }
     const sellerChecks = await Promise.allSettled(
       payload.signatures.map((signature) =>
@@ -79,10 +96,22 @@ export async function submitUnderwrite(
       ),
     );
     if (!sellerChecks.some((check) => check.status === "fulfilled")) {
-      return publicError("Invalid seller transaction signature", 400);
+      return failPendingUnderwrite(
+        env.DB,
+        underwriteId,
+        "invalid_seller_transaction_signature",
+        "Invalid seller transaction signature",
+        400,
+      );
     }
-  } catch {
-    return publicError("Invalid seller transaction signature", 400);
+  } catch (error) {
+    return failPendingUnderwrite(
+      env.DB,
+      underwriteId,
+      "invalid_seller_transaction_signature",
+      errorMessage(error),
+      400,
+    );
   }
 
   const submission: UnderwriteSubmission = {
@@ -166,18 +195,17 @@ export async function processUnderwriteSubmission(
           submission.transactionBytes,
           submission.signatures,
           { showEffects: true },
-          "WaitForLocalExecution",
         ],
       }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
     const payload = await response.json() as {
-      error?: { message?: string };
+      error?: { data?: unknown; message?: string };
       result?: { digest?: string; effects?: { status?: { status?: string; error?: string } } };
     };
     if (!response.ok || !payload.result?.digest) {
-      throw new Error(payload.error?.message ?? "Sui transaction execution failed");
+      throw new Error(rpcErrorMessage(payload.error));
     }
     await persistStatus(env.DB, submission.underwriteId, "submitted", onStatus, {
       txDigest: payload.result.digest,
@@ -219,6 +247,28 @@ function publicError(error: string, status: number) {
   return Response.json({ error }, { status });
 }
 
+async function failPendingUnderwrite(
+  db: D1Database,
+  underwriteId: string,
+  failureInternalCode: string,
+  failureMsg: string,
+  status: number,
+) {
+  await updateUnderwriteStatus(db, underwriteId, "failed", {
+    failureInternalCode,
+    failureMsg,
+  });
+  return publicError(failureMsg, status);
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown execution failure";
+}
+
+function rpcErrorMessage(error: { data?: unknown; message?: string } | undefined) {
+  const message = error?.message ?? "Sui transaction execution failed";
+  if (typeof error?.data === "string" && error.data.length > 0) {
+    return `${message}: ${error.data}`;
+  }
+  return message;
 }

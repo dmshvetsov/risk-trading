@@ -175,6 +175,28 @@ function createEnv(db = new FakeD1Database()) {
   } as never;
 }
 
+function createUnderwriteDb() {
+  return {
+    prepare(sql: string) {
+      return {
+        bind(..._values: unknown[]) {
+          return {
+            async all<T>() {
+              return { results: [] as T[] };
+            },
+            async first<T>() {
+              return null as T | null;
+            },
+            async run() {
+              return { meta: { changes: sql.includes("UPDATE underwrites") ? 1 : 0 } };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
 function createdVaultReceipt(packageId = "0xotp") {
   return {
     digest: "digest-1",
@@ -678,6 +700,117 @@ describe("maker vault APIs", () => {
     assert.deepEqual(steps, ["execute", "ack"]);
     assert.equal(db.rows.get("0xvault-1")?.quote_endpoint_url, "https://maker.example/quotes");
     assert.equal(db.rows.get("0xvault-1")?.order_endpoint_url, "https://maker.example/orders");
+  });
+
+  it("preserves the queue message receiver when acknowledging underwrites", async () => {
+    const acked: string[] = [];
+
+    await drainBatch(
+      {
+        messages: [{
+          body: {
+            kind: "underwrite",
+            signatures: ["seller-signature"],
+            transactionBytes: "signed-transaction-bytes",
+            underwriteId: "underwrite-1",
+          },
+          ack(this: { body: { underwriteId: string } }) {
+            acked.push(this.body.underwriteId);
+          },
+        }],
+      },
+      {
+        ...createEnv(createUnderwriteDb()),
+        SUI_RPC_URL: "https://fullnode.example",
+      },
+      async () => Response.json({
+        result: {
+          digest: "digest-1",
+          effects: { status: { status: "success" } },
+        },
+      }),
+    );
+
+    assert.deepEqual(acked, ["underwrite-1"]);
+  });
+
+  it("uses global fetch when worker queue receives runtime context as third argument", async () => {
+    const originalFetch = globalThis.fetch;
+    const acked: string[] = [];
+
+    globalThis.fetch = async () =>
+      Response.json({
+        result: {
+          digest: "digest-1",
+          effects: { status: { status: "success" } },
+        },
+      });
+
+    try {
+      await worker.queue(
+        {
+          messages: [{
+            body: {
+              kind: "underwrite",
+              signatures: ["seller-signature"],
+              transactionBytes: "signed-transaction-bytes",
+              underwriteId: "underwrite-1",
+            },
+            ack(this: { body: { underwriteId: string } }) {
+              acked.push(this.body.underwriteId);
+            },
+          }],
+        },
+        {
+          ...createEnv(createUnderwriteDb()),
+          SUI_RPC_URL: "https://fullnode.example",
+        },
+        {
+          waitUntil() {},
+        } as ExecutionContext,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    assert.deepEqual(acked, ["underwrite-1"]);
+  });
+
+  it("sends executeTransactionBlock with three RPC params", async () => {
+    let rpcBody: unknown;
+
+    await drainBatch(
+      {
+        messages: [{
+          ack() {},
+          body: {
+            kind: "underwrite",
+            signatures: ["seller-signature"],
+            transactionBytes: "signed-transaction-bytes",
+            underwriteId: "underwrite-1",
+          },
+        }],
+      },
+      {
+        ...createEnv(createUnderwriteDb()),
+        SUI_RPC_URL: "https://fullnode.example",
+      },
+      async (_url, init) => {
+        rpcBody = JSON.parse(String(init?.body));
+        return Response.json({
+          result: {
+            digest: "digest-1",
+            effects: { status: { status: "success" } },
+          },
+        });
+      },
+    );
+
+    assert.deepEqual((rpcBody as { params: unknown[] }).params, [
+      "signed-transaction-bytes",
+      ["seller-signature"],
+      { showEffects: true },
+    ]);
   });
 
   it("does not acknowledge a receipt created by another package", async () => {

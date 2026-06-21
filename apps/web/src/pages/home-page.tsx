@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   useCurrentAccount,
-  useSignTransaction,
+  useCurrentWallet,
   useSuiClient,
 } from "@mysten/dapp-kit";
 import { ChevronDown, Info } from "lucide-react";
@@ -179,7 +179,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const [underwriteError, setUnderwriteError] = useState<string | null>(null);
   const account = useCurrentAccount();
   const client = useSuiClient();
-  const signTransaction = useSignTransaction();
+  const wallet = useCurrentWallet();
 
   const expiry = useMemo(
     () =>
@@ -291,7 +291,37 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
         quoteSignature: quote.quoteSignature,
         rfqApiUrl: appConfig.rfqApiUrl,
         seller: account.address,
-        signTransaction: (transaction) => signTransaction.mutateAsync({ transaction }),
+        signTransaction: async (transaction) => {
+          const signTransactionFeature =
+            wallet.currentWallet?.features["sui:signTransaction"]?.signTransaction;
+          const signTransactionBlock =
+            wallet.currentWallet?.features["sui:signTransactionBlock"]?.signTransactionBlock;
+          if (signTransactionFeature) {
+            const signed = await signTransactionFeature({
+              account,
+              chain: `sui:${appConfig.network}`,
+              transaction: {
+                toJSON: async () => transaction.toJSON({ client, supportedIntents: [] }),
+              },
+            });
+            return {
+              bytes: signed.bytes,
+              signature: signed.signature,
+            };
+          }
+          if (!signTransactionBlock) {
+            throw new Error("Connected wallet does not support transaction-block signing");
+          }
+          const signed = await signTransactionBlock({
+            account,
+            chain: `sui:${appConfig.network}`,
+            transactionBlock: transaction,
+          });
+          return {
+            bytes: signed.transactionBlockBytes,
+            signature: signed.signature,
+          };
+        },
       });
     } catch (error) {
       setUnderwriteError(error instanceof Error ? error.message : "Transaction failed");

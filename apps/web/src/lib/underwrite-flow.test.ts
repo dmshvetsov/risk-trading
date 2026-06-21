@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { Transaction } from "@mysten/sui/transactions";
+import { toBase64 } from "@mysten/sui/utils";
 
 import {
   buildUnderwriteTransaction,
@@ -10,10 +13,13 @@ import {
   submitUnderwrite,
   totalCoinBalance,
   underwriteAvailability,
+  validateSignedUnderwriteTransaction,
+  normalizeTransactionBytes,
   type PreparedUnderwrite,
 } from "./underwrite-flow";
 
-const seller = `0x${"11".repeat(32)}`;
+const sellerKeypair = Ed25519Keypair.fromSecretKey(new Uint8Array(32).fill(7));
+const seller = sellerKeypair.toSuiAddress();
 const prepared: PreparedUnderwrite = {
   baseCoinType: "0x3::test_btc::TEST_BTC",
   buyerVaultId: `0x${"22".repeat(32)}`,
@@ -109,6 +115,22 @@ describe("underwrite flow", () => {
     ]);
   });
 
+  it("surfaces submit errors from the rfq server", async () => {
+    await assert.rejects(
+      submitUnderwrite(
+        "https://rfq.test",
+        prepared.underwriteId,
+        "tx-bytes",
+        "seller-signature",
+        async () => Response.json(
+          { error: "Invalid seller transaction signature" },
+          { status: 400 },
+        ),
+      ),
+      /Invalid seller transaction signature/,
+    );
+  });
+
   it("polls from pending to confirmed", async () => {
     let calls = 0;
     const receipt = await pollUnderwriteReceipt(
@@ -126,6 +148,7 @@ describe("underwrite flow", () => {
     const statuses: string[] = [];
     let signedTransactionTarget = "";
     let receiptCalls = 0;
+    const signed = await createSignedTransaction(sellerKeypair);
     const request = async (input: RequestInfo | URL) => {
       const path = new URL(String(input)).pathname;
       if (path.endsWith("/prepare")) return Response.json(prepared, { status: 201 });
@@ -151,7 +174,7 @@ describe("underwrite flow", () => {
       signTransaction: async (transaction) => {
         const moveCall = transaction.getData().commands[1]?.MoveCall;
         signedTransactionTarget = `${moveCall?.package}::${moveCall?.module}::${moveCall?.function}`;
-        return { bytes: "seller-transaction", signature: "seller-signature" };
+        return signed;
       },
       wait: async () => undefined,
     });
@@ -159,4 +182,38 @@ describe("underwrite flow", () => {
     assert.equal(signedTransactionTarget, prepared.target);
     assert.deepEqual(statuses, ["queued", "confirmed"]);
   });
+
+  it("verifies the signed transaction bytes before submit", async () => {
+    const signed = await createSignedTransaction(sellerKeypair);
+    await validateSignedUnderwriteTransaction(signed.bytes, signed.signature, seller);
+  });
+
+  it("normalizes hex and base64url wallet transaction bytes", async () => {
+    const signed = await createSignedTransaction(sellerKeypair);
+    const raw = toBase64Bytes(signed.bytes);
+    const hex = `0x${Array.from(raw, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+    const base64url = signed.bytes.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+
+    assert.equal(normalizeTransactionBytes(hex), signed.bytes);
+    assert.equal(normalizeTransactionBytes(base64url), signed.bytes);
+  });
 });
+
+async function createSignedTransaction(keypair: Ed25519Keypair) {
+  const transaction = new Transaction();
+  transaction.setSender(keypair.toSuiAddress());
+  transaction.setGasPrice(1);
+  transaction.setGasBudget(1_000_000);
+  transaction.setGasPayment([{
+    digest: "11111111111111111111111111111111",
+    objectId: `0x${"99".repeat(32)}`,
+    version: "1",
+  }]);
+  const bytes = await transaction.build();
+  const signed = await keypair.signTransaction(bytes);
+  return { bytes: toBase64(bytes), signature: signed.signature };
+}
+
+function toBase64Bytes(value: string) {
+  return Uint8Array.from(Buffer.from(value, "base64"));
+}
