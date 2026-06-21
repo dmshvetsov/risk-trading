@@ -1,3 +1,5 @@
+import { queryOptions } from "@tanstack/react-query";
+
 export type DisplayQuote = {
   cashPremiumPerContract: string;
   cashTokenDecimals: number;
@@ -103,4 +105,32 @@ export async function requestQuote(
     offerValidUntilUnixMs: payload.quote.offer_valid_until_unix_ms,
     strikePriceDecimals: payload.quote.strike_price_decimals,
   } satisfies DisplayQuote;
+}
+
+export function quoteQueryOptions(
+  rfqApiUrl: string,
+  cashTokenAddress: string,
+  strategy: QuoteStrategy,
+  inputs: QuoteInputs,
+  request: typeof fetch = fetch,
+) {
+  return queryOptions({
+    queryKey: [
+      "quote",
+      rfqApiUrl,
+      cashTokenAddress,
+      strategy,
+      inputs.expiryUnixMs,
+      inputs.size,
+      inputs.strike,
+    ] as const,
+    queryFn: () => requestQuote(
+      rfqApiUrl,
+      cashTokenAddress,
+      strategy,
+      inputs,
+      request,
+    ),
+    retry: false,
+  });
 }

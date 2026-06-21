@@ -10,6 +10,7 @@ import { MakerVaultCardView, MakerVaultsView } from "./pages/maker-vaults-page";
 import { SharedStatesPage } from "./pages/shared-states-page";
 import {
   quantityToContractsQtyDecimals,
+  quoteQueryOptions,
   quoteTerms,
   requestQuote,
   secondsUntilExpiry,
@@ -38,7 +39,7 @@ describe("App pages", () => {
 
     assert.match(html, /Earn Upfront Yield/i);
     assert.match(html, /deposit 0\.05 WBTC as collateral/i);
-    assert.match(html, /QUOTE UNAVAILABLE/i);
+    assert.match(html, /LOADING QUOTE/i);
   });
 
   it("shows global marketing navigation and auth button copy", () => {
@@ -63,7 +64,12 @@ describe("App pages", () => {
 
 describe("Taker copy", () => {
   it("keeps the home page free of option jargon", () => {
-    const html = renderToStaticMarkup(<HomePage usePlainLink />);
+    const queryClient = new QueryClient();
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <HomePage usePlainLink />
+      </QueryClientProvider>,
+    );
 
     assert.doesNotMatch(html, /option|derivative/i);
     assert.match(html, /deposit 0\.05 WBTC as collateral/i);
@@ -125,6 +131,38 @@ describe("Taker copy", () => {
     assert.equal(body?.request.collateral_token_address, "0x0::usdc::USDC");
     assert.equal(body?.request.collateral_token_decimals, 6);
     assert.equal(body?.request.contracts_qty_decimals, "5000000");
+  });
+
+  it("keys and caches quote requests through React Query", async () => {
+    const queryClient = new QueryClient();
+    const request = async () => Response.json({ quote: {
+      cash_premium_per_contract: "1263800000", cash_token_decimals: 6,
+      collateral_token_decimals: 8, expiry_unix_ms: 1_800_000_000_000,
+      offer_valid_until_total_contracts_qty_decimals: "5000000",
+      offer_valid_until_unix_ms: 1_799_000_000_000,
+      strike_price_decimals: "68000000000",
+    }});
+    const inputs = { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 };
+    const options = quoteQueryOptions(
+      "https://rfq.example",
+      "0x0::usdc::USDC",
+      "covered-call",
+      inputs,
+      request,
+    );
+
+    const quote = await queryClient.fetchQuery(options);
+    const putOptions = quoteQueryOptions(
+      "https://rfq.example",
+      "0x0::usdc::USDC",
+      "cash-secured-put",
+      inputs,
+      request,
+    );
+
+    assert.equal(quote.cashPremiumPerContract, "1263800000");
+    assert.deepEqual(queryClient.getQueryData(options.queryKey), quote);
+    assert.notDeepEqual(options.queryKey, putOptions.queryKey);
   });
 
   it("encodes contracts quantity in base coin decimals", () => {

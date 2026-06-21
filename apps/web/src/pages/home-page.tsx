@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, Info } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -11,10 +12,9 @@ import {
 import { appConfig } from "@/lib/config";
 import {
   decimalAmount,
+  quoteQueryOptions,
   quoteTerms,
-  requestQuote,
   secondsUntilExpiry,
-  type DisplayQuote,
   type QuoteStrategy,
 } from "@/lib/quote-request";
 import {
@@ -148,9 +148,6 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const [selectedExpiry, setSelectedExpiry] = useState(defaultExpiryLabel);
   const [selectedStrike, setSelectedStrike] = useState(defaultStrikeLabel);
   const [size, setSize] = useState(defaultSize);
-  const [quote, setQuote] = useState<DisplayQuote | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [nowUnixMs, setNowUnixMs] = useState(Date.now());
 
   const expiry = useMemo(
@@ -166,59 +163,31 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     [selectedStrike],
   );
 
+  const strategy: QuoteStrategy = selectedStrategy === "Covered call"
+    ? "covered-call"
+    : "cash-secured-put";
+  const quoteQuery = useQuery(quoteQueryOptions(
+    appConfig.rfqApiUrl,
+    appConfig.cashTokenAddress,
+    strategy,
+    {
+      expiryUnixMs: expiry.expiryUnixMs,
+      size,
+      strike: strike.strike,
+    },
+  ));
+  const quote = quoteQuery.isError ? null : quoteQuery.data ?? null;
+  const isLoading = quoteQuery.isFetching;
+  const loadError = quoteQuery.isError ? "Quote unavailable right now." : null;
+
   useEffect(() => {
     if (!quote) {
       return;
     }
+    setNowUnixMs(Date.now());
     const timer = window.setInterval(() => setNowUnixMs(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [quote]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadQuote() {
-      setIsLoading(true);
-      setLoadError(null);
-      try {
-        const strategy: QuoteStrategy = selectedStrategy === "Covered call"
-          ? "covered-call"
-          : "cash-secured-put";
-        const nextQuote = await requestQuote(
-          appConfig.rfqApiUrl,
-          appConfig.cashTokenAddress,
-          strategy,
-          {
-            expiryUnixMs: expiry.expiryUnixMs,
-            size,
-            strike: strike.strike,
-          },
-        );
-        if (!cancelled) {
-          setQuote(nextQuote);
-          setNowUnixMs(Date.now());
-        }
-      } catch {
-        if (!cancelled) {
-          setLoadError("Quote unavailable right now.");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void loadQuote();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [expiry.expiryUnixMs, selectedStrategy, size, strike.strike]);
-
-  const strategy: QuoteStrategy = selectedStrategy === "Covered call"
-    ? "covered-call"
-    : "cash-secured-put";
   const effectiveSize = quote
     ? decimalAmount(quote.contractsQtyDecimals, 8)
     : size;
