@@ -11,6 +11,7 @@ import worker, {
   getQuoteStore,
   quoteStoreNameFromRequest,
 } from "./index";
+import { createStubQuote } from "./stub-quote-provider";
 
 type MakerVaultRow = {
   created_at: string;
@@ -447,6 +448,40 @@ describe("shared quote request path", () => {
 });
 
 describe("cash-secured put quote request", () => {
+  it("keeps put premium units aligned with BTC contract decimals", () => {
+    const now = Date.now();
+    const common = {
+      cash_token_address: "0x0::usdc::USDC",
+      cash_token_decimals: 6,
+      contracts_qty_decimals: "5000000",
+      expiry_unix_ms: now + 30 * 86_400_000,
+      long_short_marker: 2 as const,
+      oracle_base_symbol: "BTC" as const,
+      oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+      oracle_quote_symbol: "USDC" as const,
+      strike_price_decimals: "68000000000",
+    };
+
+    const putQuote = createStubQuote({
+      ...common,
+      call_put_marker: 2,
+      collateral_token_address: common.cash_token_address,
+      collateral_token_decimals: 6,
+    }, now);
+    const putQuoteWithLegacyCollateralDecimals = createStubQuote({
+      ...common,
+      call_put_marker: 2,
+      collateral_token_address: common.cash_token_address,
+      collateral_token_decimals: 8,
+    }, now);
+
+    assert.equal(Number(putQuote.cash_premium_per_contract) < 1_000_000, true);
+    assert.equal(
+      putQuote.cash_premium_per_contract,
+      putQuoteWithLegacyCollateralDecimals.cash_premium_per_contract,
+    );
+  });
+
   it("uses the shared local provider and storage path with input-dependent premiums", async () => {
     vi.stubGlobal("fetch", vi.fn(() => {
       throw new Error("quote path must not call maker HTTP endpoints");

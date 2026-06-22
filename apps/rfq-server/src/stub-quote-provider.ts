@@ -17,6 +17,7 @@ const BTC_SPOT_USDC = 63_489;
 const RISK_FREE_RATE = 0.04;
 const BTC_VOLATILITY = 0.55;
 const BTC_USDC_STRIKE_SCALE = 1_000_000;
+const BTC_CONTRACT_DECIMALS = 8;
 
 function normalCdf(value: number) {
   const sign = value < 0 ? -1 : 1;
@@ -64,7 +65,7 @@ export function createStubQuote(
   const premiumPerBaseCoin = request.call_put_marker === 1
     ? blackScholesCall(BTC_SPOT_USDC, strike, years)
     : blackScholesPut(BTC_SPOT_USDC, strike, years);
-  const premiumPerContract = premiumPerBaseCoin / 10 ** request.collateral_token_decimals;
+  const premiumPerContract = premiumPerBaseCoin / 10 ** BTC_CONTRACT_DECIMALS;
   const offerValidUntilUnixMs = Math.min(request.expiry_unix_ms, now + 30_000);
 
   return {
