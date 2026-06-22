@@ -8,11 +8,11 @@ export const navigationItems: NavigationItem[] = [
   {
     href: "/",
     label: "Earn",
-    summary: "Get a live quote for the earning flow",
+    summary: "Set a price. Get paid. Love either outcome.",
   },
   {
-    href: "/maker",
+    href: "#",
     label: "Dashboard",
-    summary: "Makers dashboard",
+    summary: "Sold contracts dashboard",
   },
 ];
