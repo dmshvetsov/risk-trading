@@ -1,11 +1,14 @@
-## link
+# Faven
 
-- theme https://tweakcn.com/themes/cmowxedip000004kzeb7y6a9k
-- DeepBook Predict integration documentation https://github.com/MystenLabs/deepbookv3/tree/predict-testnet-4-16/packages/predict
-- https://mystenlabs.notion.site/deepbook-predict-problem-statement
-- DeepBook sandbox repo https://github.com/MystenLabs/deepbook-sandbox
-- DeepBook repo and docs https://github.com/MystenLabs/deepbookv3/tree/predict-testnet-4-16/packages/predict
-- OpenZeppelin Sui Smart Contracts https://github.com/OpenZeppelin/contracts-sui
+> get paid to wait price you want
+
+On chain option trading protocol for settlement and off-chain RFQ system to facilitate options trading in simplest way possible.
+
+## why
+
+Users choose a buy or sell price, lock the required asset or cash, and receive an upfront premium. At expiry, one of two chosen outcomes happens: they keep their asset/cash plus the premium, or their chosen price executes. No leverage, no liquidation, no active trading, no complex DeFi steps.
+
+Cash Secured Puts and Covered Calls are two most used option trading strategies among retail market participants. Faven connects crypto holders with Market Makers and Automated Vault Strategies and turns them into programmable capital management. It reframes complex options logic into a consumer-friendly product: limit orders that pay you.
 
 ## Inspiration
 
