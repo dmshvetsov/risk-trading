@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "pnpm exec wrangler dev",
     "test": "pnpm exec vitest run",
+    "typecheck": "pnpm exec tsc --noEmit -p tsconfig.json",
     "db:migrate": "pnpm exec wrangler d1 migrations apply DB",
-    "typecheck": "pnpm exec tsc --noEmit -p tsconfig.json"
+    "db:migrate:staging": "pnpm exec wrangler d1 migrations apply DB --env staging",
+    "deploy:staging": "pnpm exec wrangler deploy --env staging"
   },
   "devDependencies": {
     "typescript": "6.0.3",

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "tsc --noEmit && vite build",
+    "deploy:staging": "pnpm build --mode staging && pnpm exec wrangler deploy --env staging",
     "test": "vitest run"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "tailwindcss": "^4.3.0",
     "typescript": "6.0.3",
     "vite": "8.0.12",
-    "vitest": "^4.0.15"
+    "vitest": "^4.0.15",
+    "wrangler": "4.98.0"
   }
 }

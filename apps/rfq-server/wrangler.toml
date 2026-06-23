@@ -1,6 +1,8 @@
 name = "rfq-server"
 main = "src/index.ts"
 compatibility_date = "2026-06-10"
+preview_urls = false
+workers_dev = false
 
 #
 # = development env
@@ -35,27 +37,31 @@ max_concurrency = 1
 # = production env
 #
 
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1
+
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "rfq-server-db"
-database_id = "TBD from wrangler d1 create"
+database_id = "e40f7b2f-6be9-4822-ac8f-0c9a14a8e4fe"
 migrations_dir = "migrations"
 
 [[env.production.durable_objects.bindings]]
 name = "QUOTES"
 class_name = "QuoteStore"
 
-[[env.production.queues.producers]]
-binding = "BROADCAST_QUEUE"
-queue = "broadcast-server-submissions"
-
 [env.production.vars]
 SUI_RPC_URL = "https://fullnode.mainnet.sui.io:443"
 OTP_PACKAGE_ID="0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4"
 OPERATION_FEE_BPS = "500"
 
+[[env.production.queues.producers]]
+binding = "BROADCAST_QUEUE"
+queue = "rfq-server-broadcast"
+
 [[env.production.queues.consumers]]
-queue = "broadcast-server-submissions"
+queue = "rfq-server-broadcast"
 max_batch_size = 1
 max_batch_timeout = 1
 max_concurrency = 1
@@ -64,27 +70,30 @@ max_concurrency = 1
 # = staging env
 #
 
+[env.staging.observability]
+enabled = true
+head_sampling_rate = 1
+
 [[env.staging.d1_databases]]
 binding = "DB"
-database_name = "rfq-server-db-staging"
-database_id = "TBD from wrangler d1 create"
-migrations_dir = "migrations"
+database_name = "rfq-server-db-testnet"
+database_id = "d3e806a6-9263-46c1-ad74-7c92c9d1c15f"
 
 [[env.staging.durable_objects.bindings]]
 name = "QUOTES"
 class_name = "QuoteStore"
-
-[[env.staging.queues.producers]]
-binding = "BROADCAST_QUEUE"
-queue = "broadcast-server-submissions-staging"
 
 [env.staging.vars]
 SUI_RPC_URL = "https://fullnode.testnet.sui.io:443"
 OTP_PACKAGE_ID="0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4"
 OPERATION_FEE_BPS = "500"
 
+[[env.staging.queues.producers]]
+binding = "BROADCAST_QUEUE"
+queue = "rfq-server-broadcast-staging"
+
 [[env.staging.queues.consumers]]
-queue = "broadcast-server-submissions-staging"
+queue = "rfq-server-broadcast-staging"
 max_batch_size = 1
 max_batch_timeout = 1
 max_concurrency = 1
