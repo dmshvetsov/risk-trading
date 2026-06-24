@@ -16,6 +16,7 @@ import {
   requestQuote,
   secondsUntilExpiry,
 } from "./lib/quote-request";
+import { fetchBtcUsdPythPrice } from "./lib/oracle";
 import { SuiProviders } from "./components/sui-providers";
 import { getRouter } from "./router";
 
@@ -182,6 +183,28 @@ describe("Taker copy", () => {
     assert.equal(quote.cashPremiumPerContract, "1263800000");
     assert.deepEqual(queryClient.getQueryData(options.queryKey), quote);
     assert.notDeepEqual(options.queryKey, putOptions.queryKey);
+  });
+
+  it("reads the BTC price from Pyth parsed updates", async () => {
+    let requestedUrl = "";
+    const price = await fetchBtcUsdPythPrice(async (input) => {
+      requestedUrl = input.toString();
+      return Response.json({
+        parsed: [{
+          id: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+          price: {
+            price: "6218683982020",
+            expo: -8,
+            publish_time: 1782211502,
+          },
+        }],
+      });
+    });
+
+    assert.match(requestedUrl, /hermes\.pyth\.network/);
+    assert.match(requestedUrl, /parsed=true/);
+    assert.equal(price.price, 62_186.8398202);
+    assert.equal(price.publishTime, 1_782_211_502);
   });
 
   it("encodes contracts quantity in base coin decimals", () => {

@@ -1,4 +1,4 @@
-name = "risk-trading-web"
+name = "faven-web"
 main = "./src/worker.ts"
 compatibility_date = "2026-06-10"
 

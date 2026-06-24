@@ -6,7 +6,7 @@ import {
   useSuiClient,
 } from "@mysten/dapp-kit";
 import { ChevronDown, Info } from "lucide-react";
-
+import { PriceUsd } from "@/components/ui/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -15,13 +15,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { appConfig } from "@/lib/config";
+import { fetchBtcUsdPythPrice } from "@/lib/oracle";
 import {
   decimalAmount,
   quantityToContractsQtyDecimals,
   quotePremiumTotal,
   quoteQueryOptions,
   quoteTerms,
-  secondsUntilExpiry,
   type QuoteStrategy,
 } from "@/lib/quote-request";
 import {
@@ -89,13 +89,6 @@ export function UnderwriteProgress({ status }: {
     return <p className="text-center text-sm">Your earnings are confirmed.</p>;
   }
   return null;
-}
-
-function formatUsdc(value: number) {
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }
 
 function clampSize(value: number) {
@@ -273,6 +266,13 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
       strike: strike.strike,
     },
   ));
+  const btcSpotPriceQuery = useQuery({
+    queryFn: () => fetchBtcUsdPythPrice(),
+    queryKey: ["pyth-price", "btc-usd"],
+    refetchInterval: 15_000,
+    retry: 1,
+    staleTime: 15_000,
+  });
   const isSupportedUnderwrite = isSupportedUnderwriteSelection(
     appConfig.network,
     strategy,
@@ -294,6 +294,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   );
   const isLoading = quoteQuery.isFetching;
   const loadError = quoteQuery.isError ? "Quote unavailable right now." : null;
+  const displayedBtcSpotPrice = btcSpotPriceQuery.data?.price ?? btcSpotPrice;
 
   useEffect(() => {
     if (!quote) {
@@ -318,9 +319,6 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     : strike.strike;
   const terms = quoteTerms(strategy, effectiveSize, strikePrice);
   const expiryUnixMs = quote?.expiryUnixMs ?? expiry.expiryUnixMs;
-  const offerSecondsLeft = quote
-    ? secondsUntilExpiry(quote.offerValidUntilUnixMs, nowUnixMs)
-    : 0;
   const expiryLabel = formatDate(expiryUnixMs);
   const daysToExpiry = daysUntil(expiryUnixMs, nowUnixMs);
   const apr = aprFromPremium(
@@ -332,7 +330,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const ctaLabel = isLoading
     ? "LOADING QUOTE..."
     : premium
-      ? `EARN ${formatUsdc(premium)} USDC NOW`
+      ? <>EARN <PriceUsd value={premium} /> USDC NOW</>
       : "QUOTE UNAVAILABLE";
   const isUnderwritePending = underwriteStatus === "preparing" || underwriteStatus === "queued";
   const earnDisabled = isLoading || !premium || !account || !isSupportedUnderwrite ||
@@ -415,8 +413,8 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
           </div>
           <p className="text-base">
             <span className="ml-2 font-semibold text-foreground">WBTC</span>
-            <span className="ml-3 font-semibold text-foreground">
-              ${formatUsdc(btcSpotPrice)}
+            <span className="ml-3 font-semibold text-foreground font-numbers">
+              <PriceUsd value={displayedBtcSpotPrice} />
             </span>
           </p>
         </div>
@@ -541,13 +539,13 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
                   <span>Now</span>
                 </div>
                 <p className="text-foreground text-bold">
-                  deposit {formatUsdc(terms.collateralAmount)} {terms.collateralSymbol} as collateral
+                  deposit <PriceUsd value={terms.collateralAmount} /> {terms.collateralSymbol} as collateral
                 </p>
               </div>
               <div className="grid text-left lg:text-right">
                 <p className="text-muted-foreground">and receive upfront</p>
                 <p className="text-2xl font-semibold tracking-tight text-foreground sm:text-4xl">
-                  {premium ? `${formatUsdc(premium)} USDC` : isLoading ? "Loading..." : "-"}
+                  {premium ? <><PriceUsd value={premium} /> USDC</> : isLoading ? "Loading..." : "-"}
                 </p>
                 <p className="flex items-center gap-1 text-foreground lg:justify-end">
                   <span>{apr ? `${apr.toFixed(2)}% APR` : "APR unavailable"}</span>
@@ -589,7 +587,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
               </div>
               <div className="grid lg:justify-self-end">
                 <p className="font-semibold text-foreground">
-                  {strategy === "covered-call" ? "Receive" : "Get"} {formatUsdc(terms.upsideAmount)} {terms.upsideSymbol}{strategy === "cash-secured-put" ? " back" : ""}
+                  {strategy === "covered-call" ? "Receive" : "Get"} <PriceUsd value={terms.upsideAmount} /> {terms.upsideSymbol}{strategy === "cash-secured-put" ? " back" : ""}
                 </p>
                 <p className="text-foreground text-sm">
                   If BTC above ${strikePrice.toLocaleString()}
