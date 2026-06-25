@@ -6,10 +6,12 @@ import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 import { describe, it } from "vitest";
 
 import {
+  deriveSeriesId,
   prepareUnderwrite,
   serializeQuote,
   type UnderwriteChainConfig,
 } from "./underwrite";
+import { BTC_USD_FEED_ID } from "./validation";
 
 const keypair = Ed25519Keypair.fromSecretKey(new Uint8Array(32).fill(7));
 const OrderV1Bcs = bcs.struct("OrderV1", {
@@ -27,6 +29,10 @@ const OrderV1Bcs = bcs.struct("OrderV1", {
   signer: bcs.Address,
 });
 const expiry = Date.UTC(2026, 6, 31);
+const marketId =
+  "0xf4f1333e5cb033fb9f29d85a0992db7ae9f6c45d7a2a0ef3a0153ef52d61ac3d";
+const packageId =
+  "0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4";
 const quote = {
   call_put_marker: 1 as const,
   cash_premium_per_contract: "1000001",
@@ -41,11 +47,11 @@ const quote = {
   offer_valid_until_total_contracts_qty_decimals: "1000000",
   offer_valid_until_unix_ms: expiry - 1,
   oracle_base_symbol: "BTC" as const,
-  oracle_feed_id: "feed",
+  oracle_feed_id: BTC_USD_FEED_ID,
   oracle_quote_symbol: "USDC" as const,
   quote_id: "quote-1",
   signer: keypair.toSuiAddress(),
-  strike_price_decimals: "6600000000000",
+  strike_price_decimals: "66000000000",
 };
 const quoteSignature = (await keypair.signPersonalMessage(serializeQuote(quote))).signature;
 const putQuote = {
@@ -53,7 +59,7 @@ const putQuote = {
   call_put_marker: 2 as const,
   collateral_token_address: quote.cash_token_address,
   collateral_token_decimals: 6,
-  strike_price_decimals: "6100000000000",
+  strike_price_decimals: "61000000000",
 };
 const putQuoteSignature = (await keypair.signPersonalMessage(serializeQuote(putQuote))).signature;
 
@@ -62,19 +68,15 @@ const chain: UnderwriteChainConfig = {
   buyerOwnerAddress: keypair.toSuiAddress(),
   buyerVaultId: `0x${"44".repeat(32)}`,
   callPutMarker: 1,
-  marketId: `0x${"22".repeat(32)}`,
+  marketId,
   quoteCoinType: quote.cash_token_address,
-  seriesId: `0x${"33".repeat(32)}`,
-  strikePrice: quote.strike_price_decimals,
-  strikeScale: 100_000_000,
+  strikeScale: 1_000_000,
   targetFunction: "underwrite_call",
 };
 
 const putChain: UnderwriteChainConfig = {
   ...chain,
   callPutMarker: 2,
-  seriesId: `0x${"99".repeat(32)}`,
-  strikePrice: putQuote.strike_price_decimals,
   targetFunction: "underwrite_put",
 };
 
@@ -93,7 +95,7 @@ function env(overrides: Record<string, unknown> = {}) {
       MAKER_STUB_PRIVATE_KEY: keypair.getSecretKey(),
       OPERATION_FEE_BPS: "250",
       OPERATION_FEE_TREASURY: `0x${"55".repeat(32)}`,
-      OTP_PACKAGE_ID: `0x${"11".repeat(32)}`,
+      OTP_PACKAGE_ID: packageId,
       ...overrides,
     },
   };
@@ -147,6 +149,17 @@ function putRequest(body: Record<string, unknown> = {}) {
 }
 
 describe("prepareUnderwrite", () => {
+  it("derives known testnet series ids from natural option terms", () => {
+    assert.equal(
+      deriveSeriesId(packageId, marketId, 1, "66000000000", expiry),
+      "0x2fb2ea03167e18a90ddcf2a780777ea817b2fa72c55c2f822d35f16d202f2626",
+    );
+    assert.equal(
+      deriveSeriesId(packageId, marketId, 2, "61000000000", expiry),
+      "0x0931c8c81230f62f985627fff2affc573bc57245af88fc26ccef949f1f6bb7bb",
+    );
+  });
+
   it("consumes capacity, signs canonical OrderV1, persists pending, and returns PTB inputs", async () => {
     const testEnv = env();
     const response = await prepareUnderwrite(request(), testEnv.value, store(), chain);
@@ -155,7 +168,7 @@ describe("prepareUnderwrite", () => {
     assert.equal(result.status, "pending");
     assert.equal(result.operationalFee, "12500012500");
     assert.equal(result.marketId, chain.marketId);
-    assert.equal(result.seriesId, chain.seriesId);
+    assert.equal(result.seriesId, deriveSeriesId(packageId, chain.marketId, 1, quote.strike_price_decimals, expiry));
     assert.equal(result.buyerVaultId, chain.buyerVaultId);
     assert.equal(result.quoteCoinType, chain.quoteCoinType);
     assert.equal(result.baseCoinType, chain.baseCoinType);
@@ -187,6 +200,7 @@ describe("prepareUnderwrite", () => {
     assert.equal(verifiedKey.toSuiAddress(), chain.buyerOwnerAddress);
     assert.equal(testEnv.writes.length, 2);
     assert.match(testEnv.writes[0].sql, /INSERT INTO underwrites/);
+    assert.equal(testEnv.writes[0].values[6], result.seriesId);
     assert.match(testEnv.writes[1].sql, /INSERT INTO underwrite_audit/);
   });
 
@@ -199,10 +213,26 @@ describe("prepareUnderwrite", () => {
     }), putChain);
     assert.equal(response.status, 201);
     const result = await response.json() as Record<string, unknown>;
-    assert.equal(result.seriesId, putChain.seriesId);
+    assert.equal(result.seriesId, deriveSeriesId(packageId, putChain.marketId, 2, putQuote.strike_price_decimals, expiry));
     assert.equal(result.baseCoinType, putChain.baseCoinType);
     assert.equal(result.collateralAmount, "305000000");
     assert.equal(result.target, `${testEnv.value.OTP_PACKAGE_ID}::underwriting::underwrite_put`);
+  });
+
+  it("prepares a valid grid strike that is not listed in hardcoded testnet series config", async () => {
+    const testEnv = env();
+    const freshQuote = { ...quote, quote_id: "quote-fresh", strike_price_decimals: "69000000000" };
+    const freshSignature = (await keypair.signPersonalMessage(serializeQuote(freshQuote))).signature;
+    const response = await prepareUnderwrite(
+      request({ quote: freshQuote, quoteSignature: freshSignature }),
+      testEnv.value,
+      store({ quote: freshQuote, quoteSignature: freshSignature, remainingContractsQtyDecimals: "500000" }),
+      chain,
+    );
+
+    assert.equal(response.status, 201);
+    const result = await response.json() as Record<string, unknown>;
+    assert.equal(result.seriesId, deriveSeriesId(packageId, chain.marketId, 1, "69000000000", expiry));
   });
 
   it("rejects unsupported, expired, and over-capacity quotes", async () => {
@@ -213,6 +243,14 @@ describe("prepareUnderwrite", () => {
       chain,
     );
     assert.equal(unsupported.status, 400);
+
+    const wrongOracle = await prepareUnderwrite(
+      request({ quote: { ...quote, oracle_base_symbol: "ETH" } }),
+      env().value,
+      store(),
+      chain,
+    );
+    assert.equal(wrongOracle.status, 400);
 
     const expired = await prepareUnderwrite(request(), env().value, store({
       quote: { ...quote, offer_valid_until_unix_ms: 1 },

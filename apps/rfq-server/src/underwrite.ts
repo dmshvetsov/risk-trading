@@ -1,6 +1,7 @@
 import { bcs } from "@mysten/sui/bcs";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import {
+  deriveObjectID,
   fromBase64,
   isValidSuiAddress,
   normalizeSuiAddress,
@@ -10,26 +11,17 @@ import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 
 import { createUnderwrite } from "./db/queries";
 import type { D1Database } from "./typedefs";
-import { prepareUnderwriteBodySchema, quoteSchema } from "./validation";
+import {
+  isBtcUsdcOracleMarket,
+  isTradableExpiry,
+  isTradableStrike,
+  prepareUnderwriteBodySchema,
+  quoteSchema,
+} from "./validation";
 
-const JULY_31_2026 = Date.UTC(2026, 6, 31);
 const BTC_DECIMALS = 8n;
 const USDC_DECIMALS = 6;
 
-/*
-Series reference for market 0xf4f1333e5cb033fb9f29d85a0992db7ae9f6c45d7a2a0ef3a0153ef52d61ac3d
-expiry: 2026-07-31 / 1785456000000
-put 61000 -> 0xe41e9ae942c18ee4d002e294aab0ee04fecb5e54894905071041ea0933055a13 
-put 60000 -> 0xd0be40e986bd9dee190a21128a72b125e6dd81f2ba0aef59784b0f0605e63a55
-put 59000 -> 0xede4a0e3f19d6b96cb56002db3d5c2ab0468c211baadfa2e7129a5b944a3475d
-put 55000 -> 0xc1573541782632c00625ae62e0c19bde4ee33268b49e9e70418a3317829a4954
-put 51000 -> 0xe6e668d6db1f0f40c949735260f54f93c8d6999ff9cf15e8ec1b3824c954f9a6
-call 66000 -> 0xdc2d87675a850c224e11c74ce8264425ee16b09bd6f5590717994fe6b1a535d3
-call 67000 -> 0xf7793c03a14313bc507b008eafa020c2f1320f1c03ec2c8a9d71bcc6a6cb0e80
-call 68000 -> 0xbad23240ddecb03f56cf9159a59a046d000f96b021cf21492679d0c5932dd998
-call 71000 -> 0xef219ca26a399621780ab1391644b91ff8a29bf4ad0645fed076bf3a2b17881e
-call 75000 -> 0x207f543e9e871e5619dd7c961b6f1ccbdb93fea36c73e1a28dae115ef8298f80
-*/
 const TESTNET_UNDERWRITE_BASE = {
   baseCoinType:
     "0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC",
@@ -49,81 +41,11 @@ export const TESTNET_UNDERWRITE_CONFIGS = [
   {
     ...TESTNET_UNDERWRITE_BASE,
     callPutMarker: 1 as const,
-    seriesId:
-      "0xdc2d87675a850c224e11c74ce8264425ee16b09bd6f5590717994fe6b1a535d3",
-    strikePrice: "66000000000",
-    targetFunction: "underwrite_call" as const,
-  },
-  {
-    ...TESTNET_UNDERWRITE_BASE,
-    callPutMarker: 1 as const,
-    seriesId:
-      "0xf7793c03a14313bc507b008eafa020c2f1320f1c03ec2c8a9d71bcc6a6cb0e80",
-    strikePrice: "67000000000",
-    targetFunction: "underwrite_call" as const,
-  },
-  {
-    ...TESTNET_UNDERWRITE_BASE,
-    callPutMarker: 1 as const,
-    seriesId:
-      "0xbad23240ddecb03f56cf9159a59a046d000f96b021cf21492679d0c5932dd998",
-    strikePrice: "68000000000",
-    targetFunction: "underwrite_call" as const,
-  },
-  {
-    ...TESTNET_UNDERWRITE_BASE,
-    callPutMarker: 1 as const,
-    seriesId:
-      "0xef219ca26a399621780ab1391644b91ff8a29bf4ad0645fed076bf3a2b17881e",
-    strikePrice: "71000000000",
-    targetFunction: "underwrite_call" as const,
-  },
-  {
-    ...TESTNET_UNDERWRITE_BASE,
-    callPutMarker: 1 as const,
-    seriesId:
-      "0x207f543e9e871e5619dd7c961b6f1ccbdb93fea36c73e1a28dae115ef8298f80",
-    strikePrice: "75000000000",
     targetFunction: "underwrite_call" as const,
   },
   {
     ...TESTNET_UNDERWRITE_BASE,
     callPutMarker: 2 as const,
-    seriesId:
-      "0xe41e9ae942c18ee4d002e294aab0ee04fecb5e54894905071041ea0933055a13",
-    strikePrice: "61000000000",
-    targetFunction: "underwrite_put" as const,
-  },
-  {
-    ...TESTNET_UNDERWRITE_BASE,
-    callPutMarker: 2 as const,
-    seriesId:
-      "0xd0be40e986bd9dee190a21128a72b125e6dd81f2ba0aef59784b0f0605e63a55",
-    strikePrice: "60000000000",
-    targetFunction: "underwrite_put" as const,
-  },
-  {
-    ...TESTNET_UNDERWRITE_BASE,
-    callPutMarker: 2 as const,
-    seriesId:
-      "0xede4a0e3f19d6b96cb56002db3d5c2ab0468c211baadfa2e7129a5b944a3475d",
-    strikePrice: "59000000000",
-    targetFunction: "underwrite_put" as const,
-  },
-  {
-    ...TESTNET_UNDERWRITE_BASE,
-    callPutMarker: 2 as const,
-    seriesId:
-      "0xc1573541782632c00625ae62e0c19bde4ee33268b49e9e70418a3317829a4954",
-    strikePrice: "55000000000",
-    targetFunction: "underwrite_put" as const,
-  },
-  {
-    ...TESTNET_UNDERWRITE_BASE,
-    callPutMarker: 2 as const,
-    seriesId:
-      "0xe6e668d6db1f0f40c949735260f54f93c8d6999ff9cf15e8ec1b3824c954f9a6",
-    strikePrice: "51000000000",
     targetFunction: "underwrite_put" as const,
   },
 ] satisfies UnderwriteChainConfig[];
@@ -135,8 +57,6 @@ export type UnderwriteChainConfig = {
   callPutMarker: 1 | 2;
   marketId: string;
   quoteCoinType: string;
-  seriesId: string;
-  strikePrice: string;
   strikeScale: number;
   targetFunction: "underwrite_call" | "underwrite_put";
 };
@@ -214,11 +134,28 @@ const QuoteV1Bcs = bcs.struct("QuoteV1", {
   maker_id: bcs.string(),
 });
 
+const SeriesKeyBcs = bcs.tuple([bcs.u8(), bcs.u64(), bcs.u64()]);
+
 export function serializeQuote(quote: Quote) {
   return QuoteV1Bcs.serialize({
     ...quote,
     domain: new TextEncoder().encode(quote.domain),
   }).toBytes();
+}
+
+export function deriveSeriesId(
+  packageId: string,
+  marketId: string,
+  optionType: 1 | 2,
+  strikePriceDecimals: string,
+  expiryUnixMs: number,
+) {
+  const key = SeriesKeyBcs.serialize([
+    optionType,
+    strikePriceDecimals,
+    expiryUnixMs.toString(),
+  ]).toBytes();
+  return deriveObjectID(marketId, `${packageId}::market::SeriesKey`, key);
 }
 
 export async function signQuote(quote: Quote, privateKey: string) {
@@ -254,7 +191,7 @@ function readConfig(env: PrepareEnv, chain: UnderwriteChainConfig) {
   try {
     const keypair = Ed25519Keypair.fromSecretKey(env.MAKER_STUB_PRIVATE_KEY);
     if (keypair.toSuiAddress() !== chain.buyerOwnerAddress) return null;
-    return { bps, keypair };
+    return { bps, keypair, packageId: env.OTP_PACKAGE_ID };
   } catch {
     return null;
   }
@@ -267,10 +204,11 @@ function isSupportedQuote(quote: Quote, chain: UnderwriteChainConfig) {
   const expectedCollateralDecimals = chain.callPutMarker === 1 ? Number(BTC_DECIMALS) : USDC_DECIMALS;
   return (
     quote.domain === "otp:quote:v1" &&
+    isBtcUsdcOracleMarket(quote) &&
     quote.call_put_marker === chain.callPutMarker &&
     quote.long_short_marker === 2 &&
-    quote.strike_price_decimals === chain.strikePrice &&
-    quote.expiry_unix_ms === JULY_31_2026 &&
+    isTradableStrike(quote.strike_price_decimals) &&
+    isTradableExpiry(quote.expiry_unix_ms) &&
     quote.cash_token_address === chain.quoteCoinType &&
     quote.cash_token_decimals === USDC_DECIMALS &&
     quote.collateral_token_address === expectedCollateral &&
@@ -289,13 +227,14 @@ function resolveSupportedChainConfig(
 
 function collateralAmountForQuantity(
   quantity: bigint,
+  strikePriceDecimals: string,
   chain: UnderwriteChainConfig,
 ) {
   if (chain.callPutMarker === 1) {
     return quantity.toString();
   }
 
-  const strike = BigInt(chain.strikePrice);
+  const strike = BigInt(strikePriceDecimals);
   const quoteScale = 10n ** BigInt(USDC_DECIMALS);
   const denominator = (10n ** BTC_DECIMALS) * BigInt(chain.strikeScale);
   return (quantity * strike * quoteScale / denominator).toString();
@@ -366,7 +305,18 @@ export async function prepareUnderwrite(
   }
 
   const operationalFee = premiumTotal * config.bps / 10_000n;
-  const collateralAmount = collateralAmountForQuantity(quantity, supportedChain);
+  const collateralAmount = collateralAmountForQuantity(
+    quantity,
+    parsedBody.data.quote.strike_price_decimals,
+    supportedChain,
+  );
+  const seriesId = deriveSeriesId(
+    config.packageId,
+    supportedChain.marketId,
+    supportedChain.callPutMarker,
+    parsedBody.data.quote.strike_price_decimals,
+    parsedBody.data.quote.expiry_unix_ms,
+  );
   const takerAddress = normalizeSuiAddress(parsedBody.data.takerAddress);
   const order = {
     domain: new TextEncoder().encode("otp:order:v1"),
@@ -374,7 +324,7 @@ export async function prepareUnderwrite(
     market_id: supportedChain.marketId,
     call_put_marker: supportedChain.callPutMarker,
     side_marker: 1,
-    strike_price: supportedChain.strikePrice,
+    strike_price: parsedBody.data.quote.strike_price_decimals,
     expiry_ms: parsedBody.data.quote.expiry_unix_ms,
     contracts_quantity: quantity.toString(),
     premium_per_contract: parsedBody.data.quote.cash_premium_per_contract,
@@ -407,7 +357,7 @@ export async function prepareUnderwrite(
     quote_id: parsedBody.data.quote.quote_id,
     quote_payload_json: JSON.stringify(parsedBody.data.quote),
     quote_signature: parsedBody.data.quoteSignature,
-    series_id: supportedChain.seriesId,
+    series_id: seriesId,
     strike_price_decimals: parsedBody.data.quote.strike_price_decimals,
     taker_address: takerAddress,
     underwrite_id: underwriteId,
@@ -423,12 +373,12 @@ export async function prepareUnderwrite(
     orderBytes: toBase64(orderBytes),
     orderPublicKey: toBase64(publicKey),
     orderSignature: signed.signature,
-    packageId: env.OTP_PACKAGE_ID,
+    packageId: config.packageId,
     quoteCoinType: supportedChain.quoteCoinType,
-    seriesId: supportedChain.seriesId,
+    seriesId,
     signedOrderBytes: toBase64(signedOrderBytes),
     status: "pending",
-    target: `${env.OTP_PACKAGE_ID}::underwriting::${supportedChain.targetFunction}`,
+    target: `${config.packageId}::underwriting::${supportedChain.targetFunction}`,
     underwriteId,
   }, { status: 201 });
 }

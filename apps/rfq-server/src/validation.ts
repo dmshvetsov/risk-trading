@@ -4,9 +4,11 @@ import { z } from "zod";
 import type { QuoteRequest } from "./stub-quote-provider";
 import type { Quote } from "./underwrite";
 
-const BTC_USD_FEED_ID =
+export const BTC_USD_FEED_ID =
   "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
 const QUANTITY_STEP = 500_000n;
+export const MVP_STRIKE_SCALE = 1_000_000n;
+const STRIKE_STEP_DECIMALS = 1_000n * MVP_STRIKE_SCALE;
 
 const unsignedDecimalString = z.string().regex(/^\d+$/);
 
@@ -24,6 +26,48 @@ const baseQuoteSchema = z.object({
   oracle_quote_symbol: z.literal("USDC"),
   strike_price_decimals: unsignedDecimalString,
 });
+
+function lastFridayOfMonth(year: number, month: number) {
+  const date = new Date(Date.UTC(year, month + 1, 0));
+  const day = date.getUTCDay();
+  const daysSinceFriday = (day + 2) % 7;
+  return Date.UTC(year, month, date.getUTCDate() - daysSinceFriday);
+}
+
+export function isTradableExpiry(expiryUnixMs: number, nowUnixMs = Date.now()) {
+  const expiry = new Date(expiryUnixMs);
+  const now = new Date(nowUnixMs);
+  const nextMonth = now.getUTCMonth() + 1;
+  const lastAllowed = lastFridayOfMonth(now.getUTCFullYear(), nextMonth);
+
+  return (
+    Number.isInteger(expiryUnixMs) &&
+    expiryUnixMs > nowUnixMs &&
+    expiry.getUTCHours() === 0 &&
+    expiry.getUTCMinutes() === 0 &&
+    expiry.getUTCSeconds() === 0 &&
+    expiry.getUTCMilliseconds() === 0 &&
+    expiry.getUTCDay() === 5 &&
+    expiryUnixMs <= lastAllowed
+  );
+}
+
+export function isTradableStrike(strikePriceDecimals: string) {
+  const strike = BigInt(strikePriceDecimals);
+  return strike > 0n && strike % STRIKE_STEP_DECIMALS === 0n;
+}
+
+export function isBtcUsdcOracleMarket(input: {
+  oracle_base_symbol: string;
+  oracle_feed_id: string;
+  oracle_quote_symbol: string;
+}) {
+  return (
+    input.oracle_base_symbol === "BTC" &&
+    input.oracle_quote_symbol === "USDC" &&
+    input.oracle_feed_id === BTC_USD_FEED_ID
+  );
+}
 
 export function createQuoteRequestSchema(
   supportedQuoteCoinTypes: readonly string[],
@@ -61,10 +105,10 @@ export function createQuoteRequestSchema(
         message: "invalid cash token decimals",
       });
     }
-    if (strike <= 0n) {
+    if (strike <= 0n || !isTradableStrike(request.strike_price_decimals)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "invalid strike" });
     }
-    if (request.expiry_unix_ms <= Date.now()) {
+    if (!isTradableExpiry(request.expiry_unix_ms)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "expired quote" });
     }
   });

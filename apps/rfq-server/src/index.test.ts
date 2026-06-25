@@ -13,6 +13,8 @@ import worker, {
 } from "./index";
 import { createStubQuote } from "./stub-quote-provider";
 
+const validExpiryUnixMs = Date.UTC(2026, 6, 31);
+
 type MakerVaultRow = {
   created_at: string;
   deleted_at: string | null;
@@ -339,7 +341,7 @@ describe("shared quote request path", () => {
           collateral_token_address: "0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC",
           collateral_token_decimals: 8,
           contracts_qty_decimals: "5000000",
-          expiry_unix_ms: Date.now() + 30 * 86_400_000,
+          expiry_unix_ms: validExpiryUnixMs,
           long_short_marker: 2,
           oracle_base_symbol: "BTC",
           oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
@@ -409,7 +411,7 @@ describe("shared quote request path", () => {
               collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
               collateral_token_decimals: 8,
               contracts_qty_decimals: "5000000",
-              expiry_unix_ms: Date.now() + 30 * 86_400_000,
+              expiry_unix_ms: validExpiryUnixMs,
               long_short_marker: 2,
               oracle_base_symbol: "BTC",
               oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
@@ -441,6 +443,49 @@ describe("shared quote request path", () => {
     assert.equal(stored.length, 2);
   });
 
+  it("rejects strikes outside the $1,000 grid and expiries after next month last Friday", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 5, 25));
+    const request = {
+      call_put_marker: 1,
+      cash_token_address: "0x0::usdc::USDC",
+      cash_token_decimals: 6,
+      collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+      collateral_token_decimals: 8,
+      contracts_qty_decimals: "5000000",
+      expiry_unix_ms: Date.UTC(2026, 6, 31),
+      long_short_marker: 2,
+      oracle_base_symbol: "BTC",
+      oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+      oracle_quote_symbol: "USDC",
+      strike_price_decimals: "66500000000",
+    };
+
+    const offGridStrike = await worker.fetch(
+      new Request("https://example.com/api/quotes", {
+        body: JSON.stringify({ request }),
+        method: "POST",
+      }),
+      createEnv(),
+    );
+    const tooLateExpiry = await worker.fetch(
+      new Request("https://example.com/api/quotes", {
+        body: JSON.stringify({
+          request: {
+            ...request,
+            expiry_unix_ms: Date.UTC(2026, 7, 7),
+            strike_price_decimals: "66000000000",
+          },
+        }),
+        method: "POST",
+      }),
+      createEnv(),
+    );
+
+    assert.equal(offGridStrike.status, 400);
+    assert.equal(tooLateExpiry.status, 400);
+    vi.restoreAllMocks();
+  });
+
   it("does not return a quote when durable storage fails", async () => {
     const env = createEnv() as ReturnType<typeof createEnv> & {
       QUOTES: {
@@ -460,10 +505,10 @@ describe("shared quote request path", () => {
           cash_token_decimals: 6,
           collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
           collateral_token_decimals: 8, contracts_qty_decimals: "5000000",
-          expiry_unix_ms: Date.now() + 86_400_000, long_short_marker: 2,
+          expiry_unix_ms: validExpiryUnixMs, long_short_marker: 2,
           oracle_base_symbol: "BTC",
           oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-          oracle_quote_symbol: "USDC", strike_price_decimals: "600000000",
+          oracle_quote_symbol: "USDC", strike_price_decimals: "66000000000",
         }}), method: "POST",
       }),
       env,
@@ -536,15 +581,15 @@ describe("cash-secured put quote request", () => {
           cash_token_decimals: 6, collateral_token_address: "0x0::usdc::USDC",
           collateral_token_decimals: 6,
           contracts_qty_decimals: "500000",
-          expiry_unix_ms: Date.now() + 30 * 86_400_000, long_short_marker: 2,
+          expiry_unix_ms: validExpiryUnixMs, long_short_marker: 2,
           oracle_base_symbol: "BTC",
           oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
           oracle_quote_symbol: "USDC", strike_price_decimals: strikePriceDecimals,
         }}), method: "POST",
       }), env);
 
-    const firstResponse = await requestQuote("6800000000000");
-    const secondResponse = await requestQuote("7500000000000");
+    const firstResponse = await requestQuote("68000000000");
+    const secondResponse = await requestQuote("75000000000");
     assert.equal(firstResponse.status, 201);
     assert.equal(secondResponse.status, 201);
     const first = (await firstResponse.json()) as { quote: Record<string, unknown> };
@@ -562,7 +607,7 @@ describe("cash-secured put quote request", () => {
         call_put_marker: 2, cash_token_address: "0x0::usdc::USDC",
         cash_token_decimals: 6, collateral_token_address: "0x0::usdc::USDC",
         collateral_token_decimals: 6, contracts_qty_decimals: "1",
-        expiry_unix_ms: Date.now() + 30 * 86_400_000, long_short_marker: 2,
+        expiry_unix_ms: validExpiryUnixMs, long_short_marker: 2,
         oracle_base_symbol: "BTC",
         oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
         oracle_quote_symbol: "USDC", strike_price_decimals: "68000000000",
@@ -581,7 +626,7 @@ describe("cash-secured put quote request", () => {
         collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
         collateral_token_decimals: 8,
         contracts_qty_decimals: "750000",
-        expiry_unix_ms: Date.now() + 30 * 86_400_000,
+        expiry_unix_ms: validExpiryUnixMs,
         long_short_marker: 2,
         oracle_base_symbol: "BTC",
         oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
