@@ -33,7 +33,7 @@ const BPS_DENOMINATOR: u64 = 10_000;
 
 public struct OrderV1 has copy, drop {
     domain: vector<u8>,
-    taker_address: address,
+    seller: address,
     market_id: address,
     call_put_marker: u8,
     side_marker: u8,
@@ -138,7 +138,7 @@ public fun decode_order(order_bytes: vector<u8>): OrderV1 {
     let mut bytes = sui::bcs::new(order_bytes);
     let order = OrderV1 {
         domain: bytes.peel_vec_u8(),
-        taker_address: bytes.peel_address(),
+        seller: bytes.peel_address(),
         market_id: bytes.peel_address(),
         call_put_marker: bytes.peel_u8(),
         side_marker: bytes.peel_u8(),
@@ -200,7 +200,7 @@ fun validate_order<QuoteCoin, BaseCoin>(
     ctx: &TxContext,
 ) {
     assert!(order.domain == ORDER_DOMAIN, EInvalidOrder);
-    assert!(order.taker_address == ctx.sender(), EInvalidOrder);
+    assert!(order.seller == ctx.sender(), EInvalidOrder);
     assert!(order.market_id == market::id(market).to_address(), EInvalidOrder);
     assert!(series::market_id(series) == market::id(market), EInvalidOrder);
     assert!(order.call_put_marker == expected_option_type, EInvalidOrder);
@@ -224,7 +224,7 @@ fun consume_order<QuoteCoin, BaseCoin>(series: &mut Series<QuoteCoin, BaseCoin>,
 }
 
 public fun order_domain(order: &OrderV1): vector<u8> { order.domain }
-public fun order_taker_address(order: &OrderV1): address { order.taker_address }
+public fun order_seller(order: &OrderV1): address { order.seller }
 public fun order_market_id(order: &OrderV1): address { order.market_id }
 public fun order_call_put_marker(order: &OrderV1): u8 { order.call_put_marker }
 public fun order_side_marker(order: &OrderV1): u8 { order.side_marker }

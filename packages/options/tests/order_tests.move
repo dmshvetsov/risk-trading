@@ -394,7 +394,7 @@ fun signed_put_can_initialize_underwrite_and_share_missing_series() {
 fun canonical_order_decodes_every_field() {
     let order = underwriting::decode_order(ORDER_BYTES);
     assert_eq!(underwriting::order_domain(&order), b"otp:order:v1");
-    assert_eq!(underwriting::order_taker_address(&order), @0xB);
+    assert_eq!(underwriting::order_seller(&order), @0xB);
     assert_eq!(underwriting::order_market_id(&order), @0xC);
     assert_eq!(underwriting::order_call_put_marker(&order), 1);
     assert_eq!(underwriting::order_side_marker(&order), 1);

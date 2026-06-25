@@ -252,7 +252,7 @@ struct SignedOrderV1 has drop {
 ```
 struct OrderV1 has copy, drop {
     domain: vector<u8>, // exactly "otp:order:v1"
-    taker_address: address,
+    seller: address,
     market_id: address,
     call_put_marker: u8 // 1: call option 2: put option
     side_marker: u8 // 1: long (buy option) 2: short (sell option)
@@ -303,7 +303,7 @@ Underwriting MUST be rejected when the series expiry is less than or equal to th
 For a covered call atomic underwrite transaction:
 - seller provides signed by a buyer `OrderV1`
 - provided `OrderV1` matches seller options parameters in full:
-  - `taker_address`
+  - `seller`
   - `market_id`
   - `call_put_marker`
   - `strike_price`
@@ -321,7 +321,7 @@ For a covered call atomic underwrite transaction:
 For a cash-secured put atomic underwrite transaction:
 - seller provides signed by a buyer `OrderV1`
 - provided `OrderV1` matches seller options parameters in full:
-  - `taker_address`
+  - `seller`
   - `market_id`
   - `call_put_marker`
   - `strike_price`

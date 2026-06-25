@@ -174,7 +174,7 @@ type QuoteStore = { fetch(request: Request): Promise<Response> };
 
 const OrderV1Bcs = bcs.struct("OrderV1", {
   domain: bcs.byteVector(),
-  taker_address: bcs.Address,
+  seller: bcs.Address,
   market_id: bcs.Address,
   call_put_marker: bcs.u8(),
   side_marker: bcs.u8(),
@@ -370,7 +370,7 @@ export async function prepareUnderwrite(
   const takerAddress = normalizeSuiAddress(parsedBody.data.takerAddress);
   const order = {
     domain: new TextEncoder().encode("otp:order:v1"),
-    taker_address: takerAddress,
+    seller: takerAddress,
     market_id: supportedChain.marketId,
     call_put_marker: supportedChain.callPutMarker,
     side_marker: 1,

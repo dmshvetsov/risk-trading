@@ -249,7 +249,7 @@ type ExecutionRequest = {
 ```
 type MakerOrderV1 = {
   domain: 'otp:order:v1'
-  taker_address: string // must match ExecutionRequest.taker_address, on-chain seller addres
+  taker_address: string // must match ExecutionRequest.taker_address, on-chain seller address
   market_id: string,
   call_put_marker: 1 | 2 // u8 1: call 2: put, must match quote request
   side_marker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request

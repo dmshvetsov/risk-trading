@@ -14,7 +14,7 @@ import {
 const keypair = Ed25519Keypair.fromSecretKey(new Uint8Array(32).fill(7));
 const OrderV1Bcs = bcs.struct("OrderV1", {
   domain: bcs.byteVector(),
-  taker_address: bcs.Address,
+  seller: bcs.Address,
   market_id: bcs.Address,
   call_put_marker: bcs.u8(),
   side_marker: bcs.u8(),
@@ -167,7 +167,7 @@ describe("prepareUnderwrite", () => {
     assert.equal(typeof result.orderSignature, "string");
     const order = OrderV1Bcs.parse(fromBase64(String(result.orderBytes)));
     assert.deepEqual(Array.from(order.domain), Array.from(new TextEncoder().encode("otp:order:v1")));
-    assert.equal(order.taker_address, `0x${"66".repeat(32)}`);
+    assert.equal(order.seller, `0x${"66".repeat(32)}`);
     assert.equal(order.market_id, chain.marketId);
     assert.equal(order.call_put_marker, 1);
     assert.equal(order.side_marker, 1);
