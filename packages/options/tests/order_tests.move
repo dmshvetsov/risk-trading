@@ -25,6 +25,8 @@ const EXPIRY_MS: u64 = NOW_MS + 8 * 60 * 60 * 1000 + 1;
 const FEE_RECIPIENT: address = @0xD;
 const SIGNED_CALL: vector<u8> = x"d7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3c43f760e896b4df7291cd56965676e31b21585b1732a94a832f21488b303b78b01018093dc1400000000119bb701000000000a000000000000000700000000000000204e00000000000077520198ea52372717b1278701852c232e32d5cf6e202dde276ce97a265fbe6ea0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da610021817cb06c930997b0515a12eddad7772a212a184226a9ca19f376d2050fa109441701bb40b93a0b8cdb6f36b2a40e0c5543f76384e9442e641fdac537b8cd0eea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
 const SIGNED_PUT: vector<u8> = x"d7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d359dc791d6a72b4eae8c5e5898ce83a2c21692bf74354edad43228ce5544fa20802018093dc1400000000119bb701000000000a000000000000000700000000000000204e00000000000077520198ea52372717b1278701852c232e32d5cf6e202dde276ce97a265fbe6ea0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da6100d1d7750da2267939738ad587d6fd4a24a59777c7a14383224d336d8a45448bc460849e1b56f48eca05c8207ede4857e3f0cb7d065cc880c10548bb60e6b07106ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+const SIGNED_MISSING_CALL: vector<u8> = x"d7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d3c43f760e896b4df7291cd56965676e31b21585b1732a94a832f21488b303b78b01018093dc1400000000119bb701000000000a000000000000000700000000000000204e000000000000b6d2ab0253927f724cb33c7641ee60b89ee15056df84f442f1396b40139a44d6a0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da6100481bbd444b6c2fc9647d2180c14e2a6cf7e34f57a244d802a7168d43a200bdbc432c69158e149ee9e11a4fafda7a2d1f80be4890f62a43e2078e9631d35ab205ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+const SIGNED_MISSING_PUT: vector<u8> = x"d7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d359dc791d6a72b4eae8c5e5898ce83a2c21692bf74354edad43228ce5544fa20802018093dc1400000000119bb701000000000a000000000000000700000000000000204e000000000000b6d2ab0253927f724cb33c7641ee60b89ee15056df84f442f1396b40139a44d6a0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da6100dd8a8b3b7c57e06d31edd4a5a404191a954c9fcd3a41ab0c997d99ebbd4efa807677b29f84a19fe5437f9378a25fdbc3f942f2fd31a665bab3a1db6be07fac03ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
 
 fun clock_at(timestamp_ms: u64, ctx: &mut TxContext): clock::Clock {
     let mut now = clock::create_for_testing(ctx);
@@ -70,6 +72,55 @@ fun create_signed_fixture(option_type: u8): (test_scenario::Scenario, ID, ID, ID
     );
     now.destroy_for_testing();
     test_scenario::return_shared(market);
+    object::delete(object::new(scenario.ctx()));
+    let vault_id = buyer_vault::create_vault<QUOTE>(scenario.ctx());
+
+    scenario.next_tx(SELLER);
+    let mut quote_cap = scenario.take_from_sender<TreasuryCap<QUOTE>>();
+    let premium = coin::mint(&mut quote_cap, 100, scenario.ctx());
+    scenario.return_to_sender(quote_cap);
+    transfer::public_transfer(premium, SIGNER);
+
+    scenario.next_tx(SIGNER);
+    let mut vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
+    let premium = scenario.take_from_sender<Coin<QUOTE>>();
+    buyer_vault::deposit(&mut vault, premium, scenario.ctx());
+    test_scenario::return_shared(vault);
+
+    (scenario, market_id, series_id, vault_id)
+}
+
+fun create_missing_series_signed_fixture(option_type: u8): (test_scenario::Scenario, ID, ID, ID) {
+    let mut scenario = test_scenario::begin(ADMIN);
+    market::init_for_testing(scenario.ctx());
+    let (quote_cap, quote_metadata) = quote::create(scenario.ctx());
+    let (base_cap, base_metadata) = base::create(scenario.ctx());
+    transfer::public_freeze_object(quote_metadata);
+    transfer::public_freeze_object(base_metadata);
+    transfer::public_transfer(quote_cap, SELLER);
+    transfer::public_transfer(base_cap, SELLER);
+
+    scenario.next_tx(ADMIN);
+    let mut admin_cap = scenario.take_from_sender<AdminCap>();
+    let market_id = market::create_market<QUOTE, BASE>(
+        &mut admin_cap,
+        "SUI",
+        "pyth",
+        b"feed-sui-usdc",
+        6,
+        9,
+        100_000_000,
+        10_000,
+        scenario.ctx(),
+    );
+    scenario.return_to_sender(admin_cap);
+
+    scenario.next_tx(SIGNER);
+    let market = scenario.take_shared_by_id<Market>(market_id);
+    let series_id = market::derived_series_id(&market, option_type, 350_000_000, EXPIRY_MS);
+    test_scenario::return_shared(market);
+    object::delete(object::new(scenario.ctx()));
+    object::delete(object::new(scenario.ctx()));
     object::delete(object::new(scenario.ctx()));
     let vault_id = buyer_vault::create_vault<QUOTE>(scenario.ctx());
 
@@ -140,6 +191,67 @@ fun signed_call_fill_debits_vault_and_settles_atomically() {
 }
 
 #[test]
+fun signed_call_can_initialize_underwrite_and_share_missing_series() {
+    let (mut scenario, market_id, series_id, vault_id) =
+        create_missing_series_signed_fixture(series::option_type_call());
+
+    scenario.next_tx(SELLER);
+    let mut base_cap = scenario.take_from_sender<TreasuryCap<BASE>>();
+    let collateral = coin::mint(&mut base_cap, 10, scenario.ctx());
+    scenario.return_to_sender(base_cap);
+    let mut market = scenario.take_shared_by_id<Market>(market_id);
+    let mut vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
+    let now = clock_at(NOW_MS, scenario.ctx());
+    assert_eq!(market::is_series_claimed(&market, series::option_type_call(), 350_000_000, EXPIRY_MS), false);
+    let mut series = series::initialize_series<QUOTE, BASE>(
+        &mut market,
+        series::option_type_call(),
+        350_000_000,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    assert_eq!(object::id(&series), series_id);
+    assert_eq!(market::is_series_claimed(&market, series::option_type_call(), 350_000_000, EXPIRY_MS), true);
+    underwriting::underwrite_call(
+        &market,
+        &mut series,
+        &mut vault,
+        collateral,
+        SIGNED_MISSING_CALL,
+        7,
+        FEE_RECIPIENT,
+        &now,
+        scenario.ctx(),
+    );
+    assert_eq!(buyer_vault::balance(&vault), 30);
+    assert_eq!(series::seller_short_quantity(&series, SELLER), 10);
+    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 10);
+    assert_eq!(series::collateral_base_balance(&series), 10);
+    now.destroy_for_testing();
+    series::share_initialized(series);
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(vault);
+
+    scenario.next_tx(SIGNER);
+    let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
+    assert_eq!(long::series_id(&long), series_id);
+    scenario.return_to_sender(long);
+    scenario.next_tx(SELLER);
+    let series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    assert_eq!(series::seller_short_quantity(&series, SELLER), 10);
+    test_scenario::return_shared(series);
+    let seller_premium = scenario.take_from_sender<Coin<QUOTE>>();
+    assert_eq!(seller_premium.value(), 63);
+    scenario.return_to_sender(seller_premium);
+    scenario.next_tx(FEE_RECIPIENT);
+    let fee = scenario.take_from_sender<Coin<QUOTE>>();
+    assert_eq!(fee.value(), 7);
+    scenario.return_to_sender(fee);
+    scenario.end();
+}
+
+#[test]
 fun signed_put_fill_debits_vault_and_settles_atomically() {
     let (mut scenario, market_id, series_id, vault_id) = create_signed_fixture(series::option_type_put());
 
@@ -176,6 +288,66 @@ fun signed_put_fill_debits_vault_and_settles_atomically() {
     assert_eq!(long::quantity(&long), 10);
     scenario.return_to_sender(long);
     scenario.next_tx(SELLER);
+    let seller_premium = scenario.take_from_sender<Coin<QUOTE>>();
+    assert_eq!(seller_premium.value(), 63);
+    scenario.return_to_sender(seller_premium);
+    scenario.next_tx(FEE_RECIPIENT);
+    let fee = scenario.take_from_sender<Coin<QUOTE>>();
+    assert_eq!(fee.value(), 7);
+    scenario.return_to_sender(fee);
+    scenario.end();
+}
+
+#[test]
+fun signed_put_can_initialize_underwrite_and_share_missing_series() {
+    let (mut scenario, market_id, series_id, vault_id) =
+        create_missing_series_signed_fixture(series::option_type_put());
+
+    scenario.next_tx(SELLER);
+    let mut quote_cap = scenario.take_from_sender<TreasuryCap<QUOTE>>();
+    let collateral = coin::mint(&mut quote_cap, 1, scenario.ctx());
+    scenario.return_to_sender(quote_cap);
+    let mut market = scenario.take_shared_by_id<Market>(market_id);
+    let mut vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
+    let now = clock_at(NOW_MS, scenario.ctx());
+    assert_eq!(market::is_series_claimed(&market, series::option_type_put(), 350_000_000, EXPIRY_MS), false);
+    let mut series = series::initialize_series<QUOTE, BASE>(
+        &mut market,
+        series::option_type_put(),
+        350_000_000,
+        EXPIRY_MS,
+        &now,
+        scenario.ctx(),
+    );
+    assert_eq!(object::id(&series), series_id);
+    underwriting::underwrite_put(
+        &market,
+        &mut series,
+        &mut vault,
+        collateral,
+        SIGNED_MISSING_PUT,
+        7,
+        FEE_RECIPIENT,
+        &now,
+        scenario.ctx(),
+    );
+    assert_eq!(buyer_vault::balance(&vault), 30);
+    assert_eq!(series::seller_short_quantity(&series, SELLER), 10);
+    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 1);
+    assert_eq!(series::collateral_quote_balance(&series), 1);
+    now.destroy_for_testing();
+    series::share_initialized(series);
+    test_scenario::return_shared(market);
+    test_scenario::return_shared(vault);
+
+    scenario.next_tx(SIGNER);
+    let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
+    assert_eq!(long::series_id(&long), series_id);
+    scenario.return_to_sender(long);
+    scenario.next_tx(SELLER);
+    let series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
+    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 1);
+    test_scenario::return_shared(series);
     let seller_premium = scenario.take_from_sender<Coin<QUOTE>>();
     assert_eq!(seller_premium.value(), 63);
     scenario.return_to_sender(seller_premium);

@@ -167,6 +167,27 @@ public fun create_series<QuoteCoin, BaseCoin>(
     clock: &Clock,
     ctx: &mut TxContext,
 ): ID {
+    let series = initialize_series<QuoteCoin, BaseCoin>(
+        market,
+        option_type,
+        strike_price,
+        expiry_ms,
+        clock,
+        ctx,
+    );
+    let series_id = object::id(&series);
+    share_initialized(series);
+    series_id
+}
+
+public fun initialize_series<QuoteCoin, BaseCoin>(
+    market: &mut Market,
+    option_type: u8,
+    strike_price: u64,
+    expiry_ms: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Series<QuoteCoin, BaseCoin> {
     market::assert_not_paused(market);
     market::assert_supported_coin_types<QuoteCoin, BaseCoin>(market);
     assert!(option_type == OPTION_TYPE_CALL || option_type == OPTION_TYPE_PUT, EInvalidOptionType);
@@ -225,8 +246,11 @@ public fun create_series<QuoteCoin, BaseCoin>(
         exercise_window_end_ms,
         exception_window_end_ms,
     });
+    series
+}
+
+public fun share_initialized<QuoteCoin, BaseCoin>(series: Series<QuoteCoin, BaseCoin>) {
     transfer::share_object(series);
-    series_object_id
 }
 
 public(package) fun new_expiry_price(
