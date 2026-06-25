@@ -12,7 +12,6 @@ import {
 import { supportedQuoteCoins } from "./supported-quote-coins";
 import {
   createStubQuote,
-  type QuoteRequest,
 } from "./stub-quote-provider";
 import type { D1Database, MakerVaultRow } from "./typedefs";
 import { prepareUnderwrite, signQuote } from "./underwrite";
@@ -22,6 +21,10 @@ import {
   submitUnderwrite,
   underwriteReceipt,
 } from "./underwrite-submission";
+import {
+  createQuoteRequestSchema,
+  quoteRequestPayloadSchema,
+} from "./validation";
 
 type TxValidationResult = {
   ownerAddress: string;
@@ -225,54 +228,13 @@ export function buildHealthPayload(env: Env) {
   };
 }
 
-function isQuoteRequest(value: unknown): value is QuoteRequest {
-  if (!value || typeof value !== "object") return false;
-  const request = value as Partial<Record<keyof QuoteRequest, unknown>>;
-  const quantity = typeof request.contracts_qty_decimals === "string" &&
-    /^\d+$/.test(request.contracts_qty_decimals)
-    ? BigInt(request.contracts_qty_decimals)
-    : null;
-  const strike = typeof request.strike_price_decimals === "string" &&
-    /^\d+$/.test(request.strike_price_decimals)
-    ? BigInt(request.strike_price_decimals)
-    : null;
-  const contractsStep = 500_000n;
-  const isCoveredCall =
-    request.call_put_marker === 1 &&
-    typeof request.cash_token_address === "string" &&
-    request.collateral_token_address === coveredCallMarkets.get(request.cash_token_address) &&
-    request.collateral_token_decimals === 8 &&
-    quantity !== null &&
-    quantity >= contractsStep &&
-    quantity % contractsStep === 0n;
-  const isCashSecuredPut =
-    request.call_put_marker === 2 &&
-    request.collateral_token_address === request.cash_token_address &&
-    request.collateral_token_decimals === 6 &&
-    quantity !== null &&
-    quantity >= contractsStep &&
-    quantity % contractsStep === 0n;
-  return (
-    (isCoveredCall || isCashSecuredPut) &&
-    request.long_short_marker === 2 &&
-    request.oracle_base_symbol === "BTC" &&
-    request.oracle_quote_symbol === "USDC" &&
-    request.oracle_feed_id === BTC_USD_FEED_ID &&
-    typeof request.cash_token_address === "string" &&
-    supportedQuoteCoins.some(
-      (coin) => coin.coinType === request.cash_token_address,
-    ) &&
-    request.cash_token_decimals === 6 &&
-    strike !== null &&
-    strike > 0n &&
-    typeof request.expiry_unix_ms === "number" &&
-    request.expiry_unix_ms > Date.now()
-  );
-}
-
 async function requestQuote(request: Request, env: Env) {
-  const payload = (await request.json()) as { request?: unknown };
-  if (!isQuoteRequest(payload.request)) {
+  const payload = quoteRequestPayloadSchema.parse(await request.json());
+  const parsedRequest = createQuoteRequestSchema(
+    supportedQuoteCoins.map((coin) => coin.coinType),
+    coveredCallMarkets,
+  ).safeParse(payload.request);
+  if (!parsedRequest.success) {
     return jsonResponse({ error: "invalid quote request" }, 400);
   }
 
@@ -283,7 +245,11 @@ async function requestQuote(request: Request, env: Env) {
   let quoteSignature: string;
   try {
     const keypair = Ed25519Keypair.fromSecretKey(env.MAKER_STUB_PRIVATE_KEY);
-    quote = createStubQuote(payload.request, Date.now(), keypair.toSuiAddress());
+    quote = createStubQuote(
+      parsedRequest.data,
+      Date.now(),
+      keypair.toSuiAddress(),
+    );
     quoteSignature = (await signQuote(quote, env.MAKER_STUB_PRIVATE_KEY)).signature;
   } catch {
     return jsonResponse({ error: "maker quote signing is unavailable" }, 503);

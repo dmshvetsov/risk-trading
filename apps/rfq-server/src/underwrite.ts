@@ -10,6 +10,7 @@ import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 
 import { createUnderwrite } from "./db/queries";
 import type { D1Database } from "./typedefs";
+import { prepareUnderwriteBodySchema, quoteSchema } from "./validation";
 
 const JULY_31_2026 = Date.UTC(2026, 6, 31);
 const BTC_DECIMALS = 8n;
@@ -237,18 +238,6 @@ function parseUnsigned(value: unknown) {
   return typeof value === "string" && /^\d+$/.test(value) ? BigInt(value) : null;
 }
 
-function isQuote(value: unknown): value is Quote {
-  if (!value || typeof value !== "object") return false;
-  const quote = value as Partial<Quote>;
-  return (
-    typeof quote.quote_id === "string" &&
-    typeof quote.expiry_unix_ms === "number" &&
-    typeof quote.offer_valid_until_unix_ms === "number" &&
-    parseUnsigned(quote.strike_price_decimals) !== null &&
-    parseUnsigned(quote.cash_premium_per_contract) !== null
-  );
-}
-
 function readConfig(env: PrepareEnv, chain: UnderwriteChainConfig) {
   const bps = parseUnsigned(env.OPERATION_FEE_BPS);
   if (
@@ -326,36 +315,32 @@ export async function prepareUnderwrite(
     return response("invalid prepare request", 400);
   }
 
-  const quantity = parseUnsigned(body.contractsQtyDecimals);
-  const supportedChain = isQuote(body.quote)
-    ? resolveSupportedChainConfig(body.quote, chain)
+  const parsedBody = prepareUnderwriteBodySchema.safeParse(body);
+  const supportedChain = parsedBody.success
+    ? resolveSupportedChainConfig(parsedBody.data.quote, chain)
     : null;
   if (
-    !isQuote(body.quote) ||
-    !supportedChain ||
-    quantity === null ||
-    quantity === 0n ||
-    typeof body.quoteSignature !== "string" ||
-    typeof body.takerAddress !== "string" ||
-    !isValidSuiAddress(body.takerAddress)
+    !parsedBody.success ||
+    !supportedChain
   ) {
     return response("unsupported underwrite request", 400);
   }
+  const { contractsQtyDecimals: quantity } = parsedBody.data;
 
   const config = readConfig(env, supportedChain);
   if (!config) return response("underwrite configuration is unavailable", 503);
 
   try {
     await verifyPersonalMessageSignature(
-      serializeQuote(body.quote),
-      body.quoteSignature,
+      serializeQuote(parsedBody.data.quote),
+      parsedBody.data.quoteSignature,
       { address: supportedChain.buyerOwnerAddress },
     );
   } catch {
     return response("invalid quote signature", 400);
   }
 
-  const premium = BigInt(body.quote.cash_premium_per_contract);
+  const premium = BigInt(parsedBody.data.quote.cash_premium_per_contract);
   const premiumTotal = premium * quantity;
   if (premiumTotal > 18_446_744_073_709_551_615n) {
     return response("premium calculation overflow", 400);
@@ -364,25 +349,26 @@ export async function prepareUnderwrite(
   const consumed = await quoteStore.fetch(new Request("https://quote-store.internal/validate", {
     body: JSON.stringify({
       contractsQtyDecimals: quantity.toString(),
-      quote: body.quote,
-      quoteId: body.quote.quote_id,
-      quoteSignature: body.quoteSignature,
+      quote: parsedBody.data.quote,
+      quoteId: parsedBody.data.quote.quote_id,
+      quoteSignature: parsedBody.data.quoteSignature,
     }),
     method: "POST",
   }));
   if (!consumed.ok) return response("quote is expired or lacks capacity", 409);
   const quoteState = await consumed.json() as { quote?: unknown; remainingContractsQtyDecimals?: unknown };
+  const parsedStoredQuote = quoteSchema.safeParse(quoteState.quote);
   if (
-    !isQuote(quoteState.quote) ||
-    JSON.stringify(quoteState.quote) !== JSON.stringify(body.quote) ||
-    quoteState.quote.offer_valid_until_unix_ms <= Date.now()
+    !parsedStoredQuote.success ||
+    JSON.stringify(parsedStoredQuote.data) !== JSON.stringify(parsedBody.data.quote) ||
+    parsedStoredQuote.data.offer_valid_until_unix_ms <= Date.now()
   ) {
     return response("quote could not be revalidated", 409);
   }
 
   const operationalFee = premiumTotal * config.bps / 10_000n;
   const collateralAmount = collateralAmountForQuantity(quantity, supportedChain);
-  const takerAddress = normalizeSuiAddress(body.takerAddress);
+  const takerAddress = normalizeSuiAddress(parsedBody.data.takerAddress);
   const order = {
     domain: new TextEncoder().encode("otp:order:v1"),
     seller: takerAddress,
@@ -391,10 +377,10 @@ export async function prepareUnderwrite(
     call_put_marker: supportedChain.callPutMarker,
     side_market: 1,
     strike_price: supportedChain.strikePrice,
-    expiry_ms: body.quote.expiry_unix_ms,
+    expiry_ms: parsedBody.data.quote.expiry_unix_ms,
     contracts_quantity: quantity.toString(),
-    premium_per_contract: body.quote.cash_premium_per_contract,
-    good_till_ms: body.quote.offer_valid_until_unix_ms,
+    premium_per_contract: parsedBody.data.quote.cash_premium_per_contract,
+    good_till_ms: parsedBody.data.quote.offer_valid_until_unix_ms,
     buyer_vault_id: supportedChain.buyerVaultId,
     signer: supportedChain.buyerOwnerAddress,
   };
@@ -413,18 +399,18 @@ export async function prepareUnderwrite(
     buyer_owner_address: supportedChain.buyerOwnerAddress,
     buyer_vault_id: supportedChain.buyerVaultId,
     call_put_marker: supportedChain.callPutMarker,
-    cash_premium_per_contract: body.quote.cash_premium_per_contract,
+    cash_premium_per_contract: parsedBody.data.quote.cash_premium_per_contract,
     contracts_qty_decimals: quantity.toString(),
-    expiry_unix_ms: body.quote.expiry_unix_ms,
+    expiry_unix_ms: parsedBody.data.quote.expiry_unix_ms,
     market_id: supportedChain.marketId,
     order_payload_json: JSON.stringify({ ...order, domain: "otp:order:v1" }),
     order_public_key: toBase64(publicKey),
     order_signature: signed.signature,
-    quote_id: body.quote.quote_id,
-    quote_payload_json: JSON.stringify(body.quote),
-    quote_signature: body.quoteSignature,
+    quote_id: parsedBody.data.quote.quote_id,
+    quote_payload_json: JSON.stringify(parsedBody.data.quote),
+    quote_signature: parsedBody.data.quoteSignature,
     series_id: supportedChain.seriesId,
-    strike_price_decimals: body.quote.strike_price_decimals,
+    strike_price_decimals: parsedBody.data.quote.strike_price_decimals,
     taker_address: takerAddress,
     underwrite_id: underwriteId,
   });

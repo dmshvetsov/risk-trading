@@ -200,6 +200,24 @@ describe("prepareUnderwrite", () => {
     assert.equal(exhausted.status, 409);
   });
 
+  it("rejects malformed prepare payloads", async () => {
+    const invalidQuantity = await prepareUnderwrite(
+      request({ contractsQtyDecimals: 500000 }),
+      env().value,
+      store(),
+      chain,
+    );
+    assert.equal(invalidQuantity.status, 400);
+
+    const invalidAddress = await prepareUnderwrite(
+      request({ takerAddress: "not-an-address" }),
+      env().value,
+      store(),
+      chain,
+    );
+    assert.equal(invalidAddress.status, 400);
+  });
+
   it("rejects missing config, invalid fee BPS, and a mismatched maker key", async () => {
     assert.equal((await prepareUnderwrite(request(), env({ OTP_PACKAGE_ID: undefined }).value, store(), chain)).status, 503);
     assert.equal((await prepareUnderwrite(request(), env({ OPERATION_FEE_BPS: "10001" }).value, store(), chain)).status, 503);
