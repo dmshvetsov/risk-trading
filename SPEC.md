@@ -185,6 +185,8 @@ Signature scheme for v1 MUST be Sui personal-message signing over the BCS bytes 
 
 RFQ server MUST send quote to the Makers order endpoint only for maker that created this quote.
 
+For the MVP BTC/USDC market, RFQ server MUST accept only option expiries that happen at 08:00 UTC on Fridays, up to and including the last Friday of the next calendar month.
+
 
 ```
 type QuoteRequest = {

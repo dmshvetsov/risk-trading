@@ -13,7 +13,7 @@ import worker, {
 } from "./index";
 import { createStubQuote } from "./stub-quote-provider";
 
-const validExpiryUnixMs = Date.UTC(2026, 6, 31);
+const validExpiryUnixMs = Date.UTC(2026, 6, 31, 8);
 
 type MakerVaultRow = {
   created_at: string;
@@ -452,7 +452,7 @@ describe("shared quote request path", () => {
       collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
       collateral_token_decimals: 8,
       contracts_qty_decimals: "5000000",
-      expiry_unix_ms: Date.UTC(2026, 6, 31),
+      expiry_unix_ms: validExpiryUnixMs,
       long_short_marker: 2,
       oracle_base_symbol: "BTC",
       oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
@@ -472,7 +472,7 @@ describe("shared quote request path", () => {
         body: JSON.stringify({
           request: {
             ...request,
-            expiry_unix_ms: Date.UTC(2026, 7, 7),
+            expiry_unix_ms: Date.UTC(2026, 7, 7, 8),
             strike_price_decimals: "66000000000",
           },
         }),
@@ -483,6 +483,35 @@ describe("shared quote request path", () => {
 
     assert.equal(offGridStrike.status, 400);
     assert.equal(tooLateExpiry.status, 400);
+    vi.restoreAllMocks();
+  });
+
+  it("rejects Friday expiries that are not at 08:00 UTC", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 5, 25));
+    const response = await worker.fetch(
+      new Request("https://example.com/api/quotes", {
+        body: JSON.stringify({
+          request: {
+            call_put_marker: 1,
+            cash_token_address: "0x0::usdc::USDC",
+            cash_token_decimals: 6,
+            collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+            collateral_token_decimals: 8,
+            contracts_qty_decimals: "5000000",
+            expiry_unix_ms: Date.UTC(2026, 6, 31),
+            long_short_marker: 2,
+            oracle_base_symbol: "BTC",
+            oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+            oracle_quote_symbol: "USDC",
+            strike_price_decimals: "66000000000",
+          },
+        }),
+        method: "POST",
+      }),
+      createEnv(),
+    );
+
+    assert.equal(response.status, 400);
     vi.restoreAllMocks();
   });
 

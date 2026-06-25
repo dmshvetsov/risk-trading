@@ -31,7 +31,7 @@ function lastFridayOfMonth(year: number, month: number) {
   const date = new Date(Date.UTC(year, month + 1, 0));
   const day = date.getUTCDay();
   const daysSinceFriday = (day + 2) % 7;
-  return Date.UTC(year, month, date.getUTCDate() - daysSinceFriday);
+  return Date.UTC(year, month, date.getUTCDate() - daysSinceFriday, 8);
 }
 
 export function isTradableExpiry(expiryUnixMs: number, nowUnixMs = Date.now()) {
@@ -43,7 +43,7 @@ export function isTradableExpiry(expiryUnixMs: number, nowUnixMs = Date.now()) {
   return (
     Number.isInteger(expiryUnixMs) &&
     expiryUnixMs > nowUnixMs &&
-    expiry.getUTCHours() === 0 &&
+    expiry.getUTCHours() === 8 &&
     expiry.getUTCMinutes() === 0 &&
     expiry.getUTCSeconds() === 0 &&
     expiry.getUTCMilliseconds() === 0 &&

@@ -28,7 +28,7 @@ const OrderV1Bcs = bcs.struct("OrderV1", {
   buyer_vault_id: bcs.Address,
   signer: bcs.Address,
 });
-const expiry = Date.UTC(2026, 6, 31);
+const expiry = Date.UTC(2026, 6, 31, 8);
 const marketId =
   "0xf4f1333e5cb033fb9f29d85a0992db7ae9f6c45d7a2a0ef3a0153ef52d61ac3d";
 const packageId =
@@ -152,11 +152,11 @@ describe("prepareUnderwrite", () => {
   it("derives known testnet series ids from natural option terms", () => {
     assert.equal(
       deriveSeriesId(packageId, marketId, 1, "66000000000", expiry),
-      "0x2fb2ea03167e18a90ddcf2a780777ea817b2fa72c55c2f822d35f16d202f2626",
+      "0x5a9ea5323d86e793a3b8897eb3b2344357adb4112d1e166f65843c7ac2dc5928",
     );
     assert.equal(
       deriveSeriesId(packageId, marketId, 2, "61000000000", expiry),
-      "0x0931c8c81230f62f985627fff2affc573bc57245af88fc26ccef949f1f6bb7bb",
+      "0x1adb3701d7662bcb95f8e90d546ccb4541bce9b01ef2e3beb44b6639153734b4",
     );
   });
 
