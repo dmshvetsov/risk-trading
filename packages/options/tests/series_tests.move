@@ -67,6 +67,8 @@ fun anyone_can_create_call_series_with_internal_collateral_pool() {
     scenario.next_tx(USER);
     let mut market = scenario.take_shared<Market>();
     let now = clock_at(NOW_MS, scenario.ctx());
+    let expected_series_id = market::derived_series_id(&market, OPTION_TYPE_CALL, STRIKE_PRICE, EXPIRY_MS);
+    assert_eq!(market::is_series_claimed(&market, OPTION_TYPE_CALL, STRIKE_PRICE, EXPIRY_MS), false);
     let series_id = series::create_series<QUOTE, BASE>(
         &mut market,
         OPTION_TYPE_CALL,
@@ -75,6 +77,8 @@ fun anyone_can_create_call_series_with_internal_collateral_pool() {
         &now,
         scenario.ctx(),
     );
+    assert_eq!(series_id, expected_series_id);
+    assert_eq!(market::is_series_claimed(&market, OPTION_TYPE_CALL, STRIKE_PRICE, EXPIRY_MS), true);
     now.destroy_for_testing();
     test_scenario::return_shared(market);
 
@@ -306,6 +310,27 @@ fun duplicate_market_type_strike_expiry_aborts() {
         scenario.ctx(),
     );
     now.destroy_for_testing();
+    test_scenario::return_shared(market);
+    scenario.end();
+}
+
+#[test]
+fun derived_series_id_depends_on_natural_terms() {
+    let (mut scenario, _) = create_market_fixture();
+
+    scenario.next_tx(USER);
+    let market = scenario.take_shared<Market>();
+
+    let call_id = market::derived_series_id(&market, OPTION_TYPE_CALL, STRIKE_PRICE, EXPIRY_MS);
+    let put_id = market::derived_series_id(&market, OPTION_TYPE_PUT, STRIKE_PRICE, EXPIRY_MS);
+    let shifted_strike_id = market::derived_series_id(&market, OPTION_TYPE_CALL, STRIKE_PRICE + 1, EXPIRY_MS);
+    let shifted_expiry_id = market::derived_series_id(&market, OPTION_TYPE_CALL, STRIKE_PRICE, EXPIRY_MS + 1);
+
+    assert!(call_id != put_id);
+    assert!(call_id != shifted_strike_id);
+    assert!(call_id != shifted_expiry_id);
+    assert_eq!(market::is_series_claimed(&market, OPTION_TYPE_CALL, STRIKE_PRICE, EXPIRY_MS), false);
+
     test_scenario::return_shared(market);
     scenario.end();
 }

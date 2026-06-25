@@ -7,6 +7,7 @@ use std::type_name::{Self, TypeName};
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
+use sui::derived_object;
 use sui::dynamic_field;
 use sui::event;
 use sui::table::{Self, Table};
@@ -173,12 +174,15 @@ public fun create_series<QuoteCoin, BaseCoin>(
     let now_ms = clock.timestamp_ms();
     assert!(expiry_ms > now_ms, EExpiredSeries);
     assert!(expiry_ms - now_ms > MIN_UNDERWRITING_TIME_TO_EXPIRY_MS, EExpiredSeries);
-    assert!(!market::has_series(market, option_type, strike_price, expiry_ms), EDuplicateSeries);
+    assert!(!market::is_series_claimed(market, option_type, strike_price, expiry_ms), EDuplicateSeries);
 
     let exercise_window_end_ms = expiry_ms + EXERCISE_WINDOW_MS;
     let exception_window_end_ms = exercise_window_end_ms + EXCEPTION_WINDOW_MS;
-    let series_id = object::new(ctx);
-    let series_object_id = object::uid_to_inner(&series_id);
+    let series_id = derived_object::claim(
+        market::uid_mut(market),
+        market::series_key(option_type, strike_price, expiry_ms),
+    );
+    let series_object_id = series_id.to_inner();
     let market_id = market::id(market);
 
     let series = Series<QuoteCoin, BaseCoin> {
@@ -212,7 +216,6 @@ public fun create_series<QuoteCoin, BaseCoin>(
         state: STATE_OPEN,
     };
 
-    market::add_series(market, option_type, strike_price, expiry_ms, series_object_id);
     event::emit(SeriesCreated {
         series_id: series_object_id,
         market_id,

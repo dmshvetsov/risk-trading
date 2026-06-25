@@ -2,6 +2,7 @@ module options_trading_protocol::market;
 
 use std::string::String;
 use std::type_name::{Self, TypeName};
+use sui::derived_object;
 use sui::dynamic_field;
 use sui::event;
 
@@ -134,18 +135,23 @@ public(package) fun assert_admin(market: &Market, cap: &AdminCap) {
     assert!(market.admin_cap_id == object::id(cap), ENotAdmin);
 }
 
-public(package) fun has_series(market: &Market, option_type: u8, strike_price: u64, expiry_ms: u64): bool {
-    dynamic_field::exists(&market.id, SeriesKey(option_type, strike_price, expiry_ms))
+public(package) fun uid_mut(market: &mut Market): &mut UID {
+    &mut market.id
 }
 
-public(package) fun add_series(
-    market: &mut Market,
-    option_type: u8,
-    strike_price: u64,
-    expiry_ms: u64,
-    series_id: ID,
-) {
-    dynamic_field::add(&mut market.id, SeriesKey(option_type, strike_price, expiry_ms), series_id);
+public(package) fun series_key(option_type: u8, strike_price: u64, expiry_ms: u64): SeriesKey {
+    SeriesKey(option_type, strike_price, expiry_ms)
+}
+
+public fun derived_series_id(market: &Market, option_type: u8, strike_price: u64, expiry_ms: u64): ID {
+    object::id_from_address(derived_object::derive_address(
+        object::id(market),
+        series_key(option_type, strike_price, expiry_ms),
+    ))
+}
+
+public fun is_series_claimed(market: &Market, option_type: u8, strike_price: u64, expiry_ms: u64): bool {
+    derived_object::exists(&market.id, series_key(option_type, strike_price, expiry_ms))
 }
 
 public fun supports_coin_types<QuoteCoin, BaseCoin>(market: &Market): bool {
