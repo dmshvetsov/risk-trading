@@ -353,8 +353,6 @@ Premium and fee handling:
 
 The market MAY admin-configured maximum fee basis points. If present, the smart contract MUST reject underwriting if fees above that maximum fee.
 
-Underwrite public functions MUST NOT be PTB composable.
-
 `OrderV1` replay attacks protection is made by `market_id`, `series_id`, `buyer_vault_id` on-chain checks that must match intended network (mainnet, testente) object IDs.
 
 The contract MUST emit `Underwritten` with:

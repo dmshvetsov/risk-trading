@@ -67,7 +67,7 @@ public struct Underwritten has copy, drop {
     long_token_id: ID,
 }
 
-entry fun underwrite_call<QuoteCoin, BaseCoin>(
+public fun underwrite_call<QuoteCoin, BaseCoin>(
     market: &Market,
     series: &mut Series<QuoteCoin, BaseCoin>,
     buyer_vault: &mut BuyerVault<QuoteCoin>,
@@ -101,7 +101,7 @@ entry fun underwrite_call<QuoteCoin, BaseCoin>(
     );
 }
 
-entry fun underwrite_put<QuoteCoin, BaseCoin>(
+public fun underwrite_put<QuoteCoin, BaseCoin>(
     market: &Market,
     series: &mut Series<QuoteCoin, BaseCoin>,
     buyer_vault: &mut BuyerVault<QuoteCoin>,
