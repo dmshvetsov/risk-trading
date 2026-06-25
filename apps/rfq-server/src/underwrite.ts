@@ -174,11 +174,10 @@ type QuoteStore = { fetch(request: Request): Promise<Response> };
 
 const OrderV1Bcs = bcs.struct("OrderV1", {
   domain: bcs.byteVector(),
-  seller: bcs.Address,
+  taker_address: bcs.Address,
   market_id: bcs.Address,
-  series_id: bcs.Address,
   call_put_marker: bcs.u8(),
-  side_market: bcs.u8(),
+  side_marker: bcs.u8(),
   strike_price: bcs.u64(),
   expiry_ms: bcs.u64(),
   contracts_quantity: bcs.u64(),
@@ -371,11 +370,10 @@ export async function prepareUnderwrite(
   const takerAddress = normalizeSuiAddress(parsedBody.data.takerAddress);
   const order = {
     domain: new TextEncoder().encode("otp:order:v1"),
-    seller: takerAddress,
+    taker_address: takerAddress,
     market_id: supportedChain.marketId,
-    series_id: supportedChain.seriesId,
     call_put_marker: supportedChain.callPutMarker,
-    side_market: 1,
+    side_marker: 1,
     strike_price: supportedChain.strikePrice,
     expiry_ms: parsedBody.data.quote.expiry_unix_ms,
     contracts_quantity: quantity.toString(),

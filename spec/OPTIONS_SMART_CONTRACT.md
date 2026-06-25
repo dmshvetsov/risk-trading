@@ -252,11 +252,10 @@ struct SignedOrderV1 has drop {
 ```
 struct OrderV1 has copy, drop {
     domain: vector<u8>, // exactly "otp:order:v1"
-    seller: address,
+    taker_address: address,
     market_id: address,
-    series_id: address,
     call_put_marker: u8 // 1: call option 2: put option
-    side_market: u8 // 1: long (buy option) 2: short (sell option)
+    side_marker: u8 // 1: long (buy option) 2: short (sell option)
     strike_price: u64, // in QuoteCoin
     expiry_ms: u64,
     contracts_quantity: u64,
@@ -275,7 +274,7 @@ struct OrderV1 has copy, drop {
 - Implementations MUST reject missing, additional, reordered, wrongly typed, or out-of-range fields.
 - The signature payload MUST be the canonical BCS bytes wrapped according to Sui personal-message signing.
 - fields with address bytes of `OrderV1` should be checked for equality against corresponding objects using `object::id(object).to_address()`
-- on-chain order domain verification relies on market_id, series_id, and buyer_vault_id equality checks against live objects
+- on-chain order domain verification relies on `market_id`, `buyer_vault_id`, and natural series terms (`call_put_marker`, `strike_price`, `expiry_ms`) matching live objects
 
 OrderV1 signature MUST be standard Sui serialized Ed25519 signature blob. Verify the signature against `SignedOrderV1.public_key` using Sui's personal-message flow and check the `SignedOrderV1.public_key` derived address equals `OrderV1.signer`, `OrderV1` `signer` MUST be address of a public key that produced the `OrderV1` signature.
 
@@ -304,9 +303,8 @@ Underwriting MUST be rejected when the series expiry is less than or equal to th
 For a covered call atomic underwrite transaction:
 - seller provides signed by a buyer `OrderV1`
 - provided `OrderV1` matches seller options parameters in full:
-  - `seller` address
+  - `taker_address`
   - `market_id`
-  - `series_id`
   - `call_put_marker`
   - `strike_price`
   - `expiry_ms`
@@ -323,10 +321,9 @@ For a covered call atomic underwrite transaction:
 For a cash-secured put atomic underwrite transaction:
 - seller provides signed by a buyer `OrderV1`
 - provided `OrderV1` matches seller options parameters in full:
-  - `seller` address
+  - `taker_address`
   - `market_id`
-  - `series_id`
-  - `call_put_market`
+  - `call_put_marker`
   - `strike_price`
   - `expiry_ms`
   - quantity of contracts to underwrite
@@ -353,7 +350,7 @@ Premium and fee handling:
 
 The market MAY admin-configured maximum fee basis points. If present, the smart contract MUST reject underwriting if fees above that maximum fee.
 
-`OrderV1` replay attacks protection is made by `market_id`, `series_id`, `buyer_vault_id` on-chain checks that must match intended network (mainnet, testente) object IDs.
+`OrderV1` replay attacks protection is made by `market_id`, natural series terms, and `buyer_vault_id` on-chain checks that must match intended network (mainnet, testnet) objects.
 
 The contract MUST emit `Underwritten` with:
 - series id,

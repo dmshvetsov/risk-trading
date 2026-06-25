@@ -251,7 +251,6 @@ type MakerOrderV1 = {
   domain: 'otp:order:v1'
   taker_address: string // must match ExecutionRequest.taker_address, on-chain seller addres
   market_id: string,
-  series_id: string,
   call_put_marker: 1 | 2 // u8 1: call 2: put, must match quote request
   side_marker: 1 | 2 // u8 1: long (buy option) 2: short (sell option), must match quote request
   strike_price_decimals: string // uses configured Pyth oracle exponent, must match quote request and derived vault

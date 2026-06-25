@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { bcs } from "@mysten/sui/bcs";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { fromBase64 } from "@mysten/sui/utils";
 import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
@@ -11,6 +12,20 @@ import {
 } from "./underwrite";
 
 const keypair = Ed25519Keypair.fromSecretKey(new Uint8Array(32).fill(7));
+const OrderV1Bcs = bcs.struct("OrderV1", {
+  domain: bcs.byteVector(),
+  taker_address: bcs.Address,
+  market_id: bcs.Address,
+  call_put_marker: bcs.u8(),
+  side_marker: bcs.u8(),
+  strike_price: bcs.u64(),
+  expiry_ms: bcs.u64(),
+  contracts_quantity: bcs.u64(),
+  premium_per_contract: bcs.u64(),
+  good_till_ms: bcs.u64(),
+  buyer_vault_id: bcs.Address,
+  signer: bcs.Address,
+});
 const expiry = Date.UTC(2026, 6, 31);
 const quote = {
   call_put_marker: 1 as const,
@@ -150,6 +165,20 @@ describe("prepareUnderwrite", () => {
     assert.equal(result.target, `${testEnv.value.OTP_PACKAGE_ID}::underwriting::underwrite_call`);
     assert.equal(typeof result.signedOrderBytes, "string");
     assert.equal(typeof result.orderSignature, "string");
+    const order = OrderV1Bcs.parse(fromBase64(String(result.orderBytes)));
+    assert.deepEqual(Array.from(order.domain), Array.from(new TextEncoder().encode("otp:order:v1")));
+    assert.equal(order.taker_address, `0x${"66".repeat(32)}`);
+    assert.equal(order.market_id, chain.marketId);
+    assert.equal(order.call_put_marker, 1);
+    assert.equal(order.side_marker, 1);
+    assert.equal(order.strike_price, quote.strike_price_decimals);
+    assert.equal(order.expiry_ms, String(expiry));
+    assert.equal(order.contracts_quantity, "500000");
+    assert.equal(order.premium_per_contract, quote.cash_premium_per_contract);
+    assert.equal(order.good_till_ms, String(expiry - 1));
+    assert.equal(order.buyer_vault_id, chain.buyerVaultId);
+    assert.equal(order.signer, chain.buyerOwnerAddress);
+    assert.equal("series_id" in order, false);
     const verifiedKey = await verifyPersonalMessageSignature(
       fromBase64(String(result.orderBytes)),
       String(result.orderSignature),
