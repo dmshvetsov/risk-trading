@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Join the Faven waitlist to get early access."
+    />
+    <title>Faven</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <main class="min-h-screen px-6 py-8 sm:px-8">
+      <section
+        class="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-5xl flex-col items-center justify-center text-center"
+      >
+        <img
+          alt="Faven logotype"
+          class="mb-8 w-[150px] sm:mb-10 sm:w-[188px]"
+          src="/faven-logo.svg"
+        />
+        <h1
+          class="font-display max-w-4xl text-[2.7rem] font-medium leading-[0.95] tracking-[-0.06em] text-[#111111] sm:text-[4.4rem]"
+        >
+          Set an ideal price to buy or sell.
+          <br />
+          Get paid while you wait it.
+        </h1>
+        <p
+          class="mt-5 max-w-2xl text-[1.125rem] leading-8 text-[#111111]/78 sm:mt-6 sm:text-[1.45rem]"
+        >
+          Faven helps you buy and sell BTC SUI ETH at your target price and earn while the market moves above and below your target.
+        </p>
+        <div class="mt-10 w-full max-w-[34rem] sm:mt-12">
+          <div class="newsletter-form-container">
+            <form
+              class="newsletter-form"
+              action="https://app.loops.so/api/newsletter-form/cmqxrrtkk1xpx0jx0ov8v5gnh"
+              method="POST"
+            >
+              <input
+                class="newsletter-form-input"
+                placeholder="Enter email address"
+                required
+                type="email"
+                name="newsletter-form-input"
+              />
+              <button type="submit" class="newsletter-form-button">
+                Join Waitlist
+              </button>
+              <button type="button" class="newsletter-loading-button" style="display: none">
+                Please wait...
+              </button>
+            </form>
+            <div class="newsletter-success">
+              <p class="newsletter-success-message">Thanks! We'll be in touch!</p>
+            </div>
+            <div class="newsletter-error">
+              <p class="newsletter-error-message">
+                Oops! Something went wrong, please try again
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
