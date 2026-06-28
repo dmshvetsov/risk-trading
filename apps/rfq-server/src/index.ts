@@ -25,6 +25,7 @@ import {
   createQuoteRequestSchema,
   quoteRequestPayloadSchema,
 } from "./validation";
+import { buildSeriesGrid, getSpot } from "./series-grid";
 
 type TxValidationResult = {
   ownerAddress: string;
@@ -126,6 +127,7 @@ const MAKER_SUPPORTED_COINS_PATH = "/api/maker/supported-coins";
 const MAKER_VAULTS_PATH = "/api/maker/vaults";
 const MAKER_VAULT_SUBMISSIONS_PATH = "/api/maker/vaults/submissions";
 const QUOTES_PATH = "/api/quotes";
+const SERIES_PATH = "/api/series";
 const BTC_USD_FEED_ID =
   "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
 const LOCAL_USDC_TYPE = "0x0::usdc::USDC";
@@ -276,6 +278,19 @@ async function requestQuote(request: Request, env: Env) {
     { quote, quote_signature: quoteSignature },
     201,
   );
+}
+
+async function listSeries(env: Env) {
+  if (!env.OTP_PACKAGE_ID) {
+    return jsonResponse({ error: "series configuration is unavailable" }, 503);
+  }
+
+  try {
+    const spot = await getSpot("BTC");
+    return jsonResponse(buildSeriesGrid({ packageId: env.OTP_PACKAGE_ID, spot }));
+  } catch {
+    return jsonResponse({ error: "spot price is unavailable" }, 503);
+  }
 }
 
 function normalizeUrl(url: unknown) {
@@ -640,6 +655,9 @@ app.get(HEALTH_PATH, (c) => Response.json(buildHealthPayload(c.env)));
 
 app.post(QUOTES_PATH, (c) => requestQuote(c.req.raw, c.env));
 app.all(QUOTES_PATH, () => new Response("Method not allowed", { status: 405 }));
+
+app.get(SERIES_PATH, (c) => listSeries(c.env));
+app.all(SERIES_PATH, () => new Response("Method not allowed", { status: 405 }));
 
 app.post("/underwrites/prepare", async (c) => {
   let quoteId = "";

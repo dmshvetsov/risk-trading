@@ -12,6 +12,8 @@ import worker, {
   quoteStoreNameFromRequest,
 } from "./index";
 import { createStubQuote } from "./stub-quote-provider";
+import { deriveSeriesId, TESTNET_UNDERWRITE_CONFIGS } from "./underwrite";
+import { futureFridayExpiries } from "./series-grid";
 
 const validExpiryUnixMs = Date.UTC(2026, 6, 31, 8);
 
@@ -544,6 +546,153 @@ describe("shared quote request path", () => {
     );
 
     assert.equal(response.status, 503);
+  });
+});
+
+describe("recommended series API", () => {
+  it("excludes expiries inside the minimum underwriting window", () => {
+    assert.deepEqual(
+      futureFridayExpiries(Date.UTC(2026, 5, 26, 1)),
+      [
+        Date.UTC(2026, 6, 3, 8),
+        Date.UTC(2026, 6, 10, 8),
+        Date.UTC(2026, 6, 17, 8),
+        Date.UTC(2026, 6, 24, 8),
+        Date.UTC(2026, 6, 31, 8),
+      ],
+    );
+  });
+
+  it("returns covered call and cash-secured put grids for future Friday expiries", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 5, 25, 12));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      Response.json({
+        parsed: [
+          {
+            price: {
+              expo: -2,
+              price: "6723456",
+              publish_time: 1_781_000_000,
+            },
+          },
+        ],
+      })
+    ));
+    const packageId =
+      "0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4";
+    const env = createEnv() as { OTP_PACKAGE_ID?: string };
+    env.OTP_PACKAGE_ID = packageId;
+
+    const response = await worker.fetch(
+      new Request("https://example.com/api/series", {
+        headers: { origin: "http://localhost:5173" },
+      }),
+      env as never,
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("access-control-allow-origin"), "*");
+    const payload = await response.json() as {
+      market: {
+        baseCoinType: string;
+        marketId: string;
+        oracleBaseSymbol: string;
+        oracleQuoteSymbol: string;
+        quoteCoinType: string;
+        strikeScale: number;
+      };
+      spot: { price: number; publishTime: number; symbol: string };
+      strategies: {
+        cashSecuredPut: Array<{
+          expiryUnixMs: number;
+          seriesId: string;
+          strikePriceDecimals: string;
+        }>;
+        coveredCall: Array<{
+          expiryUnixMs: number;
+          seriesId: string;
+          strikePriceDecimals: string;
+        }>;
+      };
+    };
+    const callConfig = TESTNET_UNDERWRITE_CONFIGS[0];
+    const putConfig = TESTNET_UNDERWRITE_CONFIGS[1];
+    const firstExpiry = Date.UTC(2026, 5, 26, 8);
+    const expectedExpiries = [
+      Date.UTC(2026, 5, 26, 8),
+      Date.UTC(2026, 6, 3, 8),
+      Date.UTC(2026, 6, 10, 8),
+      Date.UTC(2026, 6, 17, 8),
+      Date.UTC(2026, 6, 24, 8),
+      Date.UTC(2026, 6, 31, 8),
+    ];
+
+    assert.deepEqual(payload.market, {
+      baseCoinType: callConfig.baseCoinType,
+      marketId: callConfig.marketId,
+      oracleBaseSymbol: "BTC",
+      oracleFeedId:
+        "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+      oracleQuoteSymbol: "USDC",
+      quoteCoinType: callConfig.quoteCoinType,
+      strikeScale: 1_000_000,
+    });
+    assert.deepEqual(payload.spot, {
+      price: 67_234.56,
+      publishTime: 1_781_000_000,
+      symbol: "BTC",
+    });
+    assert.deepEqual(
+      [...new Set(payload.strategies.coveredCall.map((item) => item.expiryUnixMs))],
+      expectedExpiries,
+    );
+    assert.equal(payload.strategies.coveredCall.length, 36);
+    assert.equal(payload.strategies.cashSecuredPut.length, 36);
+    assert.deepEqual(
+      payload.strategies.coveredCall.slice(0, 6).map((item) => item.strikePriceDecimals),
+      [
+        "70000000000",
+        "71000000000",
+        "72000000000",
+        "74000000000",
+        "78000000000",
+        "82000000000",
+      ],
+    );
+    assert.deepEqual(
+      payload.strategies.cashSecuredPut.slice(0, 6).map((item) => item.strikePriceDecimals),
+      [
+        "65000000000",
+        "64000000000",
+        "63000000000",
+        "60000000000",
+        "55000000000",
+        "50000000000",
+      ],
+    );
+    assert.equal(
+      payload.strategies.coveredCall[0].seriesId,
+      deriveSeriesId(packageId, callConfig.marketId, 1, "70000000000", firstExpiry),
+    );
+    assert.equal(
+      payload.strategies.cashSecuredPut[0].seriesId,
+      deriveSeriesId(packageId, putConfig.marketId, 2, "65000000000", firstExpiry),
+    );
+    assert.equal(vi.mocked(fetch).mock.calls.length, 1);
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("does not return a series grid when spot is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })));
+    const response = await worker.fetch(
+      new Request("https://example.com/api/series"),
+      createEnv(),
+    );
+
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "spot price is unavailable" });
+    vi.unstubAllGlobals();
   });
 });
 
