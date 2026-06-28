@@ -95,7 +95,14 @@ Note that this command set a max operations fee 5%, in basis points, that will b
 
 ### creating an options-series
 
-To star underwrite specific strike, expiry, put/call option it must have a `Series` object for `BTC / tUSDC / tBTC` `Market` object.
+To start underwriting a specific strike, expiry, and put/call option, you first need a `Series` object under the `Market`.
+
+`create_series` now takes the shared `Market` object by mutable reference and also needs the Sui clock object.
+
+Option type markers:
+
+- `1u8` = call
+- `2u8` = put
 
 ```
 sui client ptb \
@@ -108,3 +115,49 @@ sui client ptb \
   @0x6 \
   --gas-budget 100000000
 ```
+
+The example above creates a put option series. Use `1u8` instead of `2u8` to create a call option series.
+
+### underwriting a call
+
+`underwrite_call` uses base coin collateral and a signed buyer order.
+
+The signed order bytes must be built off-chain from the current `OrderV1` / `SignedOrderV1` format, then passed as BCS bytes.
+
+```
+sui client ptb \
+  --move-call 0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4::underwriting::underwrite_call \
+  '<0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC, 0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC>' \
+  @0xf4f1333e5cb033fb9f29d85a0992db7ae9f6c45d7a2a0ef3a0153ef52d61ac3d \
+  @<SERIES_ID> \
+  @<BUYER_VAULT_ID> \
+  @<BASE_COLLATERAL_COIN_OBJECT_ID> \
+  x"<SIGNED_ORDER_BCS_HEX>" \
+  <OPERATIONAL_FEE>u64 \
+  @<FEE_RECIPIENT_ADDRESS> \
+  @0x6 \
+  --gas-budget 100000000
+```
+
+For calls, the base collateral coin value must match `contracts_quantity` in the signed order.
+
+### underwriting a put
+
+`underwrite_put` uses quote coin collateral and the same signed order flow.
+
+```
+sui client ptb \
+  --move-call 0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4::underwriting::underwrite_put \
+  '<0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC, 0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC>' \
+  @0xf4f1333e5cb033fb9f29d85a0992db7ae9f6c45d7a2a0ef3a0153ef52d61ac3d \
+  @<SERIES_ID> \
+  @<BUYER_VAULT_ID> \
+  @<QUOTE_COLLATERAL_COIN_OBJECT_ID> \
+  x"<SIGNED_ORDER_BCS_HEX>" \
+  <OPERATIONAL_FEE>u64 \
+  @<FEE_RECIPIENT_ADDRESS> \
+  @0x6 \
+  --gas-budget 100000000
+```
+
+For puts, the quote collateral coin value must match the collateral required by the series and signed order.
