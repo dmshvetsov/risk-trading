@@ -2,6 +2,16 @@ type Env = {
   ASSETS: {
     fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
   };
+  MARKET_DEMAND_CACHE?: KvNamespace;
+};
+
+type KvNamespace = {
+  get(key: string): Promise<string | null>;
+  put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ): Promise<void>;
 };
 
 type MarketDemandExample = {
@@ -33,11 +43,21 @@ type DeriveTicker = {
 
 const DERIVE_API_URL = "https://api-demo.lyra.finance";
 const CACHE_TTL_MS = 60 * 60 * 1000;
+const CACHE_TTL_SECONDS = CACHE_TTL_MS / 1000;
+const CACHE_RETENTION_SECONDS = CACHE_TTL_SECONDS * 2;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const MARKET_DEMAND_CACHE_KEY = "market-demand-examples";
+const MARKET_DEMAND_CACHE_CONTROL =
+  "public, max-age=3600, stale-while-revalidate=300";
 
-let cachedMarketDemand:
+type CachedMarketDemand = {
+  fetchedAt: number;
+  examples: MarketDemandExample[];
+};
+
+let localCachedMarketDemand:
   | {
-      expiresAt: number;
+      fetchedAt: number;
       examples: MarketDemandExample[];
     }
   | undefined;
@@ -47,33 +67,138 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/market-demand") {
-      return marketDemandResponse();
+      return marketDemandResponse(env);
     }
 
     return env.ASSETS.fetch(request);
   },
+
+  async scheduled(_controller: unknown, env: Env): Promise<void> {
+    try {
+      await refreshMarketDemandCache(env, Date.now());
+    } catch (error) {
+      console.error("Failed to refresh market demand cache", error);
+    }
+  },
 };
 
-export async function marketDemandResponse(): Promise<Response> {
+export async function marketDemandResponse(env?: Env): Promise<Response> {
   const now = Date.now();
+  const cached = await readMarketDemandCache(env);
 
-  if (cachedMarketDemand && cachedMarketDemand.expiresAt > now) {
-    return jsonResponse(cachedMarketDemand.examples);
+  if (cached && isFreshCache(cached, now)) {
+    return jsonResponse(cached.examples);
   }
 
   try {
-    const examples = await fetchMarketDemandExamples(now);
-    cachedMarketDemand = {
-      expiresAt: now + CACHE_TTL_MS,
-      examples,
-    };
-
-    return jsonResponse(examples);
+    const refreshed = await refreshMarketDemandCache(env, now);
+    return jsonResponse(refreshed.examples);
   } catch (error) {
     console.error("Failed to fetch market demand", error);
 
+    if (cached) {
+      return jsonResponse(cached.examples);
+    }
+
     return jsonResponse([]);
   }
+}
+
+async function refreshMarketDemandCache(
+  env: Env | undefined,
+  now: number,
+): Promise<CachedMarketDemand> {
+  const cached = {
+    fetchedAt: now,
+    examples: await fetchMarketDemandExamples(now),
+  };
+
+  await writeMarketDemandCache(env, cached);
+
+  return cached;
+}
+
+async function readMarketDemandCache(
+  env: Env | undefined,
+): Promise<CachedMarketDemand | undefined> {
+  if (env?.MARKET_DEMAND_CACHE) {
+    const raw = await env.MARKET_DEMAND_CACHE.get(MARKET_DEMAND_CACHE_KEY);
+
+    if (!raw) {
+      return undefined;
+    }
+
+    return parseCachedMarketDemand(raw);
+  }
+
+  return localCachedMarketDemand;
+}
+
+async function writeMarketDemandCache(
+  env: Env | undefined,
+  cached: CachedMarketDemand,
+): Promise<void> {
+  if (env?.MARKET_DEMAND_CACHE) {
+    await env.MARKET_DEMAND_CACHE.put(
+      MARKET_DEMAND_CACHE_KEY,
+      JSON.stringify(cached),
+      { expirationTtl: CACHE_RETENTION_SECONDS },
+    );
+    return;
+  }
+
+  localCachedMarketDemand = cached;
+}
+
+function parseCachedMarketDemand(raw: string): CachedMarketDemand | undefined {
+  let value: unknown;
+
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const cached = value as Record<string, unknown>;
+
+  if (
+    typeof cached.fetchedAt !== "number" ||
+    !Array.isArray(cached.examples) ||
+    !cached.examples.every(isMarketDemandExample)
+  ) {
+    return undefined;
+  }
+
+  return {
+    fetchedAt: cached.fetchedAt,
+    examples: cached.examples,
+  };
+}
+
+function isFreshCache(cached: CachedMarketDemand, now: number): boolean {
+  return cached.fetchedAt + CACHE_TTL_MS > now;
+}
+
+function isMarketDemandExample(value: unknown): value is MarketDemandExample {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const example = value as Record<string, unknown>;
+
+  return (
+    (example.action === "buy" || example.action === "sell") &&
+    (example.asset === "BTC" || example.asset === "ETH") &&
+    typeof example.amount === "number" &&
+    typeof example.strike === "number" &&
+    typeof example.daysToExpiry === "number" &&
+    typeof example.premium === "number" &&
+    typeof example.instrumentName === "string"
+  );
 }
 
 async function fetchMarketDemandExamples(
@@ -334,7 +459,7 @@ function jsonResponse(examples: MarketDemandExample[]): Response {
     { examples },
     {
       headers: {
-        "cache-control": "public, max-age=3600, stale-while-revalidate=300",
+        "cache-control": MARKET_DEMAND_CACHE_CONTROL,
       },
     },
   );

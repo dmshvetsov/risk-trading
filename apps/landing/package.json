@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "check": "pnpm exec tsc --noEmit",
     "deploy": "pnpm build && pnpm exec wrangler deploy"
   },
   "devDependencies": {

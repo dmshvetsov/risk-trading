@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm exec wrangler dev",
     "test": "pnpm exec vitest run",
-    "typecheck": "pnpm exec tsc --noEmit -p tsconfig.json",
+    "check": "pnpm exec tsc --noEmit -p tsconfig.json",
     "db:migrate": "pnpm exec wrangler d1 migrations apply DB",
     "db:migrate:staging": "pnpm exec wrangler d1 migrations apply DB --env staging",
     "deploy:staging": "pnpm exec wrangler deploy --env staging"

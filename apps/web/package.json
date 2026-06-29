@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "tsc --noEmit && vite build",
+    "check": "pnpm exec tsc --noEmit -p tsconfig.json",
     "deploy:staging": "pnpm build --mode staging && pnpm exec wrangler deploy --env staging",
     "test": "vitest run"
   },
