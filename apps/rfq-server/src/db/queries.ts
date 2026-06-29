@@ -2,6 +2,7 @@ import { supportedQuoteCoins } from "../supported-quote-coins";
 import type {
   D1Database,
   MakerVaultRow,
+  OptionSeriesRow,
   UnderwriteRow,
   UnderwriteStatus,
 } from "../typedefs";
@@ -251,6 +252,79 @@ export async function queuePendingUnderwrite(
   if ((result.meta?.changes ?? 0) === 0) return false;
   await insertUnderwriteAudit(db, underwriteId, "queued", timestamp);
   return true;
+}
+
+export type UpsertOptionSeriesInput = Omit<
+  OptionSeriesRow,
+  | "created_at"
+  | "exception_window_end_ms"
+  | "exercise_window_end_ms"
+  | "expiry_price_decimals"
+  | "expiry_price_publish_time_ms"
+  | "updated_at"
+> &
+  Partial<
+    Pick<
+      OptionSeriesRow,
+      | "exception_window_end_ms"
+      | "exercise_window_end_ms"
+      | "expiry_price_decimals"
+      | "expiry_price_publish_time_ms"
+    >
+  >;
+
+export async function upsertOptionSeries(
+  db: D1Database,
+  input: UpsertOptionSeriesInput,
+) {
+  const timestamp = nowIsoString();
+  await db
+    .prepare(
+      `INSERT INTO option_series (
+         series_id, created_at, updated_at, market_id, create_tx_digest,
+         option_type, strike_price_decimals, strike_scale, expiry_unix_ms,
+         exercise_window_end_ms, exception_window_end_ms, quote_coin_type,
+         quote_decimals, base_coin_type, base_decimals, max_operational_fee_bps,
+         expiry_price_decimals, expiry_price_publish_time_ms
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(series_id) DO UPDATE SET
+         updated_at = excluded.updated_at,
+         market_id = excluded.market_id,
+         option_type = excluded.option_type,
+         strike_price_decimals = excluded.strike_price_decimals,
+         strike_scale = excluded.strike_scale,
+         expiry_unix_ms = excluded.expiry_unix_ms,
+         exercise_window_end_ms = COALESCE(excluded.exercise_window_end_ms, option_series.exercise_window_end_ms),
+         exception_window_end_ms = COALESCE(excluded.exception_window_end_ms, option_series.exception_window_end_ms),
+         quote_coin_type = excluded.quote_coin_type,
+         quote_decimals = excluded.quote_decimals,
+         base_coin_type = excluded.base_coin_type,
+         base_decimals = excluded.base_decimals,
+         max_operational_fee_bps = excluded.max_operational_fee_bps,
+         expiry_price_decimals = COALESCE(excluded.expiry_price_decimals, option_series.expiry_price_decimals),
+         expiry_price_publish_time_ms = COALESCE(excluded.expiry_price_publish_time_ms, option_series.expiry_price_publish_time_ms)`,
+    )
+    .bind(
+      input.series_id,
+      timestamp,
+      timestamp,
+      input.market_id,
+      input.create_tx_digest,
+      input.option_type,
+      input.strike_price_decimals,
+      input.strike_scale,
+      input.expiry_unix_ms,
+      input.exercise_window_end_ms ?? null,
+      input.exception_window_end_ms ?? null,
+      input.quote_coin_type,
+      input.quote_decimals,
+      input.base_coin_type,
+      input.base_decimals,
+      input.max_operational_fee_bps,
+      input.expiry_price_decimals ?? null,
+      input.expiry_price_publish_time_ms ?? null,
+    )
+    .run();
 }
 
 function insertUnderwriteAudit(

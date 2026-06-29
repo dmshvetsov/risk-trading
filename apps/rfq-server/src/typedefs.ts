@@ -65,3 +65,24 @@ export type UnderwriteRow = {
   underwrite_id: string;
   updated_at: string;
 };
+
+export type OptionSeriesRow = {
+  base_coin_type: string;
+  base_decimals: number;
+  create_tx_digest: string;
+  created_at: string;
+  exception_window_end_ms: number | null;
+  exercise_window_end_ms: number | null;
+  expiry_price_decimals: string | null;
+  expiry_price_publish_time_ms: number | null;
+  expiry_unix_ms: number;
+  market_id: string;
+  max_operational_fee_bps: number;
+  option_type: 1 | 2;
+  quote_coin_type: string;
+  quote_decimals: number;
+  series_id: string;
+  strike_price_decimals: string;
+  strike_scale: number;
+  updated_at: string;
+};

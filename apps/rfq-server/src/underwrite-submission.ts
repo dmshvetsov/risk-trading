@@ -6,12 +6,15 @@ import {
   queuePendingUnderwrite,
   readUnderwrite,
   updateUnderwriteStatus,
+  upsertOptionSeries,
 } from "./db/queries";
 import type { D1Database, UnderwriteStatus } from "./typedefs";
+import { TESTNET_UNDERWRITE_CONFIGS } from "./underwrite";
 
 type SubmissionEnv = {
   BROADCAST_QUEUE: { send(message: unknown): Promise<void> };
   DB: D1Database;
+  OPERATION_FEE_BPS?: string;
   SUI_RPC_URL?: string;
 };
 
@@ -185,6 +188,13 @@ export async function processUnderwriteSubmission(
 ) {
   if (!env.SUI_RPC_URL) throw new Error("SUI_RPC_URL is not configured");
   const submission = message.body;
+  const existing = await readUnderwrite(env.DB, submission.underwriteId);
+  if (existing?.status === "confirmed" && existing.tx_digest) {
+    await cacheConfirmedOptionSeries(env, submission.underwriteId, existing.tx_digest);
+    message.ack();
+    return;
+  }
+  let confirmedDigest: string | null = null;
   try {
     const response = await request(env.SUI_RPC_URL, {
       body: JSON.stringify({
@@ -220,6 +230,7 @@ export async function processUnderwriteSubmission(
       await persistStatus(env.DB, submission.underwriteId, "confirmed", onStatus, {
         txDigest: payload.result.digest,
       });
+      confirmedDigest = payload.result.digest;
     }
   } catch (error) {
     await persistStatus(env.DB, submission.underwriteId, "failed", onStatus, {
@@ -227,7 +238,50 @@ export async function processUnderwriteSubmission(
       failureMsg: errorMessage(error),
     });
   }
+  if (confirmedDigest) {
+    await cacheConfirmedOptionSeries(env, submission.underwriteId, confirmedDigest);
+  }
   message.ack();
+}
+
+async function cacheConfirmedOptionSeries(
+  env: SubmissionEnv,
+  underwriteId: string,
+  txDigest: string,
+) {
+  const underwrite = await readUnderwrite(env.DB, underwriteId);
+  if (underwrite?.status !== "confirmed") return;
+  const chain = TESTNET_UNDERWRITE_CONFIGS.find(
+    (candidate) =>
+      candidate.callPutMarker === underwrite.call_put_marker &&
+      candidate.marketId === underwrite.market_id,
+  );
+  const maxOperationalFeeBps = parseBasisPoints(env.OPERATION_FEE_BPS);
+  if (!chain) throw new Error("Confirmed underwrite uses unsupported option series terms");
+  if (maxOperationalFeeBps === null) throw new Error("OPERATION_FEE_BPS is not configured");
+
+  await upsertOptionSeries(env.DB, {
+    base_coin_type: chain.baseCoinType,
+    base_decimals: 8,
+    create_tx_digest: txDigest,
+    expiry_unix_ms: underwrite.expiry_unix_ms,
+    market_id: underwrite.market_id,
+    max_operational_fee_bps: maxOperationalFeeBps,
+    option_type: underwrite.call_put_marker,
+    quote_coin_type: chain.quoteCoinType,
+    quote_decimals: 6,
+    series_id: underwrite.series_id,
+    strike_price_decimals: underwrite.strike_price_decimals,
+    strike_scale: chain.strikeScale,
+  });
+}
+
+function parseBasisPoints(value: string | undefined) {
+  if (!value || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 10_000
+    ? parsed
+    : null;
 }
 
 async function persistStatus(

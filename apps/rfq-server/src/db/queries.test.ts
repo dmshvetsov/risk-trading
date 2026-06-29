@@ -5,6 +5,7 @@ import {
   queuePendingUnderwrite,
   readUnderwrite,
   updateUnderwriteStatus,
+  upsertOptionSeries,
 } from "./queries";
 import type { D1Database, D1Result } from "../typedefs";
 
@@ -69,6 +70,41 @@ describe("underwrite persistence", () => {
     assert.match(calls[0].sql, /status = 'queued'/);
     assert.match(calls[0].sql, /status = 'pending'/);
     assert.deepEqual(calls[1].values.slice(1), ["underwrite-1", "queued"]);
+  });
+
+  it("upserts option series without deleting historical rows", async () => {
+    const calls: Array<{ sql: string; values: unknown[] }> = [];
+    const db = recordingDb(calls, 1);
+
+    await upsertOptionSeries(db, {
+      base_coin_type: "0xbase::coin::BASE",
+      base_decimals: 8,
+      create_tx_digest: "digest-1",
+      expiry_unix_ms: 1_800_000_000_000,
+      market_id: "0xmarket",
+      max_operational_fee_bps: 258,
+      option_type: 1,
+      quote_coin_type: "0xquote::coin::QUOTE",
+      quote_decimals: 6,
+      series_id: "0xseries",
+      strike_price_decimals: "100000000000",
+      strike_scale: 1_000_000,
+    });
+
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].sql, /INSERT INTO option_series/);
+    assert.match(calls[0].sql, /ON CONFLICT\(series_id\) DO UPDATE/);
+    assert.doesNotMatch(calls[0].sql, /create_tx_digest = excluded\.create_tx_digest/);
+    assert.match(calls[0].sql, /COALESCE\(excluded\.expiry_price_decimals, option_series\.expiry_price_decimals\)/);
+    assert.doesNotMatch(calls[0].sql, /DELETE FROM option_series/);
+    assert.deepEqual(calls[0].values.slice(3, 9), [
+      "0xmarket",
+      "digest-1",
+      1,
+      "100000000000",
+      1_000_000,
+      1_800_000_000_000,
+    ]);
   });
 });
 

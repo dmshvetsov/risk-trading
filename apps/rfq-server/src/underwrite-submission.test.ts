@@ -9,6 +9,7 @@ import {
   submitUnderwrite,
   underwriteReceipt,
 } from "./underwrite-submission";
+import { TESTNET_UNDERWRITE_CONFIGS } from "./underwrite";
 import type { D1Database, UnderwriteRow } from "./typedefs";
 
 const seller = Ed25519Keypair.fromSecretKey(new Uint8Array(32).fill(4));
@@ -74,6 +75,82 @@ describe("underwrite submission lifecycle", () => {
     assert.deepEqual(steps, ["submitted", "confirmed", "ack"]);
     assert.equal(fixture.row.tx_digest, "digest-1");
     assert.equal(fixture.row.status, "confirmed");
+    assert.equal(fixture.optionSeriesWrites.length, 1);
+    assert.match(fixture.optionSeriesWrites[0].sql, /INSERT INTO option_series/);
+    assert.equal(fixture.optionSeriesWrites[0].values[0], fixture.row.series_id);
+    assert.equal(fixture.optionSeriesWrites[0].values[4], "digest-1");
+  });
+
+  it("uses an idempotent option series upsert for repeated confirmations", async () => {
+    const fixture = await createFixture();
+    const message = {
+      ack() {},
+      body: {
+        kind: "underwrite" as const,
+        signatures: [fixture.signature],
+        transactionBytes: fixture.transactionBytes,
+        underwriteId: "underwrite-1",
+      },
+    };
+    const success = async () => Response.json({ result: {
+      digest: "digest-1",
+      effects: { status: { status: "success" } },
+    }});
+
+    await processUnderwriteSubmission(message, fixture.env, success);
+    await processUnderwriteSubmission(message, fixture.env, success);
+
+    assert.equal(fixture.optionSeriesWrites.length, 2);
+    assert.match(fixture.optionSeriesWrites[0].sql, /ON CONFLICT\(series_id\) DO UPDATE/);
+    assert.match(fixture.optionSeriesWrites[1].sql, /ON CONFLICT\(series_id\) DO UPDATE/);
+  });
+
+  it("does not ack or fail a confirmed underwrite when series cache persistence fails", async () => {
+    const fixture = await createFixture(true, "throw");
+    let acked = false;
+
+    await assert.rejects(
+      processUnderwriteSubmission({
+        ack: () => { acked = true; },
+        body: {
+          kind: "underwrite",
+          signatures: [fixture.signature],
+          transactionBytes: fixture.transactionBytes,
+          underwriteId: "underwrite-1",
+        },
+      }, fixture.env, async () => Response.json({ result: {
+        digest: "digest-1",
+        effects: { status: { status: "success" } },
+      }})),
+      /cache unavailable/,
+    );
+
+    assert.equal(acked, false);
+    assert.equal(fixture.row.status, "confirmed");
+    assert.equal(fixture.row.failure_internal_code, null);
+  });
+
+  it("retries only the series cache when an underwrite is already confirmed", async () => {
+    const fixture = await createFixture();
+    let acked = false;
+    fixture.row.status = "confirmed";
+    fixture.row.tx_digest = "digest-1";
+
+    await processUnderwriteSubmission({
+      ack: () => { acked = true; },
+      body: {
+        kind: "underwrite",
+        signatures: [fixture.signature],
+        transactionBytes: fixture.transactionBytes,
+        underwriteId: "underwrite-1",
+      },
+    }, fixture.env, async () => {
+      throw new Error("should not re-submit confirmed transaction");
+    });
+
+    assert.equal(acked, true);
+    assert.equal(fixture.row.status, "confirmed");
+    assert.equal(fixture.optionSeriesWrites.length, 1);
   });
 
   it("stores fullnode error details when execution request is rejected", async () => {
@@ -99,6 +176,7 @@ describe("underwrite submission lifecycle", () => {
       fixture.row.failure_msg,
       "Invalid params: Invalid value was given to the function",
     );
+    assert.equal(fixture.optionSeriesWrites.length, 0);
   });
 
   it("returns safe failure details", async () => {
@@ -164,7 +242,10 @@ function signedRequest(transactionBytes: string, signature: string) {
   });
 }
 
-async function createFixture(capacityAvailable: boolean | "throw" = true) {
+async function createFixture(
+  capacityAvailable: boolean | "throw" = true,
+  optionSeriesPersistence: "ok" | "throw" = "ok",
+) {
   const tx = new Transaction();
   tx.setSender(seller.toSuiAddress());
   tx.setGasPrice(1);
@@ -175,8 +256,9 @@ async function createFixture(capacityAvailable: boolean | "throw" = true) {
   const signature = (await seller.signTransaction(builtTransaction)).signature;
   const row = underwriteRow();
   const queued: unknown[] = [];
+  const optionSeriesWrites: Array<{ sql: string; values: unknown[] }> = [];
   let consumed = 0;
-  const db = memoryDb(row);
+  const db = memoryDb(row, optionSeriesWrites, optionSeriesPersistence);
   const quoteStore = {
     fetch: async (request: Request) => {
       if (new URL(request.url).pathname.endsWith("/consume")) consumed += 1;
@@ -189,17 +271,19 @@ async function createFixture(capacityAvailable: boolean | "throw" = true) {
   const env = {
     BROADCAST_QUEUE: { send: async (message: unknown) => void queued.push(message) },
     DB: db,
+    OPERATION_FEE_BPS: "258",
     SUI_RPC_URL: "https://fullnode.test",
   };
-  return { env, get consumed() { return consumed; }, queued, quoteStore, row, signature, transactionBytes };
+  return { env, get consumed() { return consumed; }, optionSeriesWrites, queued, quoteStore, row, signature, transactionBytes };
 }
 
 function underwriteRow(): UnderwriteRow {
+  const chain = TESTNET_UNDERWRITE_CONFIGS[0];
   return {
     broadcast_queue_message_id: null, buyer_owner_address: "0xbuyer", buyer_vault_id: "0xvault",
     call_put_marker: 1, cash_premium_per_contract: "10", contracts_qty_decimals: "500000",
     created_at: "now", expiry_unix_ms: Date.now() + 10_000, failure_internal_code: null,
-    failure_msg: null, market_id: "0xmarket", order_hash: null, order_payload_json: "{}",
+    failure_msg: null, market_id: chain.marketId, order_hash: null, order_payload_json: "{}",
     order_public_key: "key", order_signature: "signature", quote_id: "quote-1",
     quote_payload_json: JSON.stringify({ quote_id: "quote-1" }), quote_signature: "quote-signature",
     series_id: "0xseries", status: "pending", strike_price_decimals: "66000000000",
@@ -207,11 +291,20 @@ function underwriteRow(): UnderwriteRow {
   };
 }
 
-function memoryDb(row: UnderwriteRow): D1Database {
+function memoryDb(
+  row: UnderwriteRow,
+  optionSeriesWrites: Array<{ sql: string; values: unknown[] }>,
+  optionSeriesPersistence: "ok" | "throw",
+): D1Database {
   return { prepare: (sql) => ({ bind: (...values) => ({
     all: async <T>() => ({ results: [] as T[] }),
     first: async <T>() => sql.includes("SELECT * FROM underwrites") ? row as T : null,
     run: async () => {
+      if (sql.includes("INSERT INTO option_series")) {
+        optionSeriesWrites.push({ sql, values });
+        if (optionSeriesPersistence === "throw") throw new Error("cache unavailable");
+        return { meta: { changes: 1 } };
+      }
       if (sql.includes("status = 'queued'") && row.status === "pending") {
         row.status = "queued"; row.broadcast_queue_message_id = String(values[0]);
         return { meta: { changes: 1 } };
