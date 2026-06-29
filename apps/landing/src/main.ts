@@ -22,6 +22,11 @@ const MARKET_DEMAND_TOKENS = [
   "daysToExpiry",
   "premium",
 ] as const;
+const EXAMPLES_SCALES: Record<string, [number, number, number, number]> = {
+  BTC: [1, 0.5, 0.2, 0.1],
+  ETH: [1, 2, 0.5, 1],
+  SUI: [1000, 500, 500, 2000]
+};
 
 type MarketDemandToken = (typeof MARKET_DEMAND_TOKENS)[number];
 
@@ -44,8 +49,9 @@ async function updateMarketDemand() {
     return;
   }
 
-  const data: MarketDemandResponse | MarketDemandExample[] = await response.json();
-  const examples = (Array.isArray(data) ? data : data.examples ?? []).filter(
+  const data: MarketDemandResponse | MarketDemandExample[] =
+    await response.json();
+  const examples = (Array.isArray(data) ? data : (data.examples ?? [])).filter(
     isMarketDemandExample,
   );
 
@@ -55,11 +61,18 @@ async function updateMarketDemand() {
   }
 
   let exampleIndex = 0;
-  renderMarketDemand(container, examples[exampleIndex], false);
+  renderMarketDemand(container, scaledExample(examples[exampleIndex], EXAMPLES_SCALES.BTC[0]), false);
 
   window.setInterval(() => {
     exampleIndex = (exampleIndex + 1) % examples.length;
-    renderMarketDemand(container, examples[exampleIndex], true);
+    renderMarketDemand(
+      container,
+      scaledExample(
+        examples[exampleIndex],
+        EXAMPLES_SCALES.BTC[exampleIndex % EXAMPLES_SCALES.BTC.length],
+      ),
+      true,
+    );
   }, MARKET_DEMAND_INTERVAL_MS);
 }
 
@@ -91,17 +104,20 @@ function renderMarketDemand(
 
   const values: Record<MarketDemandToken, string> = {
     action: capitalize(example.action),
-    amount: formatPlainNumber(example.amount),
+    amount: formatDecimalNumber(example.amount),
     asset: `$${example.asset}`,
     strike: formatMoney(example.strike),
-    daysToExpiry: formatPlainNumber(example.daysToExpiry),
+    daysToExpiry: formatWholeNumber(example.daysToExpiry),
     premium: formatMoney(example.premium),
   };
 
   for (const token of MARKET_DEMAND_TOKENS) {
     const element = container.querySelector(`[data-market-token="${token}"]`);
 
-    if (!(element instanceof HTMLElement) || element.innerText === values[token]) {
+    if (
+      !(element instanceof HTMLElement) ||
+      element.innerText === values[token]
+    ) {
       continue;
     }
 
@@ -144,9 +160,16 @@ function formatMoney(value: number): string {
   return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
-function formatPlainNumber(value: number): string {
+function formatWholeNumber(value: number): string {
   return value.toLocaleString("en-US", {
-    maximumFractionDigits: 6,
+    maximumFractionDigits: 0,
+  });
+}
+
+function formatDecimalNumber(value: number): string {
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
   });
 }
 
@@ -191,7 +214,8 @@ function submitHandler(event: SubmitEvent) {
 
   const rateLimit = () => {
     errorContainer.style.display = "flex";
-    errorMessage.innerText = "Too many signups, please try again in a little while";
+    errorMessage.innerText =
+      "Too many signups, please try again in a little while";
     submitButton.style.display = "none";
     formInput.style.display = "none";
     backButton.style.display = "block";
@@ -300,7 +324,9 @@ function resetFormHandler(event: MouseEvent) {
   submitButton.style.display = "flex";
 }
 
-for (const container of document.querySelectorAll(".newsletter-form-container")) {
+for (const container of document.querySelectorAll(
+  ".newsletter-form-container",
+)) {
   if (!(container instanceof HTMLElement)) {
     continue;
   }
@@ -326,3 +352,14 @@ for (const container of document.querySelectorAll(".newsletter-form-container"))
 updateMarketDemand().catch((error: unknown) => {
   console.error("Failed to update market demand", error);
 });
+
+function scaledExample(
+  origin: MarketDemandExample,
+  amountScaleTo: number,
+): MarketDemandExample {
+  return {
+    ...origin,
+    amount: amountScaleTo,
+    premium: (origin.premium * amountScaleTo) / origin.amount,
+  };
+}

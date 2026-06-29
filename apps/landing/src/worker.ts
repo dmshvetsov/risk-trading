@@ -163,8 +163,6 @@ async function fetchExampleForExpiry({
       instrument_type: "option",
     },
   );
-  const amountCandidates =
-    currency === "BTC" ? [1, 0.5, 0.2, 0.1] : [10, 5, 2, 1];
   const options = Object.entries(result.tickers)
     .map(([instrumentName, ticker]) => {
       const details = parseInstrumentName(instrumentName);
@@ -193,16 +191,8 @@ async function fetchExampleForExpiry({
         return undefined;
       }
 
-      const amount = amountCandidates.find(
-        (candidateAmount) => bidSize >= candidateAmount,
-      );
-
-      if (amount === undefined || bid * amount < 25) {
-        return undefined;
-      }
-
       return {
-        amount,
+        amount: bidSize,
         bid,
         distanceFromSpot: Math.abs(details.strike / index - 1),
         instrumentName,
