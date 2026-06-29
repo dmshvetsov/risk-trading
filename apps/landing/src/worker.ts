@@ -12,11 +12,11 @@ type MarketDemandExample = {
   daysToExpiry: number;
   premium: number;
   instrumentName: string;
-  text: string;
 };
 
 type DeriveInstrument = {
   instrument_name: string;
+  is_active: boolean;
   base_currency: string;
   option_details: {
     expiry: number;
@@ -34,12 +34,6 @@ type DeriveTicker = {
 const DERIVE_API_URL = "https://api-demo.lyra.finance";
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const FALLBACK_EXAMPLES: MarketDemandExample[] = [
-  example("buy", "BTC", 1, 55000, 33, 1599, "fallback"),
-  example("buy", "BTC", 0.5, 56000, 5, 250, "fallback"),
-  example("sell", "BTC", 0.1, 65000, 33, 108, "fallback"),
-  example("sell", "BTC", 0.2, 62000, 5, 82, "fallback"),
-];
 
 let cachedMarketDemand:
   | {
@@ -78,7 +72,7 @@ export async function marketDemandResponse(): Promise<Response> {
   } catch (error) {
     console.error("Failed to fetch market demand", error);
 
-    return jsonResponse(FALLBACK_EXAMPLES);
+    return jsonResponse([]);
   }
 }
 
@@ -126,7 +120,7 @@ async function fetchMarketDemandExamples(
       const example = await fetchExampleForExpiry({
         action: spec.action,
         currency: candidate.currency,
-        expiry: candidate.expiry,
+        expiryMs: candidate.expiry,
         minDays: spec.minDays,
         now,
         optionType: spec.optionType,
@@ -149,14 +143,14 @@ async function fetchMarketDemandExamples(
 async function fetchExampleForExpiry({
   action,
   currency,
-  expiry,
+  expiryMs,
   minDays,
   now,
   optionType,
 }: {
   action: "buy" | "sell";
   currency: "BTC" | "ETH";
-  expiry: number;
+  expiryMs: number;
   minDays: number;
   now: number;
   optionType: "C" | "P";
@@ -165,7 +159,7 @@ async function fetchExampleForExpiry({
     "public/get_tickers",
     {
       currency,
-      expiry_date: expiryDate(expiry),
+      expiry_date: expiryDate(expiryMs),
       instrument_type: "option",
     },
   );
@@ -237,7 +231,7 @@ async function fetchExampleForExpiry({
     currency,
     selected.amount,
     selected.strike,
-    Math.max(minDays, daysUntil(expiry, now)),
+    Math.max(minDays, daysUntil(expiryMs, now)),
     selected.bid * selected.amount,
     selected.instrumentName,
   );
@@ -251,11 +245,12 @@ function chooseExpiry(
   const expiries = [
     ...new Set(
       instruments
+        .filter((instrument) => instrument.is_active)
         .map((instrument) => instrument.option_details?.expiry)
         .filter(
           (expiry): expiry is number =>
             expiry !== undefined && daysUntil(expiry, now) >= minDays,
-        ),
+        )
     ),
   ];
 
@@ -320,13 +315,6 @@ function example(
   premium: number,
   instrumentName: string,
 ): MarketDemandExample {
-  const formattedAmount = amount.toLocaleString("en-US", {
-    maximumFractionDigits: 4,
-  });
-  const formattedStrike = Math.round(strike).toLocaleString("en-US");
-  const formattedPremium = Math.round(premium).toLocaleString("en-US");
-  const text = `${capitalize(action)} ${formattedAmount} $${asset} at $${formattedStrike} in ${daysToExpiry} days, get $${formattedPremium} now`;
-
   return {
     action,
     asset,
@@ -335,7 +323,6 @@ function example(
     daysToExpiry,
     premium: Math.round(premium),
     instrumentName,
-    text,
   };
 }
 
@@ -350,10 +337,6 @@ function expiryDate(expirySeconds: number): string {
   const day = String(date.getUTCDate()).padStart(2, "0");
 
   return `${year}${month}${day}`;
-}
-
-function capitalize(value: "buy" | "sell"): "Buy" | "Sell" {
-  return value === "buy" ? "Buy" : "Sell";
 }
 
 function jsonResponse(examples: MarketDemandExample[]): Response {
