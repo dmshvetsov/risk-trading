@@ -175,6 +175,9 @@ describe("prepareUnderwrite", () => {
     assert.equal(result.baseCoinType, chain.baseCoinType);
     assert.equal(result.collateralAmount, "500000");
     assert.equal(result.feeRecipient, testEnv.value.OPERATION_FEE_TREASURY);
+    assert.equal(result.optionType, 1);
+    assert.equal(result.strikePriceDecimals, quote.strike_price_decimals);
+    assert.equal(result.expiryUnixMs, expiry);
     assert.equal(result.packageId, testEnv.value.OTP_PACKAGE_ID);
     assert.equal(result.target, `${testEnv.value.OTP_PACKAGE_ID}::underwriting::underwrite_call`);
     assert.equal(typeof result.signedOrderBytes, "string");
@@ -217,6 +220,9 @@ describe("prepareUnderwrite", () => {
     assert.equal(result.seriesId, deriveSeriesId(packageId, putChain.marketId, 2, putQuote.strike_price_decimals, expiry));
     assert.equal(result.baseCoinType, putChain.baseCoinType);
     assert.equal(result.collateralAmount, "305000000");
+    assert.equal(result.optionType, 2);
+    assert.equal(result.strikePriceDecimals, putQuote.strike_price_decimals);
+    assert.equal(result.expiryUnixMs, expiry);
     assert.equal(result.target, `${testEnv.value.OTP_PACKAGE_ID}::underwriting::underwrite_put`);
   });
 

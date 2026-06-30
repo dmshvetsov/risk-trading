@@ -24,20 +24,24 @@ const prepared: PreparedUnderwrite = {
   baseCoinType: "0x3::test_btc::TEST_BTC",
   buyerVaultId: `0x${"22".repeat(32)}`,
   collateralAmount: "5000000",
+  expiryUnixMs: 1_800_000_000_000,
   feeRecipient: `0x${"33".repeat(32)}`,
   marketId: `0x${"44".repeat(32)}`,
   operationalFee: "25",
+  optionType: 1,
   packageId: `0x${"55".repeat(32)}`,
   quoteCoinType: "0x2::test_usdc::TEST_USDC",
   seriesId: `0x${"66".repeat(32)}`,
   signedOrderBytes: "AQID",
   status: "pending",
+  strikePriceDecimals: "70000000000",
   target: `0x${"55".repeat(32)}::underwriting::underwrite_call`,
   underwriteId: "underwrite-1",
 };
 const preparedPut: PreparedUnderwrite = {
   ...prepared,
   collateralAmount: "3400000000",
+  optionType: 2,
   seriesId: `0x${"aa".repeat(32)}`,
   target: `0x${"55".repeat(32)}::underwriting::underwrite_put`,
   underwriteId: "underwrite-put-1",
@@ -91,6 +95,7 @@ describe("underwrite flow", () => {
       ],
       collateralAmount: 5_000_000n,
       prepared,
+      seriesExists: true,
       seller,
     });
     const commands = transaction.getData().commands;
@@ -106,8 +111,8 @@ describe("underwrite flow", () => {
       "Input", "Input", "Input", "NestedResult", "Input", "Input", "Input", "Input",
     ]);
     const inputs = transaction.getData().inputs;
-    assert.equal(inputs[3]?.UnresolvedObject?.objectId, prepared.marketId);
-    assert.equal(inputs[4]?.UnresolvedObject?.objectId, prepared.seriesId);
+    assert.equal(inputs[3]?.UnresolvedObject?.objectId, prepared.seriesId);
+    assert.equal(inputs[4]?.UnresolvedObject?.objectId, prepared.marketId);
     assert.equal(inputs[5]?.UnresolvedObject?.objectId, prepared.buyerVaultId);
     assert.equal(inputs[2]?.Pure?.bytes, "QEtMAAAAAAA=");
     assert.equal(inputs[6]?.Pure?.bytes, "AwECAw==");
@@ -124,6 +129,7 @@ describe("underwrite flow", () => {
       ],
       collateralAmount: 3_400_000_000n,
       prepared: preparedPut,
+      seriesExists: true,
       seller,
     });
 
@@ -131,6 +137,30 @@ describe("underwrite flow", () => {
     assert.equal(moveCall?.function, "underwrite_put");
     assert.deepEqual(moveCall?.typeArguments, [preparedPut.quoteCoinType, preparedPut.baseCoinType]);
     assert.equal(transaction.getData().inputs[2]?.Pure?.bytes, "AOKnygAAAAA=");
+  });
+
+  it("initializes, underwrites, and shares when the derived series is missing", () => {
+    const transaction = buildUnderwriteTransaction({
+      coins: [{ balance: "5000000", coinObjectId: `0x${"77".repeat(32)}` }],
+      collateralAmount: 5_000_000n,
+      prepared,
+      seriesExists: false,
+      seller,
+    });
+
+    const commands = transaction.getData().commands;
+    assert.equal(commands[0]?.$kind, "SplitCoins");
+    assert.equal(commands[1]?.MoveCall?.module, "series");
+    assert.equal(commands[1]?.MoveCall?.function, "initialize_series");
+    assert.deepEqual(commands[1]?.MoveCall?.typeArguments, [prepared.quoteCoinType, prepared.baseCoinType]);
+    assert.equal(commands[2]?.MoveCall?.module, "underwriting");
+    assert.equal(commands[2]?.MoveCall?.function, "underwrite_call");
+    assert.deepEqual(commands[2]?.MoveCall?.arguments.map((argument) => argument.$kind), [
+      "Input", "Result", "Input", "NestedResult", "Input", "Input", "Input", "Input",
+    ]);
+    assert.equal(commands[3]?.MoveCall?.module, "series");
+    assert.equal(commands[3]?.MoveCall?.function, "share_initialized");
+    assert.deepEqual(commands[3]?.MoveCall?.arguments.map((argument) => argument.$kind), ["Result"]);
   });
 
   it("sends prepare and submit payloads", async () => {
@@ -207,6 +237,7 @@ describe("underwrite flow", () => {
       request,
       rfqApiUrl: "https://rfq.test",
       seller,
+      seriesClient: { getObject: async () => ({ data: { objectId: prepared.seriesId } }) },
       signTransaction: async (transaction) => {
         const moveCall = transaction.getData().commands[1]?.MoveCall;
         signedTransactionTarget = `${moveCall?.package}::${moveCall?.module}::${moveCall?.function}`;
@@ -240,6 +271,7 @@ describe("underwrite flow", () => {
       request,
       rfqApiUrl: "https://rfq.test",
       seller,
+      seriesClient: { getObject: async () => ({ data: { objectId: preparedPut.seriesId } }) },
       signTransaction: async (transaction) => {
         splitAmountBytes = transaction.getData().inputs
           .map((input) => input.Pure?.bytes)

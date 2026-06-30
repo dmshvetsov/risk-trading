@@ -18,18 +18,25 @@ type CoinClient = {
   }): Promise<CoinPage>;
 };
 
+type SeriesObjectClient = {
+  getObject(input: { id: string }): Promise<{ data?: unknown | null }>;
+};
+
 export type PreparedUnderwrite = {
   baseCoinType: string;
   buyerVaultId: string;
   collateralAmount: string;
+  expiryUnixMs: number;
   feeRecipient: string;
   marketId: string;
   operationalFee: string;
+  optionType: 1 | 2;
   packageId: string;
   quoteCoinType: string;
   seriesId: string;
   signedOrderBytes: string;
   status: "pending";
+  strikePriceDecimals: string;
   target: string;
   underwriteId: string;
 };
@@ -77,11 +84,13 @@ export function buildUnderwriteTransaction({
   coins,
   collateralAmount,
   prepared,
+  seriesExists,
   seller,
 }: {
   coins: OwnedCoin[];
   collateralAmount: bigint;
   prepared: PreparedUnderwrite;
+  seriesExists: boolean;
   seller: string;
 }) {
   if (coins.length === 0 || totalCoinBalance(coins) < collateralAmount) {
@@ -100,10 +109,23 @@ export function buildUnderwriteTransaction({
   const [collateral] = transaction.splitCoins(primaryCoin, [
     transaction.pure.u64(collateralAmount),
   ]);
+  const series = seriesExists
+    ? transaction.object(prepared.seriesId)
+    : transaction.moveCall({
+      arguments: [
+        transaction.object(prepared.marketId),
+        transaction.pure.u8(prepared.optionType),
+        transaction.pure.u64(prepared.strikePriceDecimals),
+        transaction.pure.u64(prepared.expiryUnixMs),
+        transaction.object.clock(),
+      ],
+      target: `${prepared.packageId}::series::initialize_series`,
+      typeArguments: [prepared.quoteCoinType, prepared.baseCoinType],
+    });
   transaction.moveCall({
     arguments: [
       transaction.object(prepared.marketId),
-      transaction.object(prepared.seriesId),
+      series,
       transaction.object(prepared.buyerVaultId),
       collateral,
       transaction.pure.vector("u8", [...fromBase64(prepared.signedOrderBytes)]),
@@ -114,6 +136,13 @@ export function buildUnderwriteTransaction({
     target: prepared.target,
     typeArguments: [prepared.quoteCoinType, prepared.baseCoinType],
   });
+  if (!seriesExists) {
+    transaction.moveCall({
+      arguments: [series],
+      target: `${prepared.packageId}::series::share_initialized`,
+      typeArguments: [prepared.quoteCoinType, prepared.baseCoinType],
+    });
+  }
   return transaction;
 }
 
@@ -132,6 +161,14 @@ export async function prepareUnderwrite(
   });
   if (!response.ok) throw new Error("Could not prepare this earning transaction");
   return response.json() as Promise<PreparedUnderwrite>;
+}
+
+export async function seriesExistsOnChain(
+  client: SeriesObjectClient,
+  seriesId: string,
+) {
+  const object = await client.getObject({ id: seriesId });
+  return Boolean(object.data);
 }
 
 export async function submitUnderwrite(
@@ -177,6 +214,7 @@ export async function executeUnderwrite({
   quoteSignature,
   request = fetch,
   rfqApiUrl,
+  seriesClient,
   seller,
   signTransaction,
   wait,
@@ -188,6 +226,7 @@ export async function executeUnderwrite({
   quoteSignature: string;
   request?: typeof fetch;
   rfqApiUrl: string;
+  seriesClient: SeriesObjectClient;
   seller: string;
   signTransaction(transaction: Transaction): Promise<{ bytes: string; signature: string }>;
   wait?: (milliseconds: number) => Promise<void>;
@@ -200,10 +239,12 @@ export async function executeUnderwrite({
     quoteSignature,
     request,
   );
+  const seriesExists = await seriesExistsOnChain(seriesClient, prepared.seriesId);
   const transaction = buildUnderwriteTransaction({
     coins,
     collateralAmount: BigInt(prepared.collateralAmount),
     prepared,
+    seriesExists,
     seller,
   });
   const signed = await signTransaction(transaction);

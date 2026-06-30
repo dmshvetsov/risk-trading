@@ -383,6 +383,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
         quote: quote.quote,
         quoteSignature: quote.quoteSignature,
         rfqApiUrl: appConfig.rfqApiUrl,
+        seriesClient: client,
         seller: account.address,
         signTransaction: async (transaction) => {
           const signTransactionFeature =
