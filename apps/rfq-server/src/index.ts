@@ -243,15 +243,19 @@ async function requestQuote(request: Request, env: Env) {
   if (!env.MAKER_STUB_PRIVATE_KEY) {
     return jsonResponse({ error: "maker quote signing is unavailable" }, 503);
   }
-  let quote: ReturnType<typeof createStubQuote>;
-  let quoteSignature: string;
+  let quote: Awaited<ReturnType<typeof createStubQuote>>;
   try {
     const keypair = Ed25519Keypair.fromSecretKey(env.MAKER_STUB_PRIVATE_KEY);
-    quote = createStubQuote(
+    quote = await createStubQuote(
       parsedRequest.data,
       Date.now(),
       keypair.toSuiAddress(),
     );
+  } catch {
+    return jsonResponse({ error: "spot price is unavailable" }, 503);
+  }
+  let quoteSignature: string;
+  try {
     quoteSignature = (await signQuote(quote, env.MAKER_STUB_PRIVATE_KEY)).signature;
   } catch {
     return jsonResponse({ error: "maker quote signing is unavailable" }, 503);

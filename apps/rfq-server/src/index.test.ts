@@ -11,9 +11,25 @@ import worker, {
   getQuoteStore,
   quoteStoreNameFromRequest,
 } from "./index";
-import { createStubQuote } from "./stub-quote-provider";
+import { createStubQuote, resetStubSpotCache } from "./stub-quote-provider";
 import { deriveSeriesId, TESTNET_UNDERWRITE_CONFIGS } from "./underwrite";
 import { futureFridayExpiries } from "./series-grid";
+
+function mockHermesSpot(price = "6723456", expo = -2, publishTime = 1_781_000_000) {
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    Response.json({
+      parsed: [
+        {
+          price: {
+            expo,
+            price,
+            publish_time: publishTime,
+          },
+        },
+      ],
+    })
+  ));
+}
 
 const validExpiryUnixMs = Date.UTC(2026, 6, 31, 8);
 
@@ -333,6 +349,8 @@ describe("rfq worker foundation", () => {
 
 describe("shared quote request path", () => {
   it("accepts the approved testnet TEST_BTC and TEST_USDC market pair", async () => {
+    resetStubSpotCache();
+    mockHermesSpot();
     const env = createEnv();
     const response = await worker.fetch(
       new Request("https://example.com/api/quotes", {
@@ -356,6 +374,8 @@ describe("shared quote request path", () => {
     );
 
     assert.equal(response.status, 201);
+    assert.equal(vi.mocked(fetch).mock.calls.length, 1);
+    vi.unstubAllGlobals();
   });
 
   it("rejects malformed quote payloads", async () => {
@@ -385,6 +405,8 @@ describe("shared quote request path", () => {
   });
 
   it("generates and stores an actionable input-dependent stub quote", async () => {
+    resetStubSpotCache();
+    mockHermesSpot();
     const stored: unknown[] = [];
     const env = createEnv() as ReturnType<typeof createEnv> & {
       QUOTES: {
@@ -443,6 +465,8 @@ describe("shared quote request path", () => {
       second.quote.cash_premium_per_contract,
     );
     assert.equal(stored.length, 2);
+    assert.equal(vi.mocked(fetch).mock.calls.length, 1);
+    vi.unstubAllGlobals();
   });
 
   it("rejects strikes outside the $1,000 grid and expiries after next month last Friday", async () => {
@@ -518,6 +542,8 @@ describe("shared quote request path", () => {
   });
 
   it("does not return a quote when durable storage fails", async () => {
+    resetStubSpotCache();
+    mockHermesSpot();
     const env = createEnv() as ReturnType<typeof createEnv> & {
       QUOTES: {
         get(id: string): { fetch(request: Request): Promise<Response> };
@@ -546,6 +572,7 @@ describe("shared quote request path", () => {
     );
 
     assert.equal(response.status, 503);
+    vi.unstubAllGlobals();
   });
 });
 
@@ -702,7 +729,9 @@ describe("recommended series API", () => {
 });
 
 describe("cash-secured put quote request", () => {
-  it("keeps put premium units aligned with BTC contract decimals", () => {
+  it("keeps put premium units aligned with BTC contract decimals", async () => {
+    resetStubSpotCache();
+    mockHermesSpot();
     const now = Date.now();
     const common = {
       cash_token_address: "0x0::usdc::USDC",
@@ -729,17 +758,18 @@ describe("cash-secured put quote request", () => {
       collateral_token_decimals: 8,
     }, now);
 
-    assert.equal(Number(putQuote.cash_premium_per_contract) < 1_000_000, true);
+    assert.equal(Number((await putQuote).cash_premium_per_contract) < 1_000_000, true);
     assert.equal(
-      putQuote.cash_premium_per_contract,
-      putQuoteWithLegacyCollateralDecimals.cash_premium_per_contract,
+      (await putQuote).cash_premium_per_contract,
+      (await putQuoteWithLegacyCollateralDecimals).cash_premium_per_contract,
     );
+    assert.equal(vi.mocked(fetch).mock.calls.length, 1);
+    vi.unstubAllGlobals();
   });
 
   it("uses the shared local provider and storage path with input-dependent premiums", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => {
-      throw new Error("quote path must not call maker HTTP endpoints");
-    }));
+    resetStubSpotCache();
+    mockHermesSpot();
     const stored: unknown[] = [];
     const env = createEnv() as ReturnType<typeof createEnv> & {
       QUOTES: {
@@ -780,7 +810,74 @@ describe("cash-secured put quote request", () => {
     assert.equal(first.quote.call_put_marker, 2);
     assert.notEqual(first.quote.cash_premium_per_contract, second.quote.cash_premium_per_contract);
     assert.equal(stored.length, 2);
-    assert.equal(vi.mocked(fetch).mock.calls.length, 0);
+    assert.equal(vi.mocked(fetch).mock.calls.length, 1);
+    vi.unstubAllGlobals();
+  });
+
+  it("returns 503 when live spot is unavailable for quote requests", async () => {
+    resetStubSpotCache();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })));
+
+    const response = await worker.fetch(new Request("https://example.com/api/quotes", {
+      body: JSON.stringify({ request: {
+        call_put_marker: 2, cash_token_address: "0x0::usdc::USDC",
+        cash_token_decimals: 6, collateral_token_address: "0x0::usdc::USDC",
+        collateral_token_decimals: 6,
+        contracts_qty_decimals: "500000",
+        expiry_unix_ms: validExpiryUnixMs, long_short_marker: 2,
+        oracle_base_symbol: "BTC",
+        oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+        oracle_quote_symbol: "USDC", strike_price_decimals: "68000000000",
+      }}), method: "POST",
+    }), createEnv());
+
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "spot price is unavailable" });
+    vi.unstubAllGlobals();
+  });
+
+  it("coalesces concurrent quote spot fetches behind one Hermes request", async () => {
+    resetStubSpotCache();
+    let resolveFetch: ((response: Response) => void) | null = null;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    })));
+
+    const now = Date.now();
+    const common = {
+      cash_token_address: "0x0::usdc::USDC",
+      cash_token_decimals: 6,
+      contracts_qty_decimals: "500000",
+      expiry_unix_ms: now + 30 * 86_400_000,
+      long_short_marker: 2 as const,
+      oracle_base_symbol: "BTC" as const,
+      oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+      oracle_quote_symbol: "USDC" as const,
+      collateral_token_address: "0x0::usdc::USDC",
+      collateral_token_decimals: 6,
+      call_put_marker: 2 as const,
+    };
+
+    const firstQuote = createStubQuote({ ...common, strike_price_decimals: "68000000000" }, now);
+    const secondQuote = createStubQuote({ ...common, strike_price_decimals: "75000000000" }, now);
+    assert.equal(vi.mocked(fetch).mock.calls.length, 1);
+    resolveFetch?.(Response.json({
+      parsed: [
+        {
+          price: {
+            expo: -2,
+            price: "6723456",
+            publish_time: 1_781_000_000,
+          },
+        },
+      ],
+    }));
+
+    assert.notEqual(
+      (await firstQuote).cash_premium_per_contract,
+      (await secondQuote).cash_premium_per_contract,
+    );
+    assert.equal(vi.mocked(fetch).mock.calls.length, 1);
     vi.unstubAllGlobals();
   });
 

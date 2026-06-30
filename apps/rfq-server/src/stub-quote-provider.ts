@@ -1,3 +1,5 @@
+import { getSpot } from "./series-grid";
+
 export type QuoteRequest = {
   call_put_marker: 1 | 2;
   cash_token_address: string;
@@ -13,11 +15,19 @@ export type QuoteRequest = {
   strike_price_decimals: string;
 };
 
-const BTC_SPOT_USDC = 63_489;
 const RISK_FREE_RATE = 0.04;
 const BTC_VOLATILITY = 0.55;
 const BTC_USDC_STRIKE_SCALE = 1_000_000;
 const BTC_CONTRACT_DECIMALS = 8;
+const SPOT_CACHE_TTL_MS = 10_000;
+
+let cachedSpot:
+  | {
+      expiresAt: number;
+      price: number;
+    }
+  | null = null;
+let inflightSpot: Promise<number> | null = null;
 
 function normalCdf(value: number) {
   const sign = value < 0 ? -1 : 1;
@@ -55,16 +65,41 @@ function blackScholesPut(spot: number, strike: number, years: number) {
   );
 }
 
-export function createStubQuote(
+async function getCachedSpot(now: number) {
+  if (cachedSpot && cachedSpot.expiresAt > now) {
+    return cachedSpot.price;
+  }
+
+  if (!inflightSpot) {
+    // Cloudflare Workers may reuse a warm isolate, but this cache is best-effort only.
+    // It is not shared across isolates or regions, and it can disappear at any time.
+    inflightSpot = getSpot("BTC")
+      .then((spot) => {
+        cachedSpot = {
+          expiresAt: now + SPOT_CACHE_TTL_MS,
+          price: spot.price,
+        };
+        return spot.price;
+      })
+      .finally(() => {
+        inflightSpot = null;
+      });
+  }
+
+  return inflightSpot;
+}
+
+export async function createStubQuote(
   request: QuoteRequest,
   now = Date.now(),
   signer = "stub-provider",
 ) {
+  const spot = await getCachedSpot(now);
   const strike = Number(request.strike_price_decimals) / BTC_USDC_STRIKE_SCALE;
   const years = Math.max((request.expiry_unix_ms - now) / 31_536_000_000, 1 / 365);
   const premiumPerBaseCoin = request.call_put_marker === 1
-    ? blackScholesCall(BTC_SPOT_USDC, strike, years)
-    : blackScholesPut(BTC_SPOT_USDC, strike, years);
+    ? blackScholesCall(spot, strike, years)
+    : blackScholesPut(spot, strike, years);
   const premiumPerContract = premiumPerBaseCoin / 10 ** BTC_CONTRACT_DECIMALS;
   const offerValidUntilUnixMs = Math.min(request.expiry_unix_ms, now + 30_000);
 
@@ -91,4 +126,9 @@ export function createStubQuote(
     offer_valid_until_unix_ms: offerValidUntilUnixMs,
     maker_id: "server-stub-provider",
   };
+}
+
+export function resetStubSpotCache() {
+  cachedSpot = null;
+  inflightSpot = null;
 }
