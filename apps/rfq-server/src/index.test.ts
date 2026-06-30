@@ -729,7 +729,7 @@ describe("recommended series API", () => {
 });
 
 describe("cash-secured put quote request", () => {
-  it("keeps put premium units aligned with BTC contract decimals", async () => {
+  it("returns put premium per 1 BTC regardless of collateral token decimals", async () => {
     resetStubSpotCache();
     mockHermesSpot();
     const now = Date.now();
@@ -758,7 +758,7 @@ describe("cash-secured put quote request", () => {
       collateral_token_decimals: 8,
     }, now);
 
-    assert.equal(Number((await putQuote).cash_premium_per_contract) < 1_000_000, true);
+    assert.equal(Number((await putQuote).cash_premium_per_contract) > 1_000_000, true);
     assert.equal(
       (await putQuote).cash_premium_per_contract,
       (await putQuoteWithLegacyCollateralDecimals).cash_premium_per_contract,

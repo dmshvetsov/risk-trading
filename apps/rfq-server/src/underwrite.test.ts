@@ -64,6 +64,7 @@ const putQuote = {
 const putQuoteSignature = (await keypair.signPersonalMessage(serializeQuote(putQuote))).signature;
 
 const chain: UnderwriteChainConfig = {
+  baseDecimals: 8,
   baseCoinType: quote.collateral_token_address,
   buyerOwnerAddress: keypair.toSuiAddress(),
   buyerVaultId: `0x${"44".repeat(32)}`,
@@ -166,7 +167,7 @@ describe("prepareUnderwrite", () => {
     assert.equal(response.status, 201);
     const result = await response.json() as Record<string, unknown>;
     assert.equal(result.status, "pending");
-    assert.equal(result.operationalFee, "12500012500");
+    assert.equal(result.operationalFee, "125");
     assert.equal(result.marketId, chain.marketId);
     assert.equal(result.seriesId, deriveSeriesId(packageId, chain.marketId, 1, quote.strike_price_decimals, expiry));
     assert.equal(result.buyerVaultId, chain.buyerVaultId);

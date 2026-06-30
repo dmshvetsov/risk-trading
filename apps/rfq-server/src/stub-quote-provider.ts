@@ -18,7 +18,6 @@ export type QuoteRequest = {
 const RISK_FREE_RATE = 0.04;
 const BTC_VOLATILITY = 0.55;
 const BTC_USDC_STRIKE_SCALE = 1_000_000;
-const BTC_CONTRACT_DECIMALS = 8;
 const SPOT_CACHE_TTL_MS = 10_000;
 
 let cachedSpot:
@@ -100,7 +99,6 @@ export async function createStubQuote(
   const premiumPerBaseCoin = request.call_put_marker === 1
     ? blackScholesCall(spot, strike, years)
     : blackScholesPut(spot, strike, years);
-  const premiumPerContract = premiumPerBaseCoin / 10 ** BTC_CONTRACT_DECIMALS;
   const offerValidUntilUnixMs = Math.min(request.expiry_unix_ms, now + 30_000);
 
   return {
@@ -119,7 +117,7 @@ export async function createStubQuote(
     expiry_unix_ms: request.expiry_unix_ms,
     signer,
     cash_premium_per_contract: String(
-      Math.max(1, Math.round(premiumPerContract * 10 ** request.cash_token_decimals)),
+      Math.max(1, Math.round(premiumPerBaseCoin * 10 ** request.cash_token_decimals)),
     ),
     offer_valid_until_total_contracts_qty_decimals:
       request.contracts_qty_decimals,

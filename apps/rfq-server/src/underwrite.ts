@@ -244,6 +244,14 @@ function collateralAmountForQuantity(
   return (quantity * strike * quoteScale / denominator).toString();
 }
 
+function premiumTotalForQuantity(
+  premiumPerContract: bigint,
+  quantity: bigint,
+  baseDecimals: number,
+) {
+  return premiumPerContract * quantity / 10n ** BigInt(baseDecimals);
+}
+
 export async function prepareUnderwrite(
   request: Request,
   env: PrepareEnv,
@@ -283,7 +291,11 @@ export async function prepareUnderwrite(
   }
 
   const premium = BigInt(parsedBody.data.quote.cash_premium_per_contract);
-  const premiumTotal = premium * quantity;
+  const premiumTotal = premiumTotalForQuantity(
+    premium,
+    quantity,
+    supportedChain.baseDecimals,
+  );
   if (premiumTotal > 18_446_744_073_709_551_615n) {
     return response("premium calculation overflow", 400);
   }
