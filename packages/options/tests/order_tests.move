@@ -14,8 +14,8 @@ use sui::coin::{Self, Coin, TreasuryCap};
 use sui::event;
 use sui::test_scenario;
 
-const ORDER_BYTES: vector<u8> = x"0c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000b000000000000000000000000000000000000000000000000000000000000000c01018093dc1400000000005a6202000000000a000000000000000700000000000000204e000000000000000000000000000000000000000000000000000000000000000000000000000ea0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da";
-const SERIALIZED_SIGNATURE: vector<u8> = x"00dbb6d14c018ac3450c57299cea8d2e36201c1e6f5eb9ca5391c3b4eaf11d5304ea2c290748773e9d7ccedd330beff5af0a42059fedb481c0b962d53c031e0501ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+const ORDER_BYTES: vector<u8> = x"0c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000b000000000000000000000000000000000000000000000000000000000000000c01018093dc1400000000005a62020000000000e40b54020000000700000000000000204e000000000000000000000000000000000000000000000000000000000000000000000000000ea0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da";
+const SERIALIZED_SIGNATURE: vector<u8> = x"00853380b477f1f628983a4fcd1c7f76fc57b4a218d8e11cd3fcb01c6dcb9695ac58a564c96156a09d39e97e1261250393ffa55fec6803a93f00214b54395b7402ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
 const PUBLIC_KEY: vector<u8> = x"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
 const SIGNER: address = @0xa0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da;
 const ADMIN: address = @0xA;
@@ -23,10 +23,10 @@ const SELLER: address = @0xB;
 const NOW_MS: u64 = 10_000;
 const EXPIRY_MS: u64 = NOW_MS + 8 * 60 * 60 * 1000 + 1;
 const FEE_RECIPIENT: address = @0xD;
-const SIGNED_CALL: vector<u8> = x"b7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d301018093dc1400000000119bb701000000000a000000000000000700000000000000204e00000000000077520198ea52372717b1278701852c232e32d5cf6e202dde276ce97a265fbe6ea0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da6100900a6e17b663674e794c2640d8b540ba0895c16d7995c216dff501a190064b80b1a94fd14d47bd18cb2d3688f65b4b6824cbe438584e9e6daf379563c313f703ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
-const SIGNED_PUT: vector<u8> = x"b7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d302018093dc1400000000119bb701000000000a000000000000000700000000000000204e00000000000077520198ea52372717b1278701852c232e32d5cf6e202dde276ce97a265fbe6ea0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da6100107b3f3a885083f35b7a7d7ba25e8c2d66ac0128049745beccde31ee207c83f5b439b0cddf40ef5fc72fbfc63c7657125512df3e1dd8ae7f05a6b0a39f4cbb0eea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
-const SIGNED_MISSING_CALL: vector<u8> = x"b7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d301018093dc1400000000119bb701000000000a000000000000000700000000000000204e000000000000dba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97a0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da6100f8d5e44500ceb2f673156ce9e257fd856ab27ca2527a9edf54fe8f1f3d235db929ab20d2237625b64441f52fee0fcd90681d5abc7191b8095baf744af64da603ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
-const SIGNED_MISSING_PUT: vector<u8> = x"b7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d302018093dc1400000000119bb701000000000a000000000000000700000000000000204e000000000000dba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97a0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da610036f2c5a02bf25b95aebdcee321d3ccdb329e7a27e26b4a8cd548b9a4b2ce57ab975e05c2b1b1c8e8a73873d3e52038e36003689fcc97a97edb5a88d6695d710aea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+const SIGNED_CALL: vector<u8> = x"b7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d301018093dc1400000000119bb7010000000000e40b54020000000700000000000000204e00000000000077520198ea52372717b1278701852c232e32d5cf6e202dde276ce97a265fbe6ea0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da6100328e39b1e41250c3df0c1ba1f66da862fe9a3d9a5252b1424dcf7be147c28da4454589a4d2893699dce351d72bf3126f026a4ddb874b7cd954f77f070a450400ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+const SIGNED_PUT: vector<u8> = x"b7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d302018093dc1400000000119bb7010000000000e40b54020000000700000000000000204e00000000000077520198ea52372717b1278701852c232e32d5cf6e202dde276ce97a265fbe6ea0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da6100cbb426f4e01b5d1d276fcaeada66210c032cdbf441ad87fdfd5a46e2736abfdcd986f34ea5bc53c1846df6306892f7fc7bf55d11908ac6c1b8f7f1958e374508ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+const SIGNED_MISSING_CALL: vector<u8> = x"b7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d301018093dc1400000000119bb7010000000000e40b54020000000700000000000000204e000000000000dba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97a0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da6100d8184f8bdebd76ef6e3c038b8447c3a1ecb30590abaf1e3a729dcb40910cd2579d98b71c9d5a607f381bb5d7540579c67f382c0040eb0e95f87dee869a69870fea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+const SIGNED_MISSING_PUT: vector<u8> = x"b7010c6f74703a6f726465723a7631000000000000000000000000000000000000000000000000000000000000000bd726ecf6f7036ee3557cd6c7b93a49b231070e8eecada9cfa157e40e3f02e5d302018093dc1400000000119bb7010000000000e40b54020000000700000000000000204e000000000000dba72804cc9504a82bbaa13ed4a83a0e2c6219d7e45125cf57fd10cbab957a97a0ccc8bcc83f6c628340134f8546a21e0618fd1aaa02432bba454c4a2c2233da61006f38f0c2b77457612aad092d941a5787642ac3ef3941fbbbc42fe7e8b4420c18d5120393868c02cf5283e23a35c8a7cb4a243790090ef1904b40e304e269c607ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c20ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
 
 fun clock_at(timestamp_ms: u64, ctx: &mut TxContext): clock::Clock {
     let mut now = clock::create_for_testing(ctx);
@@ -146,7 +146,7 @@ fun signed_call_fill_debits_vault_and_settles_atomically() {
 
     scenario.next_tx(SELLER);
     let mut base_cap = scenario.take_from_sender<TreasuryCap<BASE>>();
-    let collateral = coin::mint(&mut base_cap, 10, scenario.ctx());
+    let collateral = coin::mint(&mut base_cap, 10_000_000_000, scenario.ctx());
     scenario.return_to_sender(base_cap);
     let market = scenario.take_shared_by_id<Market>(market_id);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
@@ -164,9 +164,9 @@ fun signed_call_fill_debits_vault_and_settles_atomically() {
         scenario.ctx(),
     );
     assert_eq!(buyer_vault::balance(&vault), 30);
-    assert_eq!(series::seller_short_quantity(&series, SELLER), 10);
-    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 10);
-    assert_eq!(series::collateral_base_balance(&series), 10);
+    assert_eq!(series::seller_short_quantity(&series, SELLER), 10_000_000_000);
+    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 10_000_000_000);
+    assert_eq!(series::collateral_base_balance(&series), 10_000_000_000);
     let events = event::events_by_type<underwriting::Underwritten>();
     assert_eq!(events.length(), 1);
     assert_eq!(underwriting::buyer(&events[0]), SIGNER);
@@ -178,7 +178,7 @@ fun signed_call_fill_debits_vault_and_settles_atomically() {
 
     scenario.next_tx(SIGNER);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
-    assert_eq!(long::quantity(&long), 10);
+    assert_eq!(long::quantity(&long), 10_000_000_000);
     scenario.return_to_sender(long);
     scenario.next_tx(SELLER);
     let seller_premium = scenario.take_from_sender<Coin<QUOTE>>();
@@ -198,7 +198,7 @@ fun signed_call_can_initialize_underwrite_and_share_missing_series() {
 
     scenario.next_tx(SELLER);
     let mut base_cap = scenario.take_from_sender<TreasuryCap<BASE>>();
-    let collateral = coin::mint(&mut base_cap, 10, scenario.ctx());
+    let collateral = coin::mint(&mut base_cap, 10_000_000_000, scenario.ctx());
     scenario.return_to_sender(base_cap);
     let mut market = scenario.take_shared_by_id<Market>(market_id);
     let mut vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
@@ -226,9 +226,9 @@ fun signed_call_can_initialize_underwrite_and_share_missing_series() {
         scenario.ctx(),
     );
     assert_eq!(buyer_vault::balance(&vault), 30);
-    assert_eq!(series::seller_short_quantity(&series, SELLER), 10);
-    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 10);
-    assert_eq!(series::collateral_base_balance(&series), 10);
+    assert_eq!(series::seller_short_quantity(&series, SELLER), 10_000_000_000);
+    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 10_000_000_000);
+    assert_eq!(series::collateral_base_balance(&series), 10_000_000_000);
     now.destroy_for_testing();
     series::share_initialized(series);
     test_scenario::return_shared(market);
@@ -240,7 +240,7 @@ fun signed_call_can_initialize_underwrite_and_share_missing_series() {
     scenario.return_to_sender(long);
     scenario.next_tx(SELLER);
     let series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    assert_eq!(series::seller_short_quantity(&series, SELLER), 10);
+    assert_eq!(series::seller_short_quantity(&series, SELLER), 10_000_000_000);
     test_scenario::return_shared(series);
     let seller_premium = scenario.take_from_sender<Coin<QUOTE>>();
     assert_eq!(seller_premium.value(), 63);
@@ -289,7 +289,7 @@ fun signed_put_fill_debits_vault_and_settles_atomically() {
 
     scenario.next_tx(SELLER);
     let mut quote_cap = scenario.take_from_sender<TreasuryCap<QUOTE>>();
-    let collateral = coin::mint(&mut quote_cap, 1, scenario.ctx());
+    let collateral = coin::mint(&mut quote_cap, 35_000_000, scenario.ctx());
     scenario.return_to_sender(quote_cap);
     let market = scenario.take_shared_by_id<Market>(market_id);
     let mut series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
@@ -307,9 +307,9 @@ fun signed_put_fill_debits_vault_and_settles_atomically() {
         scenario.ctx(),
     );
     assert_eq!(buyer_vault::balance(&vault), 30);
-    assert_eq!(series::seller_short_quantity(&series, SELLER), 10);
-    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 1);
-    assert_eq!(series::collateral_quote_balance(&series), 1);
+    assert_eq!(series::seller_short_quantity(&series, SELLER), 10_000_000_000);
+    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 35_000_000);
+    assert_eq!(series::collateral_quote_balance(&series), 35_000_000);
     now.destroy_for_testing();
     test_scenario::return_shared(market);
     test_scenario::return_shared(series);
@@ -317,7 +317,7 @@ fun signed_put_fill_debits_vault_and_settles_atomically() {
 
     scenario.next_tx(SIGNER);
     let long = scenario.take_from_sender<Long<QUOTE, BASE>>();
-    assert_eq!(long::quantity(&long), 10);
+    assert_eq!(long::quantity(&long), 10_000_000_000);
     scenario.return_to_sender(long);
     scenario.next_tx(SELLER);
     let seller_premium = scenario.take_from_sender<Coin<QUOTE>>();
@@ -337,7 +337,7 @@ fun signed_put_can_initialize_underwrite_and_share_missing_series() {
 
     scenario.next_tx(SELLER);
     let mut quote_cap = scenario.take_from_sender<TreasuryCap<QUOTE>>();
-    let collateral = coin::mint(&mut quote_cap, 1, scenario.ctx());
+    let collateral = coin::mint(&mut quote_cap, 35_000_000, scenario.ctx());
     scenario.return_to_sender(quote_cap);
     let mut market = scenario.take_shared_by_id<Market>(market_id);
     let mut vault = scenario.take_shared_by_id<BuyerVault<QUOTE>>(vault_id);
@@ -364,9 +364,9 @@ fun signed_put_can_initialize_underwrite_and_share_missing_series() {
         scenario.ctx(),
     );
     assert_eq!(buyer_vault::balance(&vault), 30);
-    assert_eq!(series::seller_short_quantity(&series, SELLER), 10);
-    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 1);
-    assert_eq!(series::collateral_quote_balance(&series), 1);
+    assert_eq!(series::seller_short_quantity(&series, SELLER), 10_000_000_000);
+    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 35_000_000);
+    assert_eq!(series::collateral_quote_balance(&series), 35_000_000);
     now.destroy_for_testing();
     series::share_initialized(series);
     test_scenario::return_shared(market);
@@ -378,7 +378,7 @@ fun signed_put_can_initialize_underwrite_and_share_missing_series() {
     scenario.return_to_sender(long);
     scenario.next_tx(SELLER);
     let series = scenario.take_shared_by_id<Series<QUOTE, BASE>>(series_id);
-    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 1);
+    assert_eq!(series::seller_collateral_quantity(&series, SELLER), 35_000_000);
     test_scenario::return_shared(series);
     let seller_premium = scenario.take_from_sender<Coin<QUOTE>>();
     assert_eq!(seller_premium.value(), 63);
@@ -400,7 +400,7 @@ fun canonical_order_decodes_every_field() {
     assert_eq!(underwriting::order_side_marker(&order), 1);
     assert_eq!(underwriting::order_strike_price(&order), 350_000_000);
     assert_eq!(underwriting::order_expiry_ms(&order), 40_000_000);
-    assert_eq!(underwriting::order_contracts_quantity(&order), 10);
+    assert_eq!(underwriting::order_contracts_quantity(&order), 10_000_000_000);
     assert_eq!(underwriting::order_premium_per_contract(&order), 7);
     assert_eq!(underwriting::order_good_till_ms(&order), 20_000);
     assert_eq!(underwriting::order_buyer_vault_id(&order), @0xE);

@@ -83,7 +83,7 @@ public fun underwrite_call<QuoteCoin, BaseCoin>(
     verify_signed_order(&order, &order_bytes, &signature, &public_key);
     validate_order(market, series, buyer_vault, &order, series::option_type_call(), clock, ctx);
 
-    let premium_total = calculate_premium_total(&order);
+    let premium_total = calculate_premium_total(&order, market);
     let premium = buyer_vault::debit(buyer_vault, premium_total, ctx);
     consume_order(series, &order_bytes);
     execute_call_underwriting(
@@ -117,7 +117,7 @@ public fun underwrite_put<QuoteCoin, BaseCoin>(
     verify_signed_order(&order, &order_bytes, &signature, &public_key);
     validate_order(market, series, buyer_vault, &order, series::option_type_put(), clock, ctx);
 
-    let premium_total = calculate_premium_total(&order);
+    let premium_total = calculate_premium_total(&order, market);
     let premium = buyer_vault::debit(buyer_vault, premium_total, ctx);
     consume_order(series, &order_bytes);
     execute_put_underwriting(
@@ -213,8 +213,12 @@ fun validate_order<QuoteCoin, BaseCoin>(
     assert!(clock.timestamp_ms() <= order.good_till_ms, EOrderExpired);
 }
 
-fun calculate_premium_total(order: &OrderV1): u64 {
-    let total = (order.premium_per_contract as u128) * (order.contracts_quantity as u128);
+fun calculate_premium_total(order: &OrderV1, market: &Market): u64 {
+    let contract_scale = pow10(market::base_decimals(market));
+    let total =
+        (order.premium_per_contract as u128)
+        * (order.contracts_quantity as u128)
+        / (contract_scale as u128);
     assert!(total <= 18_446_744_073_709_551_615, EPremiumOverflow);
     total as u64
 }

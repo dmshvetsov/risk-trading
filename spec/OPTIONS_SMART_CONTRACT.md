@@ -339,7 +339,7 @@ For a cash-secured put atomic underwrite transaction:
 Seller collateral MUST be deposited in full 1:1, in other words fully collateralized.
 
 Premium and fee handling:
-- total premium calculation `premium_total = premium_per_contract * contracts_quantity` with checked `u64` overflow and abort on overflow.
+- total premium calculation `premium_total = premium_per_contract * contracts_quantity` where `contracts_quantity = (contracts_in_base_units / contract_decimal_scale)` with checked `u64` overflow and abort on overflow.
 - buyer pays `premium_total` in `QuoteCoin`,
 - `operational_fee` is deducted from `premium_total`,
 - seller receives `premium_total - operational_fee`,
