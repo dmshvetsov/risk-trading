@@ -16,9 +16,66 @@ import {
   requestQuote,
   secondsUntilExpiry,
 } from "./lib/quote-request";
+import {
+  expiryOptionsFromSeries,
+  seriesGridQueryOptions,
+  strikeOptionsForExpiry,
+  type SeriesGrid,
+} from "./lib/series-grid";
 import { fetchBtcUsdPythPrice } from "./lib/oracle";
 import { SuiProviders } from "./components/sui-providers";
 import { getRouter } from "./router";
+import { appConfig } from "./lib/config";
+
+const testSeriesGrid = {
+  market: {
+    baseDecimals: 8,
+    baseCoinType: "0x0::test_btc::TEST_BTC",
+    marketId: "0xmarket",
+    oracleBaseSymbol: "BTC",
+    oracleFeedId: "0xfeed",
+    oracleQuoteSymbol: "USDC",
+    quoteDecimals: 6,
+    quoteCoinType: "0x0::usdc::USDC",
+    strikeScale: 1_000_000,
+  },
+  spot: {
+    price: 67_234.56,
+    publishTime: 1_781_000_000,
+    symbol: "BTC",
+  },
+  series: {
+    call: [
+      {
+        expiryUnixMs: Date.UTC(2026, 6, 31, 8),
+        seriesId: "0xcall-jul31-70000",
+        strikePriceDecimals: "70000000000",
+      },
+      {
+        expiryUnixMs: Date.UTC(2026, 6, 31, 8),
+        seriesId: "0xcall-jul31-71000",
+        strikePriceDecimals: "71000000000",
+      },
+      {
+        expiryUnixMs: Date.UTC(2026, 7, 7, 8),
+        seriesId: "0xcall-aug7-72000",
+        strikePriceDecimals: "72000000000",
+      },
+    ],
+    put: [
+      {
+        expiryUnixMs: Date.UTC(2026, 6, 31, 8),
+        seriesId: "0xput-jul31-65000",
+        strikePriceDecimals: "65000000000",
+      },
+      {
+        expiryUnixMs: Date.UTC(2026, 6, 31, 8),
+        seriesId: "0xput-jul31-64000",
+        strikePriceDecimals: "64000000000",
+      },
+    ],
+  },
+} satisfies SeriesGrid;
 
 describe("App pages", () => {
   it("renders the home route at slash", async () => {
@@ -28,6 +85,7 @@ describe("App pages", () => {
       }),
     );
     const queryClient = new QueryClient();
+    queryClient.setQueryData(seriesGridQueryOptions(appConfig.rfqApiUrl).queryKey, testSeriesGrid);
 
     await testRouter.load();
 
@@ -72,6 +130,7 @@ describe("Taker copy", () => {
 
   it("keeps the home page free of option jargon", () => {
     const queryClient = new QueryClient();
+    queryClient.setQueryData(seriesGridQueryOptions(appConfig.rfqApiUrl).queryKey, testSeriesGrid);
     const html = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
         <SuiProviders>
@@ -84,6 +143,55 @@ describe("Taker copy", () => {
     assert.match(html, /deposit 0\.05 WBTC as collateral/i);
   });
 
+  it("renders server-provided expiries and strikes on the home page", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(seriesGridQueryOptions(appConfig.rfqApiUrl).queryKey, testSeriesGrid);
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <SuiProviders>
+          <HomePage usePlainLink />
+        </SuiProviders>
+      </QueryClientProvider>,
+    );
+
+    assert.match(html, /Jul 31/);
+    assert.match(html, /\$70,000/);
+    assert.match(html, /\$71,000/);
+    assert.match(html, /WBTC.*\$67,234\.56/s);
+  });
+
+  it("maps selected server buckets into local expiry and strike labels", () => {
+    const callSeries = testSeriesGrid.series.call;
+    const expiries = expiryOptionsFromSeries(callSeries);
+    const strikes = strikeOptionsForExpiry(
+      callSeries,
+      Date.UTC(2026, 6, 31, 8),
+      testSeriesGrid.market.strikeScale,
+    );
+
+    assert.deepEqual(expiries, [
+      { expiryUnixMs: Date.UTC(2026, 6, 31, 8), label: "Jul 31" },
+      { expiryUnixMs: Date.UTC(2026, 7, 7, 8), label: "Aug 7" },
+    ]);
+    assert.deepEqual(strikes.map((strike) => ({
+      label: strike.label,
+      seriesId: strike.seriesId,
+      strikePriceDecimals: strike.strikePriceDecimals,
+    })), [
+      {
+        label: "$70,000",
+        seriesId: "0xcall-jul31-70000",
+        strikePriceDecimals: "70000000000",
+      },
+      {
+        label: "$71,000",
+        seriesId: "0xcall-jul31-71000",
+        strikePriceDecimals: "71000000000",
+      },
+    ]);
+  });
+
   it("reduces the quote countdown as time passes", () => {
     assert.equal(secondsUntilExpiry(31_000, 1_000), 30);
     assert.equal(secondsUntilExpiry(31_000, 11_000), 20);
@@ -94,11 +202,13 @@ describe("Taker copy", () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const quote = await requestQuote(
       "https://rfq.example",
-      "0x0::usdc::USDC",
-      "0x0::test_btc::TEST_BTC",
-      100_000_000,
+      testSeriesGrid.market,
       "covered-call",
-      { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 },
+      {
+        expiryUnixMs: 1_800_000_000_000,
+        size: 0.05,
+        strikePriceDecimals: "6800000000000",
+      },
       async (input, init) => {
         requests.push({ input, init });
         return Response.json({ quote_signature: "quote-signature", quote: {
@@ -113,8 +223,11 @@ describe("Taker copy", () => {
 
     assert.equal(requests[0]?.input, "https://rfq.example/api/quotes");
     const body = JSON.parse(String(requests[0]?.init?.body));
-    assert.equal(body.request.cash_token_address, "0x0::usdc::USDC");
-    assert.equal(body.request.collateral_token_address, "0x0::test_btc::TEST_BTC");
+    assert.equal(body.request.oracle_feed_id, testSeriesGrid.market.oracleFeedId);
+    assert.equal(body.request.cash_token_address, testSeriesGrid.market.quoteCoinType);
+    assert.equal(body.request.cash_token_decimals, testSeriesGrid.market.quoteDecimals);
+    assert.equal(body.request.collateral_token_address, testSeriesGrid.market.baseCoinType);
+    assert.equal(body.request.collateral_token_decimals, testSeriesGrid.market.baseDecimals);
     assert.equal(body.request.contracts_qty_decimals, "5000000");
     assert.equal(body.request.strike_price_decimals, "6800000000000");
     assert.equal(quote.contractsQtyDecimals, "5000000");
@@ -126,11 +239,13 @@ describe("Taker copy", () => {
     let body: { request: Record<string, unknown> } | undefined;
     await requestQuote(
       "https://rfq.example",
-      "0x0::usdc::USDC",
-      "0x0::test_btc::TEST_BTC",
-      100_000_000,
+      testSeriesGrid.market,
       "cash-secured-put",
-      { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 },
+      {
+        expiryUnixMs: 1_800_000_000_000,
+        size: 0.05,
+        strikePriceDecimals: "6800000000000",
+      },
       async (_input, init) => {
         body = JSON.parse(String(init?.body));
         return Response.json({ quote_signature: "quote-signature", quote: {
@@ -144,8 +259,8 @@ describe("Taker copy", () => {
     );
 
     assert.equal(body?.request.call_put_marker, 2);
-    assert.equal(body?.request.collateral_token_address, "0x0::usdc::USDC");
-    assert.equal(body?.request.collateral_token_decimals, 6);
+    assert.equal(body?.request.collateral_token_address, testSeriesGrid.market.quoteCoinType);
+    assert.equal(body?.request.collateral_token_decimals, testSeriesGrid.market.quoteDecimals);
     assert.equal(body?.request.contracts_qty_decimals, "5000000");
   });
 
@@ -158,12 +273,14 @@ describe("Taker copy", () => {
       offer_valid_until_unix_ms: 1_799_000_000_000,
       strike_price_decimals: "68000000000",
     }});
-    const inputs = { expiryUnixMs: 1_800_000_000_000, size: 0.05, strike: 68_000 };
+    const inputs = {
+      expiryUnixMs: 1_800_000_000_000,
+      size: 0.05,
+      strikePriceDecimals: "6800000000000",
+    };
     const options = quoteQueryOptions(
       "https://rfq.example",
-      "0x0::usdc::USDC",
-      "0x0::test_btc::TEST_BTC",
-      100_000_000,
+      testSeriesGrid.market,
       "covered-call",
       inputs,
       request,
@@ -172,9 +289,7 @@ describe("Taker copy", () => {
     const quote = await queryClient.fetchQuery(options);
     const putOptions = quoteQueryOptions(
       "https://rfq.example",
-      "0x0::usdc::USDC",
-      "0x0::test_btc::TEST_BTC",
-      100_000_000,
+      testSeriesGrid.market,
       "cash-secured-put",
       inputs,
       request,

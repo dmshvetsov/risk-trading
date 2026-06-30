@@ -25,6 +25,13 @@ import {
   type QuoteStrategy,
 } from "@/lib/quote-request";
 import {
+  expiryOptionsFromSeries,
+  seriesForStrategy,
+  seriesGridQueryOptions,
+  strikeOptionsForExpiry,
+  strikePriceFromDecimals,
+} from "@/lib/series-grid";
+import {
   executeUnderwrite,
   fetchAllCoins,
   underwriteAvailability,
@@ -42,28 +49,6 @@ const strategyOptions = [
   { label: "Cash Secured Put", value: "cash-secured-put" },
 ];
 
-const expiryOptions = [
-  { label: "Jun 26", expiryUnixMs: Date.UTC(2026, 5, 26) },
-  { label: "Jul 3", expiryUnixMs: Date.UTC(2026, 6, 3) },
-  { label: "Jul 10", expiryUnixMs: Date.UTC(2026, 6, 10) },
-  { label: "Jul 31", expiryUnixMs: Date.UTC(2026, 6, 31) },
-];
-
-const coveredCallStrikeOptions = [
-  { label: "$66,000", strike: 66_000 },
-  { label: "$67,000", strike: 67_000 },
-  { label: "$68,000", strike: 68_000 },
-  { label: "$71,000", strike: 71_000 },
-  { label: "$75,000", strike: 75_000 },
-];
-const cashSecuredPutStrikeOptions = [
-  { label: "$61,000", strike: 61_000 },
-  { label: "$60,000", strike: 60_000 },
-  { label: "$59,000", strike: 59_000 },
-  { label: "$55,000", strike: 55_000 },
-  { label: "$51,000", strike: 51_000 },
-];
-
 const defaultSize = 0.05;
 const minSize = 0.005;
 const maxSize = 1;
@@ -74,8 +59,6 @@ const sizePresetRows = [
   ["0.1", "0.3", "0.5",  "0.7", "0.9"],
   ["1"],
 ];
-const defaultExpiryLabel = "Jul 31";
-const defaultStrikeLabel = "$66,000";
 const btcSpotPrice = 63_489;
 const btcQuantityDecimals = 8n;
 
@@ -117,35 +100,24 @@ function daysUntil(expiryUnixMs: number, nowUnixMs: number) {
   return Math.max(0, Math.ceil((expiryUnixMs - nowUnixMs) / 86_400_000));
 }
 
-function supportedStrikeOptions(strategy: QuoteStrategy) {
-  return strategy === "covered-call"
-    ? coveredCallStrikeOptions
-    : cashSecuredPutStrikeOptions;
-}
-
 function collateralCoinSymbol(strategy: QuoteStrategy) {
   return strategy === "covered-call" ? "TEST_BTC" : "TEST_USDC";
 }
 
-function collateralCoinType(strategy: QuoteStrategy) {
-  return strategy === "covered-call"
-    ? appConfig.baseCoinType
-    : appConfig.cashTokenAddress;
-}
-
-function isSupportedUnderwriteSelection(
-  network: string,
+function collateralCoinType(
   strategy: QuoteStrategy,
-  expiryLabel: string,
-  strikeLabel: string,
+  quoteCoinType: string,
+  baseCoinType: string,
 ) {
-  return network === "testnet" &&
-    expiryLabel === "Jul 31" &&
-    supportedStrikeOptions(strategy).some((option) => option.label === strikeLabel);
+  return strategy === "covered-call"
+    ? baseCoinType
+    : quoteCoinType;
 }
 
 function quoteCollateralAmount(
   strategy: QuoteStrategy,
+  baseDecimals: number,
+  strikeScale: number,
   quote: {
     cashTokenDecimals: number;
     contractsQtyDecimals: string;
@@ -160,9 +132,15 @@ function quoteCollateralAmount(
   }
 
   const quoteScale = 10n ** BigInt(quote.cashTokenDecimals);
-  const denominator = (10n ** btcQuantityDecimals) * BigInt(appConfig.strikeScale);
+  const denominator = (10n ** BigInt(baseDecimals)) * BigInt(strikeScale);
   return BigInt(quote.contractsQtyDecimals) * BigInt(quote.strikePriceDecimals) * quoteScale /
     denominator;
+}
+
+function formatAssetAmount(value: number) {
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: 8,
+  });
 }
 
 function aprFromPremium(
@@ -219,8 +197,8 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
 
   const [isSizeMenuOpen, setIsSizeMenuOpen] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState("Covered call");
-  const [selectedExpiry, setSelectedExpiry] = useState(defaultExpiryLabel);
-  const [selectedStrike, setSelectedStrike] = useState(defaultStrikeLabel);
+  const [selectedExpiryUnixMs, setSelectedExpiryUnixMs] = useState<number | null>(null);
+  const [selectedStrikePriceDecimals, setSelectedStrikePriceDecimals] = useState<string | null>(null);
   const [size, setSize] = useState(defaultSize);
   const [nowUnixMs, setNowUnixMs] = useState(Date.now());
   const [underwriteStatus, setUnderwriteStatus] = useState<
@@ -233,39 +211,72 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const strategy: QuoteStrategy = selectedStrategy === "Covered call"
     ? "covered-call"
     : "cash-secured-put";
-  const strikeOptions = supportedStrikeOptions(strategy);
+  const seriesGridQuery = useQuery(seriesGridQueryOptions(appConfig.rfqApiUrl));
+  const grid = seriesGridQuery.data ?? null;
+  const activeSeries = useMemo(
+    () => seriesForStrategy(grid, strategy),
+    [grid, strategy],
+  );
+  const expiryOptions = useMemo(
+    () => expiryOptionsFromSeries(activeSeries),
+    [activeSeries],
+  );
+  const strikeScale = grid?.market.strikeScale ?? appConfig.strikeScale;
+  const selectedExpiry = selectedExpiryUnixMs ?? expiryOptions[0]?.expiryUnixMs ?? null;
+  const strikeOptions = useMemo(
+    () => strikeOptionsForExpiry(activeSeries, selectedExpiry, strikeScale),
+    [activeSeries, selectedExpiry, strikeScale],
+  );
 
   useEffect(() => {
-    if (strikeOptions.some((option) => option.label === selectedStrike)) {
+    if (
+      selectedExpiryUnixMs !== null &&
+      expiryOptions.some((option) => option.expiryUnixMs === selectedExpiryUnixMs)
+    ) {
       return;
     }
-    setSelectedStrike(strikeOptions[0]?.label ?? defaultStrikeLabel);
-  }, [selectedStrike, strikeOptions]);
+    setSelectedExpiryUnixMs(expiryOptions[0]?.expiryUnixMs ?? null);
+  }, [expiryOptions, selectedExpiryUnixMs]);
 
-  const expiry = useMemo(
-    () =>
-      expiryOptions.find((option) => option.label === selectedExpiry) ??
-      expiryOptions[0],
-    [selectedExpiry],
-  );
+  useEffect(() => {
+    if (
+      selectedStrikePriceDecimals !== null &&
+      strikeOptions.some((option) => option.strikePriceDecimals === selectedStrikePriceDecimals)
+    ) {
+      return;
+    }
+    setSelectedStrikePriceDecimals(strikeOptions[0]?.strikePriceDecimals ?? null);
+  }, [selectedStrikePriceDecimals, strikeOptions]);
+
   const strike = useMemo(
     () =>
-      strikeOptions.find((option) => option.label === selectedStrike) ??
-      strikeOptions[0],
-    [selectedStrike, strikeOptions],
+      strikeOptions.find((option) => option.strikePriceDecimals === selectedStrikePriceDecimals) ??
+      strikeOptions[0] ??
+      null,
+    [selectedStrikePriceDecimals, strikeOptions],
   );
-  const quoteQuery = useQuery(quoteQueryOptions(
-    appConfig.rfqApiUrl,
-    appConfig.cashTokenAddress,
-    appConfig.baseCoinType,
-    appConfig.strikeScale,
-    strategy,
-    {
-      expiryUnixMs: expiry.expiryUnixMs,
-      size,
-      strike: strike.strike,
-    },
-  ));
+  const canRequestQuote = Boolean(grid && selectedExpiry !== null && strike);
+  const quoteQuery = useQuery({
+    ...quoteQueryOptions(
+      appConfig.rfqApiUrl,
+      grid?.market ?? {
+        baseDecimals: Number(btcQuantityDecimals),
+        baseCoinType: appConfig.baseCoinType,
+        oracleBaseSymbol: "BTC",
+        oracleFeedId: "",
+        oracleQuoteSymbol: "USDC",
+        quoteDecimals: 6,
+        quoteCoinType: appConfig.cashTokenAddress,
+      },
+      strategy,
+      {
+        expiryUnixMs: selectedExpiry ?? 0,
+        size,
+        strikePriceDecimals: strike?.strikePriceDecimals ?? "0",
+      },
+    ),
+    enabled: canRequestQuote,
+  });
   const btcSpotPriceQuery = useQuery({
     queryFn: () => fetchBtcUsdPythPrice(),
     queryKey: ["pyth-price", "btc-usd"],
@@ -273,28 +284,31 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     retry: 1,
     staleTime: 15_000,
   });
-  const isSupportedUnderwrite = isSupportedUnderwriteSelection(
-    appConfig.network,
-    strategy,
-    selectedExpiry,
-    selectedStrike,
-  );
+  const isSupportedUnderwrite = appConfig.network === "testnet" && canRequestQuote;
+  const selectedCollateralCoinType = grid
+    ? collateralCoinType(strategy, grid.market.quoteCoinType, grid.market.baseCoinType)
+    : collateralCoinType(strategy, appConfig.cashTokenAddress, appConfig.baseCoinType);
   const coinsQuery = useQuery({
     enabled: Boolean(account && isSupportedUnderwrite),
-    queryFn: () => fetchAllCoins(client, account!.address, collateralCoinType(strategy)),
-    queryKey: ["underwrite-coins", account?.address, strategy, collateralCoinType(strategy)],
+    queryFn: () => fetchAllCoins(client, account!.address, selectedCollateralCoinType),
+    queryKey: ["underwrite-coins", account?.address, strategy, selectedCollateralCoinType],
   });
   const quote = quoteQuery.isError ? null : quoteQuery.data ?? null;
-  const collateralAmount = quoteCollateralAmount(strategy, quote) ??
-    BigInt(quantityToContractsQtyDecimals(size));
+  const baseDecimals = grid?.market.baseDecimals ?? Number(btcQuantityDecimals);
+  const collateralAmount = quoteCollateralAmount(strategy, baseDecimals, strikeScale, quote) ??
+    BigInt(quantityToContractsQtyDecimals(size, baseDecimals));
   const availability = underwriteAvailability(
     coinsQuery.data,
     collateralAmount,
     collateralCoinSymbol(strategy),
   );
   const isLoading = quoteQuery.isFetching;
-  const loadError = quoteQuery.isError ? "Quote unavailable right now." : null;
-  const displayedBtcSpotPrice = btcSpotPriceQuery.data?.price ?? btcSpotPrice;
+  const loadError = seriesGridQuery.isError
+    ? "Prices unavailable right now."
+    : quoteQuery.isError
+      ? "Quote unavailable right now."
+      : null;
+  const displayedBtcSpotPrice = grid?.spot.price ?? btcSpotPriceQuery.data?.price ?? btcSpotPrice;
 
   useEffect(() => {
     if (!quote) {
@@ -305,7 +319,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     return () => window.clearInterval(timer);
   }, [quote]);
   const effectiveSize = quote
-    ? decimalAmount(quote.contractsQtyDecimals, 8)
+    ? decimalAmount(quote.contractsQtyDecimals, baseDecimals)
     : size;
   const premium = quote
     ? quotePremiumTotal(
@@ -315,10 +329,12 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     )
     : null;
   const strikePrice = quote
-    ? decimalAmount(quote.strikePriceDecimals, Math.log10(appConfig.strikeScale))
-    : strike.strike;
+    ? decimalAmount(quote.strikePriceDecimals, Math.log10(strikeScale))
+    : strike
+      ? strikePriceFromDecimals(strike.strikePriceDecimals, strikeScale)
+      : 0;
   const terms = quoteTerms(strategy, effectiveSize, strikePrice);
-  const expiryUnixMs = quote?.expiryUnixMs ?? expiry.expiryUnixMs;
+  const expiryUnixMs = quote?.expiryUnixMs ?? selectedExpiry ?? Date.now();
   const expiryLabel = formatDate(expiryUnixMs);
   const daysToExpiry = daysUntil(expiryUnixMs, nowUnixMs);
   const apr = aprFromPremium(
@@ -338,7 +354,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
   const earnLabel = !account
     ? "CONNECT WALLET TO EARN"
     : !isSupportedUnderwrite
-      ? "AVAILABLE FOR JUL 31 SUPPORTED PRICES"
+      ? "CONNECT TO TESTNET SERIES"
       : coinsQuery.isFetching
         ? `CHECKING ${collateralCoinSymbol(strategy)}...`
         : !availability.enabled
@@ -358,7 +374,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     setUnderwriteError(null);
     setUnderwriteStatus("preparing");
     try {
-      const quantity = quantityToContractsQtyDecimals(size);
+      const quantity = quantityToContractsQtyDecimals(size, baseDecimals);
       await executeUnderwrite({
         coins: coinsQuery.data,
         contractsQtyDecimals: quantity,
@@ -431,16 +447,24 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
           options={expiryOptions}
           columnsClassName="grid-cols-2 lg:grid-cols-4"
           buttonSize="lg"
-          selected={selectedExpiry}
-          onSelect={setSelectedExpiry}
+          selected={
+            expiryOptions.find((option) => option.expiryUnixMs === selectedExpiry)?.label ?? ""
+          }
+          onSelect={(label) => {
+            const nextExpiry = expiryOptions.find((option) => option.label === label);
+            setSelectedExpiryUnixMs(nextExpiry?.expiryUnixMs ?? null);
+          }}
         />
 
         <SelectorRow
           options={strikeOptions}
           columnsClassName="grid-cols-2 lg:grid-cols-5 pt-3 sm:pt-5"
           buttonSize="xl"
-          selected={selectedStrike}
-          onSelect={setSelectedStrike}
+          selected={strike?.label ?? ""}
+          onSelect={(label) => {
+            const nextStrike = strikeOptions.find((option) => option.label === label);
+            setSelectedStrikePriceDecimals(nextStrike?.strikePriceDecimals ?? null);
+          }}
         />
 
         <Card>
@@ -539,7 +563,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
                   <span>Now</span>
                 </div>
                 <p className="text-foreground text-bold">
-                  deposit <PriceUsd value={terms.collateralAmount} /> {terms.collateralSymbol} as collateral
+                  deposit {formatAssetAmount(terms.collateralAmount)} {terms.collateralSymbol} as collateral
                 </p>
               </div>
               <div className="grid text-left lg:text-right">

@@ -594,10 +594,13 @@ describe("recommended series API", () => {
     assert.equal(response.headers.get("access-control-allow-origin"), "*");
     const payload = await response.json() as {
       market: {
+        baseDecimals: number;
         baseCoinType: string;
         marketId: string;
         oracleBaseSymbol: string;
+        oracleFeedId: string;
         oracleQuoteSymbol: string;
+        quoteDecimals: number;
         quoteCoinType: string;
         strikeScale: number;
       };
@@ -628,12 +631,14 @@ describe("recommended series API", () => {
     ];
 
     assert.deepEqual(payload.market, {
+      baseDecimals: 8,
       baseCoinType: callConfig.baseCoinType,
       marketId: callConfig.marketId,
       oracleBaseSymbol: "BTC",
       oracleFeedId:
         "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
       oracleQuoteSymbol: "USDC",
+      quoteDecimals: 6,
       quoteCoinType: callConfig.quoteCoinType,
       strikeScale: 1_000_000,
     });

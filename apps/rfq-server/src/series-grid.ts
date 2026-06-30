@@ -153,11 +153,13 @@ export function buildSeriesGrid(input: {
 
   return {
     market: {
+      baseDecimals: callConfig.baseDecimals,
       baseCoinType: callConfig.baseCoinType,
       marketId: callConfig.marketId,
       oracleBaseSymbol: "BTC",
       oracleFeedId: BTC_USD_FEED_ID,
       oracleQuoteSymbol: "USDC",
+      quoteDecimals: callConfig.quoteDecimals,
       quoteCoinType: callConfig.quoteCoinType,
       strikeScale: Number(STRIKE_SCALE),
     },

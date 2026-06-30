@@ -23,6 +23,7 @@ const BTC_DECIMALS = 8n;
 const USDC_DECIMALS = 6;
 
 const TESTNET_UNDERWRITE_BASE = {
+  baseDecimals: Number(BTC_DECIMALS),
   baseCoinType:
     "0xced54dfe52c5b65a36379260763116faf14bbb0f1c7e0be0a4650d023b0c579e::test_btc::TEST_BTC",
   buyerOwnerAddress:
@@ -34,6 +35,7 @@ const TESTNET_UNDERWRITE_BASE = {
     "0xf4f1333e5cb033fb9f29d85a0992db7ae9f6c45d7a2a0ef3a0153ef52d61ac3d",
   quoteCoinType:
     "0x7751ad73b7801f4bab9a18541e03cfed2199caccc8ffe36c368126833f2974e3::test_usdc::TEST_USDC",
+  quoteDecimals: USDC_DECIMALS,
   strikeScale: 1_000_000,
 };
 
@@ -51,12 +53,14 @@ export const TESTNET_UNDERWRITE_CONFIGS = [
 ] satisfies UnderwriteChainConfig[];
 
 export type UnderwriteChainConfig = {
+  baseDecimals: number;
   baseCoinType: string;
   buyerOwnerAddress: string;
   buyerVaultId: string;
   callPutMarker: 1 | 2;
   marketId: string;
   quoteCoinType: string;
+  quoteDecimals: number;
   strikeScale: number;
   targetFunction: "underwrite_call" | "underwrite_put";
 };
