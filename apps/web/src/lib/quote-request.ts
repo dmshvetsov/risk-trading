@@ -14,6 +14,11 @@ export type DisplayQuote = {
   quoteSignature: string;
 };
 
+type QuoteResponsePayload = {
+  quote: QuotePayload | null;
+  quote_signature: string | null;
+};
+
 export type QuotePayload = {
   call_put_marker: 1 | 2;
   cash_premium_per_contract: string;
@@ -141,10 +146,10 @@ export async function requestQuote(
     throw new Error("Quote request failed");
   }
 
-  const payload = (await response.json()) as {
-    quote: QuotePayload;
-    quote_signature: string;
-  };
+  const payload = (await response.json()) as QuoteResponsePayload;
+  if (!payload.quote || !payload.quote_signature) {
+    return null;
+  }
 
   return {
     cashPremiumPerContract: payload.quote.cash_premium_per_contract,

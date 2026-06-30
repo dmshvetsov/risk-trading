@@ -14,7 +14,11 @@ import {
   createStubQuote,
 } from "./stub-quote-provider";
 import type { D1Database, MakerVaultRow } from "./typedefs";
-import { prepareUnderwrite, signQuote } from "./underwrite";
+import {
+  isQuoteUnavailableByPremium,
+  prepareUnderwrite,
+  signQuote,
+} from "./underwrite";
 import {
   isUnderwriteSubmission,
   processUnderwriteSubmission,
@@ -259,6 +263,12 @@ async function requestQuote(request: Request, env: Env) {
     quoteSignature = (await signQuote(quote, env.MAKER_STUB_PRIVATE_KEY)).signature;
   } catch {
     return jsonResponse({ error: "maker quote signing is unavailable" }, 503);
+  }
+  if (isQuoteUnavailableByPremium(quote)) {
+    return jsonResponse(
+      { quote: null, quote_signature: null },
+      200,
+    );
   }
   const store = getQuoteStore(env.QUOTES, quote.quote_id);
   const storeResponse = await store.fetch(

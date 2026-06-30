@@ -264,6 +264,22 @@ describe("Taker copy", () => {
     assert.equal(body?.request.contracts_qty_decimals, "5000000");
   });
 
+  it("treats null quote payloads as unavailable", async () => {
+    const quote = await requestQuote(
+      "https://rfq.example",
+      testSeriesGrid.market,
+      "covered-call",
+      {
+        expiryUnixMs: 1_800_000_000_000,
+        size: 0.05,
+        strikePriceDecimals: "6800000000000",
+      },
+      async () => Response.json({ quote: null, quote_signature: null }),
+    );
+
+    assert.equal(quote, null);
+  });
+
   it("keys and caches quote requests through React Query", async () => {
     const queryClient = new QueryClient();
     const request = async () => Response.json({ quote_signature: "quote-signature", quote: {

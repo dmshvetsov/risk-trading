@@ -574,6 +574,56 @@ describe("shared quote request path", () => {
     assert.equal(response.status, 503);
     vi.unstubAllGlobals();
   });
+
+  it("returns quote unavailable when premium per contract is below $10", async () => {
+    resetStubSpotCache();
+    mockHermesSpot("1000000", -2);
+    let stored = false;
+    const env = createEnv() as ReturnType<typeof createEnv> & {
+      QUOTES: {
+        get(id: string): { fetch(request: Request): Promise<Response> };
+        idFromName(name: string): string;
+      };
+    };
+    env.QUOTES = {
+      idFromName: (name) => name,
+      get: () => ({
+        fetch: async () => {
+          stored = true;
+          return new Response(null, { status: 202 });
+        },
+      }),
+    };
+
+    const response = await worker.fetch(
+      new Request("https://example.com/api/quotes", {
+        body: JSON.stringify({ request: {
+          call_put_marker: 1,
+          cash_token_address: "0x0::usdc::USDC",
+          cash_token_decimals: 6,
+          collateral_token_address: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+          collateral_token_decimals: 8,
+          contracts_qty_decimals: "5000000",
+          expiry_unix_ms: validExpiryUnixMs,
+          long_short_marker: 2,
+          oracle_base_symbol: "BTC",
+          oracle_feed_id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+          oracle_quote_symbol: "USDC",
+          strike_price_decimals: "200000000000",
+        }}),
+        method: "POST",
+      }),
+      env,
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      quote: null,
+      quote_signature: null,
+    });
+    assert.equal(stored, false);
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("recommended series API", () => {

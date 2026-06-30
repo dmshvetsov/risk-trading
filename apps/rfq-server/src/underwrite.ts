@@ -86,6 +86,8 @@ export type Quote = {
   strike_price_decimals: string;
 };
 
+export const MIN_QUOTE_PREMIUM_PER_CONTRACT = 10_000_000n;
+
 type PrepareEnv = {
   DB: D1Database;
   MAKER_STUB_PRIVATE_KEY?: string;
@@ -252,6 +254,12 @@ function premiumTotalForQuantity(
   return premiumPerContract * quantity / 10n ** BigInt(baseDecimals);
 }
 
+export function isQuoteUnavailableByPremium(
+  quote: Pick<Quote, "cash_premium_per_contract">,
+) {
+  return BigInt(quote.cash_premium_per_contract) < MIN_QUOTE_PREMIUM_PER_CONTRACT;
+}
+
 export async function prepareUnderwrite(
   request: Request,
   env: PrepareEnv,
@@ -288,6 +296,10 @@ export async function prepareUnderwrite(
     );
   } catch {
     return response("invalid quote signature", 400);
+  }
+
+  if (isQuoteUnavailableByPremium(parsedBody.data.quote)) {
+    return response("quote is unavailable", 409);
   }
 
   const premium = BigInt(parsedBody.data.quote.cash_premium_per_contract);

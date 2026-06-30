@@ -35,7 +35,7 @@ const packageId =
   "0xb955fddbc6a8a2ebb39c8d2b38c9dcbb21e5148458470221bc811de674ab4ee4";
 const quote = {
   call_put_marker: 1 as const,
-  cash_premium_per_contract: "1000001",
+  cash_premium_per_contract: "10000001",
   cash_token_address: "0x2::test_usdc::TEST_USDC",
   cash_token_decimals: 6,
   collateral_token_address: "0x3::test_btc::TEST_BTC",
@@ -167,7 +167,7 @@ describe("prepareUnderwrite", () => {
     assert.equal(response.status, 201);
     const result = await response.json() as Record<string, unknown>;
     assert.equal(result.status, "pending");
-    assert.equal(result.operationalFee, "125");
+    assert.equal(result.operationalFee, "1250");
     assert.equal(result.marketId, chain.marketId);
     assert.equal(result.seriesId, deriveSeriesId(packageId, chain.marketId, 1, quote.strike_price_decimals, expiry));
     assert.equal(result.buyerVaultId, chain.buyerVaultId);
@@ -266,6 +266,31 @@ describe("prepareUnderwrite", () => {
       remainingContractsQtyDecimals: "1",
     }), chain);
     assert.equal(exhausted.status, 409);
+  });
+
+  it("rejects quotes below the minimum premium per contract", async () => {
+    const lowPremiumQuote = {
+      ...quote,
+      cash_premium_per_contract: "9999999",
+      quote_id: "quote-low-premium",
+    };
+    const lowPremiumSignature = (
+      await keypair.signPersonalMessage(serializeQuote(lowPremiumQuote))
+    ).signature;
+
+    const response = await prepareUnderwrite(
+      request({ quote: lowPremiumQuote, quoteSignature: lowPremiumSignature }),
+      env().value,
+      store({
+        quote: lowPremiumQuote,
+        quoteSignature: lowPremiumSignature,
+        remainingContractsQtyDecimals: "1000000",
+      }),
+      chain,
+    );
+
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { error: "quote is unavailable" });
   });
 
   it("rejects malformed prepare payloads", async () => {
