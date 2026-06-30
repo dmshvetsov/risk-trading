@@ -328,8 +328,8 @@ describe("Taker copy", () => {
     assert.equal(quantityToContractsQtyDecimals(1), "100000000");
   });
 
-  it("calculates total premium from per-contract quote units", () => {
-    assert.equal(quotePremiumTotal("122", "5000000", 6), 610);
+  it("calculates total premium from per-1-BTC quote units", () => {
+    assert.equal(quotePremiumTotal("1220000000", "5000000", 8, 6), 61);
   });
 
   it("calculates put cash collateral and above/below-strike outcomes", () => {

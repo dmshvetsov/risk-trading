@@ -93,10 +93,14 @@ export function strikeToPriceDecimals(strike: number, strikeScale: number) {
 export function quotePremiumTotal(
   cashPremiumPerContract: string,
   contractsQtyDecimals: string,
+  contractDecimals: number,
   cashTokenDecimals: number,
 ) {
   return decimalAmount(
-    String(BigInt(cashPremiumPerContract) * BigInt(contractsQtyDecimals)),
+    String(
+      BigInt(cashPremiumPerContract) * BigInt(contractsQtyDecimals) /
+        10n ** BigInt(contractDecimals),
+    ),
     cashTokenDecimals,
   );
 }
