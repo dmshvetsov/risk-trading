@@ -248,14 +248,14 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     setSelectedStrikePriceDecimals(strikeOptions[0]?.strikePriceDecimals ?? null);
   }, [selectedStrikePriceDecimals, strikeOptions]);
 
-  const strike = useMemo(
+  const selectedStrike = useMemo(
     () =>
       strikeOptions.find((option) => option.strikePriceDecimals === selectedStrikePriceDecimals) ??
       strikeOptions[0] ??
       null,
     [selectedStrikePriceDecimals, strikeOptions],
   );
-  const canRequestQuote = Boolean(grid && selectedExpiry !== null && strike);
+  const canRequestQuote = Boolean(grid && selectedExpiry !== null && selectedStrike);
   const quoteQuery = useQuery({
     ...quoteQueryOptions(
       appConfig.rfqApiUrl,
@@ -272,7 +272,7 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
       {
         expiryUnixMs: selectedExpiry ?? 0,
         size,
-        strikePriceDecimals: strike?.strikePriceDecimals ?? "0",
+        strikePriceDecimals: selectedStrike?.strikePriceDecimals ?? "0",
       },
     ),
     enabled: canRequestQuote,
@@ -325,13 +325,14 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
     ? quotePremiumTotal(
       quote.cashPremiumPerContract,
       quote.contractsQtyDecimals,
+      baseDecimals,
       quote.cashTokenDecimals,
     )
     : null;
   const strikePrice = quote
     ? decimalAmount(quote.strikePriceDecimals, Math.log10(strikeScale))
-    : strike
-      ? strikePriceFromDecimals(strike.strikePriceDecimals, strikeScale)
+    : selectedStrike
+      ? strikePriceFromDecimals(selectedStrike.strikePriceDecimals, strikeScale)
       : 0;
   const terms = quoteTerms(strategy, effectiveSize, strikePrice);
   const expiryUnixMs = quote?.expiryUnixMs ?? selectedExpiry ?? Date.now();
@@ -462,18 +463,16 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
         </div>
 
         <div className="flex justify-between gap-2 pt-3 sm:pt-5">
-          {strikeOptions.map((option) => (
+          {[...strikeOptions].sort((stk1, stk2) => stk1.strike - stk2.strike).map((option) => (
             <Button
               key={option.label}
-              variant={option.strike === strike.strike ? "secondary" : "default"}
+              variant={option.strike === selectedStrike.strike ? "secondary" : "default"}
               size="xl"
               type="button"
               className="flex-grow"
               onClick={() => {
-                // const nextExpiry = expiryOptions.find((exp) => exp.label === option.label);
-                // setSelectedExpiryUnixMs(nextExpiry?.expiryUnixMs ?? null);
-            const nextStrike = strikeOptions.find((strk) => strk.label === option.label);
-            setSelectedStrikePriceDecimals(nextStrike?.strikePriceDecimals ?? null);
+                const nextStrike = strikeOptions.find((stk) => stk.label === option.label);
+                setSelectedStrikePriceDecimals(nextStrike?.strikePriceDecimals ?? null);
               }}
             >
               {option.label}
