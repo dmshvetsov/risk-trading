@@ -443,29 +443,43 @@ export function HomePage({ usePlainLink = false }: { usePlainLink?: boolean }) {
           onSelect={setSelectedStrategy}
         />
 
-        <SelectorRow
-          options={expiryOptions}
-          columnsClassName="grid-cols-2 lg:grid-cols-4"
-          buttonSize="lg"
-          selected={
-            expiryOptions.find((option) => option.expiryUnixMs === selectedExpiry)?.label ?? ""
-          }
-          onSelect={(label) => {
-            const nextExpiry = expiryOptions.find((option) => option.label === label);
-            setSelectedExpiryUnixMs(nextExpiry?.expiryUnixMs ?? null);
-          }}
-        />
+        <div className="flex justify-between gap-2">
+          {expiryOptions.map((option) => (
+            <Button
+              key={option.label}
+              variant={option.expiryUnixMs === selectedExpiry? "secondary" : "default"}
+              size="lg"
+              type="button"
+              className="flex-grow"
+              onClick={() => {
+                const nextExpiry = expiryOptions.find((exp) => exp.label === option.label);
+                setSelectedExpiryUnixMs(nextExpiry?.expiryUnixMs ?? null);
+              }}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
 
-        <SelectorRow
-          options={strikeOptions}
-          columnsClassName="grid-cols-2 lg:grid-cols-5 pt-3 sm:pt-5"
-          buttonSize="xl"
-          selected={strike?.label ?? ""}
-          onSelect={(label) => {
-            const nextStrike = strikeOptions.find((option) => option.label === label);
+        <div className="flex justify-between gap-2 pt-3 sm:pt-5">
+          {strikeOptions.map((option) => (
+            <Button
+              key={option.label}
+              variant={option.strike === strike.strike ? "secondary" : "default"}
+              size="xl"
+              type="button"
+              className="flex-grow"
+              onClick={() => {
+                // const nextExpiry = expiryOptions.find((exp) => exp.label === option.label);
+                // setSelectedExpiryUnixMs(nextExpiry?.expiryUnixMs ?? null);
+            const nextStrike = strikeOptions.find((strk) => strk.label === option.label);
             setSelectedStrikePriceDecimals(nextStrike?.strikePriceDecimals ?? null);
-          }}
-        />
+              }}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
 
         <Card>
           <CardContent className="flex flex-wrap items-center px-6 py-5 sm:px-5 sm:py-2">
