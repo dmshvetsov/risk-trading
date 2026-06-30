@@ -166,8 +166,8 @@ export function buildSeriesGrid(input: {
       publishTime: input.spot.publishTime,
       symbol: "BTC",
     },
-    strategies: {
-      cashSecuredPut: buildItems({
+    series: {
+      put: buildItems({
         expiries,
         marketId: putConfig.marketId,
         offsets: CASH_SECURED_PUT_OFFSETS,
@@ -175,7 +175,7 @@ export function buildSeriesGrid(input: {
         packageId: input.packageId,
         strikeBase: putBase,
       }),
-      coveredCall: buildItems({
+      call: buildItems({
         expiries,
         marketId: callConfig.marketId,
         offsets: COVERED_CALL_OFFSETS,

@@ -602,13 +602,13 @@ describe("recommended series API", () => {
         strikeScale: number;
       };
       spot: { price: number; publishTime: number; symbol: string };
-      strategies: {
-        cashSecuredPut: Array<{
+      series: {
+        put: Array<{
           expiryUnixMs: number;
           seriesId: string;
           strikePriceDecimals: string;
         }>;
-        coveredCall: Array<{
+        call: Array<{
           expiryUnixMs: number;
           seriesId: string;
           strikePriceDecimals: string;
@@ -643,13 +643,13 @@ describe("recommended series API", () => {
       symbol: "BTC",
     });
     assert.deepEqual(
-      [...new Set(payload.strategies.coveredCall.map((item) => item.expiryUnixMs))],
+      [...new Set(payload.series.call.map((item) => item.expiryUnixMs))],
       expectedExpiries,
     );
-    assert.equal(payload.strategies.coveredCall.length, 36);
-    assert.equal(payload.strategies.cashSecuredPut.length, 36);
+    assert.equal(payload.series.call.length, 36);
+    assert.equal(payload.series.put.length, 36);
     assert.deepEqual(
-      payload.strategies.coveredCall.slice(0, 6).map((item) => item.strikePriceDecimals),
+      payload.series.call.slice(0, 6).map((item) => item.strikePriceDecimals),
       [
         "70000000000",
         "71000000000",
@@ -660,7 +660,7 @@ describe("recommended series API", () => {
       ],
     );
     assert.deepEqual(
-      payload.strategies.cashSecuredPut.slice(0, 6).map((item) => item.strikePriceDecimals),
+      payload.series.put.slice(0, 6).map((item) => item.strikePriceDecimals),
       [
         "65000000000",
         "64000000000",
@@ -671,11 +671,11 @@ describe("recommended series API", () => {
       ],
     );
     assert.equal(
-      payload.strategies.coveredCall[0].seriesId,
+      payload.series.call[0].seriesId,
       deriveSeriesId(packageId, callConfig.marketId, 1, "70000000000", firstExpiry),
     );
     assert.equal(
-      payload.strategies.cashSecuredPut[0].seriesId,
+      payload.series.put[0].seriesId,
       deriveSeriesId(packageId, putConfig.marketId, 2, "65000000000", firstExpiry),
     );
     assert.equal(vi.mocked(fetch).mock.calls.length, 1);
